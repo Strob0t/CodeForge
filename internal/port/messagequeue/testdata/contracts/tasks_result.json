@@ -1,0 +1,15 @@
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440041",
+  "project_id": "550e8400-e29b-41d4-a716-446655440004",
+  "tenant_id": "00000000-0000-0000-0000-000000000000",
+  "dispatch_id": "550e8400-e29b-41d4-a716-446655440043",
+  "status": "completed",
+  "output": "Fixed the null pointer",
+  "files": [
+    "handler.go"
+  ],
+  "error": "",
+  "tokens_in": 1200,
+  "tokens_out": 300,
+  "cost_usd": 0.0042
+}

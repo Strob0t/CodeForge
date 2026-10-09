@@ -1,15 +1,21 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Agent, DeliverMode, Run, Task, ToolCallEvent } from "~/api/types";
+import type { WSMessage } from "~/api/websocket";
 import { StepProgress } from "~/components/StepProgress";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { getVariant, runStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, Card, Select } from "~/ui";
 
+import { applyRunStatus, parseToolCall, payloadString } from "./liveEvents";
 import TrajectoryPanel from "./TrajectoryPanel";
+
+/** Run events kept while a start is in flight (a run's first tool calls). */
+const MAX_BUFFERED_EVENTS = 100;
 
 interface RunPanelProps {
   projectId: string;
@@ -46,6 +52,38 @@ export default function RunPanel(props: RunPanelProps) {
     (taskId) => (taskId ? api.runs.listByTask(taskId) : []),
   );
 
+  // A run's first events can arrive before api.runs.start answers with its ID:
+  // they are kept while a start is in flight and applied once the run is known.
+  let arrivedWhileStarting: WSMessage[] | null = null;
+
+  function applyToActiveRun(msg: WSMessage): void {
+    const run = activeRun();
+    if (!run) return;
+    const updated = applyRunStatus(run, msg);
+    if (updated) setActiveRun(updated);
+    const call = parseToolCall(msg);
+    if (call?.run_id === run.id) setToolCalls((prev) => [...prev.slice(-49), call]);
+  }
+
+  // Live updates: the active run's status, metrics and tool calls, and the run
+  // history of the selected task.
+  const { onMessage } = useWebSocket();
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const unsubscribe = onMessage((msg) => {
+    if (arrivedWhileStarting) {
+      if (msg.type === "run.status" || msg.type === "run.toolcall") {
+        arrivedWhileStarting = [...arrivedWhileStarting.slice(-(MAX_BUFFERED_EVENTS - 1)), msg];
+      }
+    } else {
+      applyToActiveRun(msg);
+    }
+    const taskId = selectedTaskId();
+    if (msg.type === "run.status" && taskId && payloadString(msg.payload, "task_id") === taskId) {
+      refetchRuns();
+    }
+  });
+  onCleanup(unsubscribe);
+
   const pendingTasks = () =>
     props.tasks.filter((task) => task.status === "pending" || task.status === "queued");
   const idleAgents = () => props.agents.filter((a) => a.status === "idle");
@@ -57,6 +95,7 @@ export default function RunPanel(props: RunPanelProps) {
 
     setStarting(true);
     props.onError("");
+    arrivedWhileStarting = [];
     try {
       const run = await api.runs.start({
         task_id: taskId,
@@ -65,8 +104,11 @@ export default function RunPanel(props: RunPanelProps) {
         policy_profile: selectedPolicy() || undefined,
         deliver_mode: selectedDeliverMode() || undefined,
       });
+      const early = arrivedWhileStarting;
+      arrivedWhileStarting = null;
       setActiveRun(run);
       setToolCalls([]);
+      for (const msg of early) applyToActiveRun(msg);
       // Fetch max_steps from the policy for progress indicator
       const policyName = run.policy_profile;
       if (policyName) {
@@ -88,6 +130,7 @@ export default function RunPanel(props: RunPanelProps) {
       props.onError(msg);
       toast("error", msg);
     } finally {
+      arrivedWhileStarting = null;
       setStarting(false);
     }
   };

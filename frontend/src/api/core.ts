@@ -17,7 +17,7 @@ export function setAccessTokenGetter(fn: () => string | null): void {
   accessTokenGetter = fn;
 }
 
-/** Return the current access token (used by WebSocket to append ?token=). */
+/** Return the current access token (the WebSocket client connects only when one exists). */
 export function getAccessToken(): string | null {
   return accessTokenGetter?.() ?? null;
 }
@@ -159,6 +159,12 @@ export interface CoreClient {
   put: PutFn;
   patch: PatchFn;
   del: DelFn;
+  /**
+   * Sends a request exactly once: no retry, no offline queue, no response
+   * cache. For requests that must not be repeated or held back (deleting the
+   * user's own account); every failure reaches the caller.
+   */
+  requestOnce: RequestFn;
   /** The API base path (e.g. "/api/v1") for building raw URLs. */
   BASE: string;
   /** Cache invalidation helper. */
@@ -195,5 +201,15 @@ function del<T>(path: string): Promise<T> {
 }
 
 export function createCoreClient(): CoreClient {
-  return { request, get, post, put, patch, del, BASE, invalidateCache };
+  return {
+    request,
+    get,
+    post,
+    put,
+    patch,
+    del,
+    requestOnce: executeRequest,
+    BASE,
+    invalidateCache,
+  };
 }

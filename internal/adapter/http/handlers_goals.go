@@ -1,11 +1,10 @@
 package http
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // ListProjectGoals handles GET /api/v1/projects/{id}/goals.
@@ -47,7 +47,7 @@ func (h *Handlers) DetectProjectGoals(w http.ResponseWriter, r *http.Request) {
 
 	proj, err := h.Projects.Get(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if proj.WorkspacePath == "" {
@@ -106,17 +106,16 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 	projectID := chi.URLParam(r, "id")
 
 	// Accept optional model override from request body.
-	var body struct {
+	body, ok := readOptionalJSON[struct {
 		Model string `json:"model"`
-	}
-	// Body is optional — log but do not reject on parse errors.
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		slog.Debug("optional body parse skipped", "handler", "AIDiscoverProjectGoals", "error", err)
+	}](w, r, h.Limits.MaxRequestBodySize, "AIDiscoverProjectGoals")
+	if !ok {
+		return
 	}
 
 	proj, err := h.Projects.Get(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if proj.WorkspacePath == "" {
@@ -139,20 +138,10 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Inject existing goal/project doc files as context for the agent.
-	var contextEntries []messagequeue.ContextEntryPayload
-	for _, name := range []string{"docs/PROJECT.md", "docs/REQUIREMENTS.md", "docs/STATE.md"} {
-		docPath := filepath.Join(proj.WorkspacePath, name) //nolint:gosec // name is a hardcoded constant
-		docContent, readErr := os.ReadFile(docPath)        //nolint:gosec // path constructed from constant names
-		if readErr != nil {
-			continue // File doesn't exist yet -- that's fine.
-		}
-		contextEntries = append(contextEntries, messagequeue.ContextEntryPayload{
-			Kind:    "file",
-			Path:    name,
-			Content: string(docContent),
-		})
-	}
+	// Inject existing goal/project doc files as context for the agent. They
+	// are read through workspacefs (KI-95): never through a symlink that
+	// leaves the workspace, a FIFO or a file over maxGoalDocBytes.
+	contextEntries := goalDocEntries(proj.WorkspacePath)
 
 	// Dispatch an agentic run with the goal_researcher mode.
 	initialPrompt := "Analyze this repository and help me define project goals. " +
@@ -174,7 +163,7 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 			"project_id", projectID,
 			"error", err,
 		)
-		writeInternalError(w, err)
+		writeDomainError(w, err, "start goal discovery")
 		return
 	}
 
@@ -182,4 +171,51 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 		"conversation_id": conv.ID,
 		"status":          "started",
 	})
+}
+
+// maxGoalDocBytes caps a goal document injected into the discovery run; a longer
+// one is cut there and marked (as goal discovery caps its files).
+const maxGoalDocBytes = 50 * 1024
+
+// goalDocEntries reads the existing goal documents of a workspace; missing
+// or refused ones are left out.
+func goalDocEntries(workspacePath string) []messagequeue.ContextEntryPayload {
+	ws, err := workspacefs.Open(workspacePath)
+	if err != nil {
+		slog.Warn("goal discovery: cannot open workspace", "path", workspacePath, "error", err)
+		return nil
+	}
+	defer func() { _ = ws.Close() }()
+	var entries []messagequeue.ContextEntryPayload
+	for _, name := range []string{"docs/PROJECT.md", "docs/REQUIREMENTS.md", "docs/STATE.md"} {
+		content, info, truncated, readErr := ws.ReadFilePrefix(name, maxGoalDocBytes)
+		if readErr != nil {
+			continue // File doesn't exist yet -- that's fine.
+		}
+		text := string(content)
+		if truncated {
+			slog.Info("goal discovery: document truncated", "path", name, "size", info.Size(), "max", maxGoalDocBytes)
+			text = strings.ToValidUTF8(trimPartialRune(text), "") + goalDocTruncatedMarker
+		}
+		entries = append(entries, messagequeue.ContextEntryPayload{
+			Kind:    "file",
+			Path:    name,
+			Content: text,
+		})
+	}
+	return entries
+}
+
+// goalDocTruncatedMarker ends a goal document cut at maxGoalDocBytes.
+const goalDocTruncatedMarker = "\n\n[truncated]"
+
+// trimPartialRune drops an incomplete UTF-8 sequence the cut left at the end.
+func trimPartialRune(s string) string {
+	for i := 0; i < utf8.UTFMax && s != ""; i++ {
+		if r, size := utf8.DecodeLastRuneInString(s); r != utf8.RuneError || size != 1 {
+			return s
+		}
+		s = s[:len(s)-1]
+	}
+	return s
 }

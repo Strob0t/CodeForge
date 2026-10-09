@@ -33,6 +33,7 @@ import RewindTimeline from "../chat/RewindTimeline";
 import TokenBadge from "../chat/TokenBadge";
 import ChatHeader from "./ChatHeader";
 import ChatMessages from "./ChatMessages";
+import { sendErrorKey } from "./chatSendError";
 import ChatSuggestions from "./ChatSuggestions";
 import { clearContextFiles, contextFiles, removeContextFile } from "./contextFilesStore";
 import SessionFooter from "./SessionFooter";
@@ -45,6 +46,8 @@ interface ChatPanelProps {
   activeTab?: string;
   /** External signal to switch to a specific conversation (e.g., from AI Discover). */
   switchToConversation?: () => string | null;
+  /** The agent may have changed the workspace (a tool result, the turn's end). */
+  onWorkspaceActivity?: () => void;
 }
 
 export default function ChatPanel(props: ChatPanelProps) {
@@ -88,7 +91,10 @@ export default function ChatPanel(props: ChatPanelProps) {
   };
   const [session, { refetch: refetchSession }] = createResource(activeConversation, (cid) =>
     cid
-      ? api.conversations.session(cid).catch(() => null as Session | null)
+      ? api.conversations
+          .session(cid)
+          .then((s) => s ?? null)
+          .catch(() => null as Session | null)
       : Promise.resolve(null as Session | null),
   );
   // Agent config (max_context_tokens etc.) — fetched once from backend.
@@ -113,8 +119,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   });
   const [sending, setSending] = createSignal(false);
   const [attaching, setAttaching] = createSignal(false);
-  // eslint-disable-next-line prefer-const -- SolidJS ref requires let
-  let chatFileInputRef: HTMLInputElement | undefined = undefined;
+  let chatFileInputRef: HTMLInputElement | undefined;
 
   function handleAttachChange(e: Event) {
     const fileInput = e.target as HTMLInputElement;
@@ -156,6 +161,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     scrollToBottom,
     refetchMessages: () => void refetchMessages(),
     refetchSession: () => void refetchSession(),
+    onWorkspaceActivity: () => props.onWorkspaceActivity?.(),
   });
 
   // Auto-scroll when messages change
@@ -297,8 +303,10 @@ export default function ChatPanel(props: ChatPanelProps) {
       scrollToBottom();
       // Clear context files after sending.
       if (ctxPaths.length > 0) clearContextFiles();
-    } catch {
-      // toast handled by API layer
+    } catch (err) {
+      // Nothing was stored: give the user their text back and say why.
+      setInput(content);
+      toast("error", t(sendErrorKey(err)));
     } finally {
       setSending(false);
     }

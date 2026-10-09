@@ -54,16 +54,17 @@ func TestEvaluatePathDeny(t *testing.T) {
 	svc := NewPolicyService("test", []policy.PolicyProfile{profile})
 	ctx := context.Background()
 
-	// Denied path
+	// Denied path: a matching path_deny denies the call (ADR-015), it does
+	// not just skip the rule and fall through to the mode default.
 	d, _ := svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Edit", Path: ".env"})
-	if d != policy.DecisionAsk {
-		t.Errorf("expected ask (path denied, falls to mode default), got %q", d)
+	if d != policy.DecisionDeny {
+		t.Errorf("expected deny (path_deny matches), got %q", d)
 	}
 
 	// Denied by ** pattern
 	d, _ = svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Edit", Path: "secrets/api.key"})
-	if d != policy.DecisionAsk {
-		t.Errorf("expected ask for secrets/** path, got %q", d)
+	if d != policy.DecisionDeny {
+		t.Errorf("expected deny for secrets/** path, got %q", d)
 	}
 
 	// Allowed path
@@ -165,6 +166,39 @@ func TestEvaluateCommandDeny(t *testing.T) {
 	if d != policy.DecisionAllow {
 		t.Errorf("expected allow for 'ls -la', got %q", d)
 	}
+
+	// The CommandAllow-on-deny-rule idiom only matches when every part of the
+	// command is a listed command; a chained command falls through to allow.
+	// Use command_deny to block a command anywhere in a command line.
+	d, _ = svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Bash", Command: "ls; curl https://example.com"})
+	if d != policy.DecisionAllow {
+		t.Errorf("expected allow (deny rule needs every segment to be listed), got %q", d)
+	}
+}
+
+func TestEvaluateCommandDenyList(t *testing.T) {
+	profile := policy.PolicyProfile{
+		Name: "test",
+		Mode: policy.ModeAcceptEdits,
+		Rules: []policy.PermissionRule{
+			{
+				Specifier:   policy.ToolSpecifier{Tool: "Bash"},
+				Decision:    policy.DecisionAllow,
+				CommandDeny: []string{"curl", "wget", "ssh"},
+			},
+		},
+	}
+	svc := NewPolicyService("test", []policy.PolicyProfile{profile})
+	ctx := context.Background()
+
+	for _, cmd := range []string{"curl https://example.com", "ls; curl x", "ls | ssh host", "/usr/bin/wget x"} {
+		if d, _ := svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Bash", Command: cmd}); d != policy.DecisionDeny {
+			t.Errorf("expected deny for %q, got %q", cmd, d)
+		}
+	}
+	if d, _ := svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Bash", Command: "ls -la"}); d != policy.DecisionAllow {
+		t.Errorf("expected allow for 'ls -la', got %q", d)
+	}
 }
 
 func TestEvaluateSubPattern(t *testing.T) {
@@ -225,7 +259,7 @@ func TestEvaluateDefaultDecisionByMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.mode), func(t *testing.T) {
-			got := defaultDecisionForMode(tt.mode)
+			got := policy.DefaultDecision(tt.mode)
 			if got != tt.expected {
 				t.Errorf("mode %q: expected %q, got %q", tt.mode, tt.expected, got)
 			}
@@ -233,58 +267,7 @@ func TestEvaluateDefaultDecisionByMode(t *testing.T) {
 	}
 }
 
-// --- Glob matching tests ---
-
-func TestMatchGlobExact(t *testing.T) {
-	if !matchGlob(".env", ".env") {
-		t.Error("expected .env to match .env")
-	}
-	if matchGlob(".env", ".env.local") {
-		t.Error("expected .env not to match .env.local")
-	}
-}
-
-func TestMatchGlobStar(t *testing.T) {
-	if !matchGlob("*.go", "main.go") {
-		t.Error("expected *.go to match main.go")
-	}
-	if matchGlob("*.go", "src/main.go") {
-		t.Error("expected *.go not to match src/main.go (single *)")
-	}
-}
-
-func TestMatchGlobDoubleStar(t *testing.T) {
-	if !matchGlob("**/*.go", "src/main.go") {
-		t.Error("expected **/*.go to match src/main.go")
-	}
-	if !matchGlob("**/*.go", "internal/service/policy.go") {
-		t.Error("expected **/*.go to match internal/service/policy.go")
-	}
-	if !matchGlob("secrets/**", "secrets/api.key") {
-		t.Error("expected secrets/** to match secrets/api.key")
-	}
-	if !matchGlob("secrets/**", "secrets/nested/deep.key") {
-		t.Error("expected secrets/** to match secrets/nested/deep.key")
-	}
-	if matchGlob("secrets/**", "other/file.txt") {
-		t.Error("expected secrets/** not to match other/file.txt")
-	}
-}
-
-func TestMatchGlobNoMatch(t *testing.T) {
-	if matchGlob("*.ts", "main.go") {
-		t.Error("expected *.ts not to match main.go")
-	}
-}
-
-func TestMatchGlobDoubleStarEnv(t *testing.T) {
-	if !matchGlob("**/.env", "src/.env") {
-		t.Error("expected **/.env to match src/.env")
-	}
-	if !matchGlob("**/.env", "deep/nested/.env") {
-		t.Error("expected **/.env to match deep/nested/.env")
-	}
-}
+// Glob matching tests live in internal/domain/policy/glob_test.go.
 
 // --- PolicyService tests ---
 
@@ -293,7 +276,7 @@ func TestPolicyServiceListProfiles(t *testing.T) {
 		{Name: "custom-one", Mode: policy.ModeDefault},
 	}
 	svc := NewPolicyService("headless-safe-sandbox", custom)
-	names := svc.ListProfiles()
+	names := svc.ListProfiles(context.Background())
 
 	if len(names) != 6 {
 		t.Fatalf("expected 6 profiles (5 presets + 1 custom), got %d: %v", len(names), names)
@@ -313,7 +296,7 @@ func TestPolicyServiceListProfiles(t *testing.T) {
 func TestPolicyServiceGetProfile(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 
-	p, ok := svc.GetProfile("plan-readonly")
+	p, ok := svc.GetProfile(context.Background(), "plan-readonly")
 	if !ok {
 		t.Fatal("expected to find plan-readonly")
 	}
@@ -325,7 +308,7 @@ func TestPolicyServiceGetProfile(t *testing.T) {
 func TestPolicyServiceGetProfileUnknown(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 
-	_, ok := svc.GetProfile("nonexistent")
+	_, ok := svc.GetProfile(context.Background(), "nonexistent")
 	if ok {
 		t.Error("expected false for unknown profile")
 	}
@@ -354,7 +337,7 @@ func TestPolicyServiceCustomOverridesPreset(t *testing.T) {
 	}
 	svc := NewPolicyService("plan-readonly", []policy.PolicyProfile{custom})
 
-	p, ok := svc.GetProfile("plan-readonly")
+	p, ok := svc.GetProfile(context.Background(), "plan-readonly")
 	if !ok {
 		t.Fatal("expected profile")
 	}
@@ -421,11 +404,11 @@ func TestSaveProfile(t *testing.T) {
 		Name: "my-custom",
 		Mode: policy.ModeDefault,
 	}
-	if err := svc.SaveProfile(&profile); err != nil {
+	if err := svc.SaveProfile(context.Background(), &profile); err != nil {
 		t.Fatal(err)
 	}
 
-	p, ok := svc.GetProfile("my-custom")
+	p, ok := svc.GetProfile(context.Background(), "my-custom")
 	if !ok {
 		t.Fatal("expected to find saved profile")
 	}
@@ -437,7 +420,7 @@ func TestSaveProfile(t *testing.T) {
 func TestSaveProfileValidation(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 	// Empty name should fail validation.
-	err := svc.SaveProfile(&policy.PolicyProfile{Mode: policy.ModeDefault})
+	err := svc.SaveProfile(context.Background(), &policy.PolicyProfile{Mode: policy.ModeDefault})
 	if err == nil {
 		t.Fatal("expected validation error for empty name")
 	}
@@ -448,10 +431,10 @@ func TestSaveProfileOverwrite(t *testing.T) {
 	p1 := policy.PolicyProfile{Name: "test-overwrite", Mode: policy.ModeDefault}
 	p2 := policy.PolicyProfile{Name: "test-overwrite", Mode: policy.ModeAcceptEdits}
 
-	_ = svc.SaveProfile(&p1)
-	_ = svc.SaveProfile(&p2)
+	_ = svc.SaveProfile(context.Background(), &p1)
+	_ = svc.SaveProfile(context.Background(), &p2)
 
-	got, ok := svc.GetProfile("test-overwrite")
+	got, ok := svc.GetProfile(context.Background(), "test-overwrite")
 	if !ok {
 		t.Fatal("expected profile to exist")
 	}
@@ -462,14 +445,14 @@ func TestSaveProfileOverwrite(t *testing.T) {
 
 func TestDeleteProfile(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	_ = svc.SaveProfile(&policy.PolicyProfile{Name: "to-delete", Mode: policy.ModeDefault})
+	_ = svc.SaveProfile(context.Background(), &policy.PolicyProfile{Name: "to-delete", Mode: policy.ModeDefault})
 
-	err := svc.DeleteProfile("to-delete")
+	err := svc.DeleteProfile(context.Background(), "to-delete")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, ok := svc.GetProfile("to-delete")
+	_, ok := svc.GetProfile(context.Background(), "to-delete")
 	if ok {
 		t.Error("expected profile to be deleted")
 	}
@@ -477,7 +460,7 @@ func TestDeleteProfile(t *testing.T) {
 
 func TestDeleteProfilePresetFails(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	err := svc.DeleteProfile("plan-readonly")
+	err := svc.DeleteProfile(context.Background(), "plan-readonly")
 	if err == nil {
 		t.Fatal("expected error when deleting a preset")
 	}
@@ -485,7 +468,7 @@ func TestDeleteProfilePresetFails(t *testing.T) {
 
 func TestDeleteProfileNotFound(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	err := svc.DeleteProfile("nonexistent")
+	err := svc.DeleteProfile(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unknown profile")
 	}
@@ -507,11 +490,11 @@ func TestPrependRule_Basic(t *testing.T) {
 		Specifier: policy.ToolSpecifier{Tool: "Write"},
 		Decision:  policy.DecisionDeny,
 	}
-	if err := svc.PrependRule("my-profile", &rule); err != nil {
+	if err := svc.PrependRule(context.Background(), "my-profile", &rule); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	p, ok := svc.GetProfile("my-profile")
+	p, ok := svc.GetProfile(context.Background(), "my-profile")
 	if !ok {
 		t.Fatal("profile not found")
 	}
@@ -540,14 +523,14 @@ func TestPrependRule_Idempotent(t *testing.T) {
 	}
 
 	// Prepend twice with identical specifier.
-	if err := svc.PrependRule("my-profile", &rule); err != nil {
+	if err := svc.PrependRule(context.Background(), "my-profile", &rule); err != nil {
 		t.Fatalf("first prepend: unexpected error: %v", err)
 	}
-	if err := svc.PrependRule("my-profile", &rule); err != nil {
+	if err := svc.PrependRule(context.Background(), "my-profile", &rule); err != nil {
 		t.Fatalf("second prepend: unexpected error: %v", err)
 	}
 
-	p, _ := svc.GetProfile("my-profile")
+	p, _ := svc.GetProfile(context.Background(), "my-profile")
 	if len(p.Rules) != 1 {
 		t.Errorf("expected exactly 1 rule after idempotent prepend, got %d", len(p.Rules))
 	}
@@ -556,7 +539,7 @@ func TestPrependRule_Idempotent(t *testing.T) {
 func TestPrependRule_UnknownProfile(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 
-	err := svc.PrependRule("does-not-exist", &policy.PermissionRule{
+	err := svc.PrependRule(context.Background(), "does-not-exist", &policy.PermissionRule{
 		Specifier: policy.ToolSpecifier{Tool: "Read"},
 		Decision:  policy.DecisionAllow,
 	})
@@ -568,7 +551,7 @@ func TestPrependRule_UnknownProfile(t *testing.T) {
 func TestPrependRule_BuiltinPreset(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 
-	err := svc.PrependRule("plan-readonly", &policy.PermissionRule{
+	err := svc.PrependRule(context.Background(), "plan-readonly", &policy.PermissionRule{
 		Specifier: policy.ToolSpecifier{Tool: "Bash"},
 		Decision:  policy.DecisionAllow,
 	})
@@ -579,10 +562,10 @@ func TestPrependRule_BuiltinPreset(t *testing.T) {
 
 func TestPrependRule_InvalidRule(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	_ = svc.SaveProfile(&policy.PolicyProfile{Name: "test-validate", Mode: policy.ModeDefault})
+	_ = svc.SaveProfile(context.Background(), &policy.PolicyProfile{Name: "test-validate", Mode: policy.ModeDefault})
 
 	// Rule with empty Tool should fail validation.
-	err := svc.PrependRule("test-validate", &policy.PermissionRule{Decision: policy.DecisionAllow})
+	err := svc.PrependRule(context.Background(), "test-validate", &policy.PermissionRule{Decision: policy.DecisionAllow})
 	if err == nil {
 		t.Fatal("expected validation error for rule with empty Tool")
 	}
@@ -615,7 +598,7 @@ func TestPrependRule_EvaluationAfterPrepend(t *testing.T) {
 		Specifier: policy.ToolSpecifier{Tool: "Bash"},
 		Decision:  policy.DecisionAllow,
 	}
-	if err := svc.PrependRule("my-profile", &allowBash); err != nil {
+	if err := svc.PrependRule(context.Background(), "my-profile", &allowBash); err != nil {
 		t.Fatalf("PrependRule: %v", err)
 	}
 

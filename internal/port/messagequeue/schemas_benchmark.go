@@ -44,6 +44,9 @@ type BenchmarkRunRequestPayload struct {
 	RolloutStrategy    string          `json:"rollout_strategy,omitempty"`
 	ProviderName       string          `json:"provider_name,omitempty"`
 	ProviderConfig     json.RawMessage `json:"provider_config,omitempty"`
+	// ToolUID is the tenant's tool UID: the benchmark's tool processes run
+	// as it (KI-96; 0/omitted with workspace.tool_acls off).
+	ToolUID int `json:"tool_uid,omitempty"`
 }
 
 // BenchmarkSummary holds aggregate statistics computed by the Python worker.
@@ -71,34 +74,38 @@ type BenchmarkRunResultPayload struct {
 
 // BenchmarkTaskResult represents a single task's evaluation outcome.
 type BenchmarkTaskResult struct {
-	TaskID               string                        `json:"task_id"`
-	TaskName             string                        `json:"task_name"`
-	Scores               map[string]float64            `json:"scores"`
-	ActualOutput         string                        `json:"actual_output"`
-	ExpectedOutput       string                        `json:"expected_output"`
-	ToolCalls            []map[string]string           `json:"tool_calls"`
-	CostUSD              float64                       `json:"cost_usd"`
-	TokensIn             int64                         `json:"tokens_in"`
-	TokensOut            int64                         `json:"tokens_out"`
-	DurationMs           int64                         `json:"duration_ms"`
-	EvaluatorScores      map[string]map[string]float64 `json:"evaluator_scores,omitempty"`
-	FilesChanged         []string                      `json:"files_changed,omitempty"`
-	FunctionalTestOutput string                        `json:"functional_test_output,omitempty"`
-	RolloutID            int                           `json:"rollout_id"`
-	RolloutCount         int                           `json:"rollout_count"`
-	IsBestRollout        bool                          `json:"is_best_rollout"`
-	DiversityScore       float64                       `json:"diversity_score"`
-	SelectedModel        string                        `json:"selected_model,omitempty"`
-	RoutingReason        string                        `json:"routing_reason,omitempty"`
-	FallbackChain        string                        `json:"fallback_chain,omitempty"`
-	FallbackCount        int                           `json:"fallback_count,omitempty"`
-	ProviderErrors       string                        `json:"provider_errors,omitempty"`
+	TaskID          string                        `json:"task_id"`
+	TaskName        string                        `json:"task_name"`
+	Scores          map[string]float64            `json:"scores"`
+	ActualOutput    string                        `json:"actual_output"`
+	ExpectedOutput  string                        `json:"expected_output"`
+	ToolCalls       []map[string]string           `json:"tool_calls"`
+	CostUSD         float64                       `json:"cost_usd"`
+	TokensIn        int64                         `json:"tokens_in"`
+	TokensOut       int64                         `json:"tokens_out"`
+	DurationMs      int64                         `json:"duration_ms"`
+	EvaluatorScores map[string]map[string]float64 `json:"evaluator_scores,omitempty"`
+	// EvaluationErrors names the dimensions an evaluator could not score
+	// (dimension -> error); they are not in Scores or EvaluatorScores.
+	EvaluationErrors     map[string]string `json:"evaluation_errors,omitempty"`
+	FilesChanged         []string          `json:"files_changed,omitempty"`
+	FunctionalTestOutput string            `json:"functional_test_output,omitempty"`
+	RolloutID            int               `json:"rollout_id"`
+	RolloutCount         int               `json:"rollout_count"`
+	IsBestRollout        bool              `json:"is_best_rollout"`
+	DiversityScore       float64           `json:"diversity_score"`
+	SelectedModel        string            `json:"selected_model,omitempty"`
+	RoutingReason        string            `json:"routing_reason,omitempty"`
+	FallbackChain        string            `json:"fallback_chain,omitempty"`
+	FallbackCount        int               `json:"fallback_count,omitempty"`
+	ProviderErrors       string            `json:"provider_errors,omitempty"`
 }
 
 // BenchmarkTaskStartedPayload is published by Python when a benchmark task begins.
 type BenchmarkTaskStartedPayload struct {
 	RunID    string `json:"run_id"`
 	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	TaskName string `json:"task_name"`
 	Index    int    `json:"index"`
 	Total    int    `json:"total"`
@@ -108,6 +115,7 @@ type BenchmarkTaskStartedPayload struct {
 type BenchmarkTaskProgressPayload struct {
 	RunID          string  `json:"run_id"`
 	TaskID         string  `json:"task_id"`
+	TenantID       string  `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	TaskName       string  `json:"task_name"`
 	Score          float64 `json:"score"`
 	CostUSD        float64 `json:"cost_usd"`

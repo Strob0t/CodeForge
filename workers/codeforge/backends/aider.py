@@ -12,6 +12,9 @@ _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
 class AiderExecutor(CLIBackendExecutor):
     """Execute tasks using the Aider CLI."""
 
+    # Aider reads every option as AIDER_<OPTION>.
+    env_prefixes = ("AIDER_",)
+
     def __init__(self, cli_path: str | None = None) -> None:
         super().__init__(cli_path, "CODEFORGE_AIDER_PATH", "aider")
 

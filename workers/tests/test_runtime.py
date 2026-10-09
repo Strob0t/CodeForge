@@ -35,6 +35,7 @@ def runtime(mock_js: AsyncMock) -> RuntimeClient:
     """Create a RuntimeClient for testing."""
     return RuntimeClient(
         js=mock_js,
+        notifications=mock_js,
         run_id="run-1",
         task_id="task-1",
         project_id="proj-1",

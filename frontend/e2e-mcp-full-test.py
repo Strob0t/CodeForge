@@ -770,11 +770,13 @@ print(f"\n{'=' * 72}")
 print("PHASE 15: WEBSOCKET")
 print("=" * 72)
 
-# WS with auth
+# WS with auth: exchange the JWT for a single-use ticket (the JWT never goes into the URL)
 try:
+    _, ticket_resp = api_post("/api/v1/ws/ticket", TOKEN, {})
+    ws_ticket = ticket_resp.get("ticket", "")
     sock = socket.create_connection(("localhost", 8080), timeout=5)
     ws_req = (
-        f"GET /ws?token={TOKEN} HTTP/1.1\r\n"
+        f"GET /ws?ticket={ws_ticket} HTTP/1.1\r\n"
         f"Host: localhost:8080\r\n"
         f"Upgrade: websocket\r\n"
         f"Connection: Upgrade\r\n"

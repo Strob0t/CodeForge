@@ -11,8 +11,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // validPassword satisfies the complexity requirements: >=10 chars, uppercase, lowercase, digit.
@@ -29,9 +31,10 @@ func withUserContext(req *http.Request, u *user.User) *http.Request {
 func httpSetupAdmin(t *testing.T, router chi.Router, email string) (accessToken string, refreshCookie *http.Cookie) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{
-		"email":    email,
-		"name":     "Test Admin",
-		"password": validPassword,
+		"email":       email,
+		"name":        "Test Admin",
+		"password":    validPassword,
+		"setup_token": testSetupToken(t, router),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/auth/setup", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -100,6 +103,40 @@ func TestHandleLogin_Success(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected codeforge_refresh cookie")
+	}
+}
+
+// S10-A review: a disabled tenant's users are refused on login and refresh
+// with 403 tenant is disabled; no token or cookie is issued.
+func TestHandleAuth_DisabledTenant(t *testing.T) {
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+	_, refreshCookie := httpSetupAdmin(t, r, "disabled-tenant@test.com")
+	if refreshCookie == nil {
+		t.Fatal("no refresh cookie from setup")
+	}
+	store.mu.Lock()
+	store.tenants = append(store.tenants, tenant.Tenant{ID: tenantctx.DefaultTenantID, Name: "Default", Slug: "default", Enabled: false})
+	store.mu.Unlock()
+
+	body, _ := json.Marshal(user.LoginRequest{Email: "disabled-tenant@test.com", Password: validPassword})
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "tenant is disabled") {
+		t.Fatalf("login: status %d (%s), want 403 tenant is disabled", w.Code, w.Body.String())
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatalf("login set cookies: %v", w.Result().Cookies())
+	}
+
+	req = httptest.NewRequest("POST", "/api/v1/auth/refresh", http.NoBody)
+	req.AddCookie(refreshCookie)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "tenant is disabled") {
+		t.Fatalf("refresh: status %d (%s), want 403 tenant is disabled", w.Code, w.Body.String())
 	}
 }
 
@@ -220,9 +257,10 @@ func TestHandleInitialSetup_Success(t *testing.T) {
 	r := newTestRouter()
 
 	body, _ := json.Marshal(map[string]string{
-		"email":    "admin@test.com",
-		"name":     "Admin",
-		"password": validPassword,
+		"email":       "admin@test.com",
+		"name":        "Admin",
+		"password":    validPassword,
+		"setup_token": testSetupToken(t, r),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/auth/setup", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -263,6 +301,44 @@ func TestHandleInitialSetup_AlreadyDone(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// KI-119: without the one-time setup token nobody becomes the first admin.
+func TestHandleInitialSetup_RequiresSetupToken(t *testing.T) {
+	tests := []struct {
+		name  string
+		token func(right string) (string, bool) // the value and whether to send the field
+	}{
+		{"missing", func(string) (string, bool) { return "", false }},
+		{"empty", func(string) (string, bool) { return "", true }},
+		{"wrong", func(right string) (string, bool) { return strings.Repeat("0", len(right)), true }},
+		{"truncated", func(right string) (string, bool) { return right[:len(right)/2], true }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockStore{}
+			r := newTestRouterWithStore(store)
+			fields := map[string]string{"email": "admin@test.com", "name": "Admin", "password": validPassword}
+			if v, send := tt.token(testSetupToken(t, r)); send {
+				fields["setup_token"] = v
+			}
+			body, _ := json.Marshal(fields)
+			req := httptest.NewRequest("POST", "/api/v1/auth/setup", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+			}
+			if len(store.users) != 0 {
+				t.Fatalf("no user may be created, got %d", len(store.users))
+			}
+			if c := w.Result().Cookies(); len(c) != 0 {
+				t.Fatalf("no session may be issued, got cookies %v", c)
+			}
+		})
 	}
 }
 
@@ -378,6 +454,41 @@ func TestHandleGetCurrentUser(t *testing.T) {
 	}
 	if resp.Email != "me@test.com" {
 		t.Fatalf("expected email me@test.com, got %q", resp.Email)
+	}
+}
+
+// TestHandleGetCurrentUser_PlatformAdminFlag: the frontend shows actions on
+// what all tenants share (models, provider credentials) only to platform
+// admins, read from is_platform_admin (KI-75).
+func TestHandleGetCurrentUser_PlatformAdminFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		u    *user.User
+		want bool
+	}{
+		{"platform admin", &user.User{ID: "pa", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}, true},
+		{"admin of another tenant", &user.User{ID: "ta", Role: user.RoleAdmin, TenantID: "11111111-2222-3333-4444-555555555555"}, false},
+		{"editor of the default tenant", &user.User{ID: "de", Role: user.RoleEditor, TenantID: tenantctx.DefaultTenantID}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := withUserContext(httptest.NewRequest("GET", "/api/v1/auth/me", http.NoBody), tt.u)
+			w := httptest.NewRecorder()
+			newTestRouter().ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+			}
+			var resp struct {
+				ID              string `json:"id"`
+				IsPlatformAdmin *bool  `json:"is_platform_admin"`
+			}
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.ID != tt.u.ID || resp.IsPlatformAdmin == nil || *resp.IsPlatformAdmin != tt.want {
+				t.Fatalf("got id %q is_platform_admin %v, want %v", resp.ID, resp.IsPlatformAdmin, tt.want)
+			}
+		})
 	}
 }
 

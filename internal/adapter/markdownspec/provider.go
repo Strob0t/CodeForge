@@ -3,10 +3,9 @@ package markdownspec
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // Compile-time checks for optional interface compliance.
@@ -34,21 +33,24 @@ func (p *Provider) Capabilities() specprovider.Capabilities {
 	return specprovider.Capabilities{Read: true, Write: true, Sync: false}
 }
 
-func (p *Provider) Detect(_ context.Context, workspacePath string) (bool, error) {
-	for _, name := range candidates {
-		info, err := os.Stat(filepath.Join(workspacePath, name))
-		if err == nil && !info.IsDir() {
-			return true, nil
-		}
-	}
-	return false, nil
+// Detect, ListSpecs and the readers and writers below work through
+// workspacefs (KI-95): a candidate must be a regular file inside the
+// workspace, and a spec path never leads out of it.
+func (p *Provider) Detect(ctx context.Context, workspacePath string) (bool, error) {
+	specs, err := p.ListSpecs(ctx, workspacePath)
+	return len(specs) > 0, err
 }
 
 func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specprovider.Spec, error) {
+	ws, err := workspacefs.Open(workspacePath)
+	if err != nil {
+		return nil, nil //nolint:nilerr // a workspace that cannot be opened has no specs, as a missing file had none
+	}
+	defer func() { _ = ws.Close() }()
 	var specs []specprovider.Spec
 	for _, name := range candidates {
-		info, err := os.Stat(filepath.Join(workspacePath, name))
-		if err == nil && !info.IsDir() {
+		info, err := ws.Stat(name)
+		if err == nil && info.Mode().IsRegular() {
 			specs = append(specs, specprovider.Spec{
 				Path:   name,
 				Format: providerName,
@@ -60,32 +62,13 @@ func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specpro
 }
 
 func (p *Provider) ReadSpec(_ context.Context, workspacePath, specPath string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(workspacePath, specPath)) //nolint:gosec // Path from known candidates list.
-}
-
-// ParseSpec reads a spec file and returns parsed structured items.
-func (p *Provider) ParseSpec(_ context.Context, workspacePath, specPath string) ([]SpecItem, error) {
-	content, err := os.ReadFile(filepath.Join(workspacePath, specPath)) //nolint:gosec // Path from workspace + known spec file.
-	if err != nil {
-		return nil, err
-	}
-	return ParseMarkdown(content), nil
-}
-
-// WriteSpec writes structured items back to a spec file as markdown.
-func (p *Provider) WriteSpec(_ context.Context, workspacePath, specPath string, items []SpecItem) error {
-	data := RenderMarkdown(items)
-	return os.WriteFile(filepath.Join(workspacePath, specPath), data, 0o644) //nolint:gosec // Path from workspace + known spec file.
+	return specprovider.ReadFile(workspacePath, specPath)
 }
 
 // ParseItems implements specprovider.ItemParser by converting internal SpecItems
 // to the port-level SpecItemDetail type.
-func (p *Provider) ParseItems(ctx context.Context, workspacePath, specPath string) ([]specprovider.SpecItemDetail, error) {
-	items, err := p.ParseSpec(ctx, workspacePath, specPath)
-	if err != nil {
-		return nil, err
-	}
-
+func (p *Provider) ParseItems(content []byte) ([]specprovider.SpecItemDetail, error) {
+	items := ParseMarkdown(content)
 	details := make([]specprovider.SpecItemDetail, 0, len(items))
 	for _, item := range items {
 		details = append(details, specprovider.SpecItemDetail{
@@ -98,18 +81,8 @@ func (p *Provider) ParseItems(ctx context.Context, workspacePath, specPath strin
 	return details, nil
 }
 
-// WriteItems implements specprovider.ItemWriter by converting port-level
-// SpecItemDetail back to internal SpecItems and writing the file.
-func (p *Provider) WriteItems(ctx context.Context, workspacePath, specPath string, items []specprovider.SpecItemDetail) error {
-	specItems := make([]SpecItem, 0, len(items))
-	for i, item := range items {
-		specItems = append(specItems, SpecItem{
-			Title:      item.Title,
-			Status:     ItemStatus(item.Status),
-			SortOrder:  i + 1,
-			Level:      ItemLevel(item.Level),
-			SourceLine: item.SourceLine,
-		})
-	}
-	return p.WriteSpec(ctx, workspacePath, specPath, specItems)
+// PatchItems implements specprovider.ItemWriter: it sets the checkbox
+// markers of the items' lines and changes nothing else (KI-203).
+func (p *Provider) PatchItems(content []byte, items []specprovider.SpecItemDetail) ([]byte, error) {
+	return patchCheckboxes(content, items)
 }

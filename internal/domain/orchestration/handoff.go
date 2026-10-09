@@ -4,12 +4,26 @@ package orchestration
 
 import (
 	"errors"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
 
+// HandoffClaim is the state of the claim of a handoff's stage (its request,
+// its approval): a stage is carried out once, whatever the redeliveries of
+// its message.
+type HandoffClaim struct {
+	Claimed bool          // this call claimed the stage: a new claim, or one whose lease ran out
+	Done    bool          // the stage was carried out (or refused) before
+	Age     time.Duration // neither: how long the claim of another delivery has been in progress
+	TaskID  string        // claimed again: the task an earlier attempt created for the run
+}
+
 // HandoffMessage represents an explicit agent-to-agent handoff with context.
 type HandoffMessage struct {
+	HandoffID     string            `json:"handoff_id,omitempty"` // The handoff's ID: carried out once per stage (request, approval)
+	TenantID      string            `json:"tenant_id,omitempty"`  // Tenant of the handoff run; its live events go to this tenant only
+	ProjectID     string            `json:"project_id,omitempty"` // Project of the handoff run (a local target is an agent of it)
 	SourceAgentID string            `json:"source_agent_id"`
 	TargetAgentID string            `json:"target_agent_id"`
 	TargetModeID  string            `json:"target_mode_id,omitempty"`

@@ -178,3 +178,54 @@ func TestAllExecModes(t *testing.T) {
 		}
 	}
 }
+
+func TestCanTransition(t *testing.T) {
+	all := []run.Status{run.StatusPending, run.StatusRunning, run.StatusQualityGate,
+		run.StatusCompleted, run.StatusFailed, run.StatusCancelled, run.StatusTimeout}
+	allowed := map[run.Status][]run.Status{
+		run.StatusPending:     nil,
+		run.StatusRunning:     {run.StatusPending, run.StatusRunning},
+		run.StatusQualityGate: {run.StatusRunning},
+		run.StatusCompleted:   {run.StatusPending, run.StatusRunning, run.StatusQualityGate},
+		run.StatusFailed:      {run.StatusPending, run.StatusRunning, run.StatusQualityGate},
+		run.StatusCancelled:   {run.StatusPending, run.StatusRunning, run.StatusQualityGate},
+		run.StatusTimeout:     {run.StatusPending, run.StatusRunning, run.StatusQualityGate},
+		"unknown":             nil,
+	}
+	for to, sources := range allowed {
+		for _, from := range all {
+			want := false
+			for _, s := range sources {
+				want = want || s == from
+			}
+			if got := run.CanTransition(from, to); got != want {
+				t.Errorf("CanTransition(%s, %s) = %v, want %v", from, to, got, want)
+			}
+		}
+	}
+}
+
+func TestStatusIsTerminal(t *testing.T) {
+	tests := []struct {
+		status run.Status
+		want   bool
+	}{
+		{run.StatusPending, false},
+		{run.StatusRunning, false},
+		{run.StatusQualityGate, false},
+		{run.StatusCompleted, true},
+		{run.StatusFailed, true},
+		{run.StatusCancelled, true},
+		{run.StatusTimeout, true},
+		{"", false},
+		{"Completed", false},
+	}
+	for _, tc := range tests {
+		if got := tc.status.IsTerminal(); got != tc.want {
+			t.Errorf("%q.IsTerminal() = %v, want %v", tc.status, got, tc.want)
+		}
+	}
+	if n := len(run.TerminalStatuses()); n != 4 {
+		t.Errorf("TerminalStatuses() has %d entries, want 4", n)
+	}
+}

@@ -81,7 +81,7 @@ test.describe("Project Detail Page", () => {
   test("project settings popover opens on gear click", async ({ page }) => {
     await gotoProject(page, projectId);
     await page.getByRole("button", { name: "Project Settings" }).click();
-    // The CompactSettingsPopover should appear with an autonomy level selector
+    // The CompactSettingsPopover should appear (MCP servers and cost summary)
     await expect(page.getByText("Project Settings").first()).toBeVisible({
       timeout: 5_000,
     });

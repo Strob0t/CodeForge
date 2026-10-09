@@ -195,7 +195,9 @@ async def test_tool_denied_event_published() -> None:
     """When a tool call is denied, a tool_called event with success=False is published."""
     call_count = 0
 
-    async def _request_tool_call(tool: str, command: str = "", path: str = "") -> ToolCallDecision:
+    async def _request_tool_call(
+        tool: str, command: str = "", path: str = "", arguments_preview: str = ""
+    ) -> ToolCallDecision:
         nonlocal call_count
         call_count += 1
         if tool == "echo":

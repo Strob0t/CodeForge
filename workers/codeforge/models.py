@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 
-from codeforge._validators import clamp_top_k, coerce_none_to_list
+from codeforge._validators import clamp_tool_output_max_chars, clamp_top_k, coerce_none_to_list
 from codeforge.mcp_models import MCPServerDef  # noqa: TC001 — Pydantic needs at runtime
+
+# agent.tool_output_max_chars from Go (0 = the worker's default), clamped to
+# 0..MAX_TOOL_OUTPUT_MAX_CHARS: the Go Core refuses other values at startup,
+# and the worker never fails a message over it or lifts the bound.
+ToolOutputMaxChars = Annotated[int, AfterValidator(clamp_tool_output_max_chars)]
 
 
 class TaskStatus(StrEnum):
@@ -23,15 +28,30 @@ class TaskStatus(StrEnum):
 
 
 class TaskMessage(BaseModel):
-    """Message received from NATS when a task is assigned to a worker."""
+    """Message received from NATS when a task is assigned to a worker (Go TaskAgentPayload)."""
 
     model_config = {"populate_by_name": True}
 
     id: str = Field(alias="task_id")
     project_id: str
+    tenant_id: str = ""
+    agent_id: str = ""
     title: str
     prompt: str
+    # The agent backend and the project workspace it works in; "" in tasks
+    # published before they were part of the payload.
+    backend: str = ""
+    workspace_path: str = ""
     config: dict[str, str] = Field(default_factory=dict)
+    # How often to report the work alive (Go runtime.heartbeat_interval;
+    # 0 = the worker's default).
+    heartbeat_seconds: int = 0
+    # This dispatch of the task; named on its heartbeats, which the Go Core
+    # counts for this dispatch only ("" in tasks published without one).
+    dispatch_id: str = ""
+    # The tenant's tool UID the backend CLI runs as (KI-96); 0: none (the
+    # Go Core runs with workspace.tool_acls off).
+    tool_uid: int = Field(default=0, ge=0)
 
 
 class TaskResult(BaseModel):
@@ -40,6 +60,9 @@ class TaskResult(BaseModel):
     task_id: str
     tenant_id: str = ""
     project_id: str = ""
+    # The dispatch the result reports (TaskMessage.dispatch_id): the Go Core
+    # ignores a result of a dispatch that is no longer the task's current one.
+    dispatch_id: str = ""
     status: TaskStatus
     output: str = ""
     files: list[str] = Field(default_factory=list)
@@ -114,6 +137,20 @@ class RunStartMessage(BaseModel):
     context: list[ContextEntry] = Field(default_factory=list)
     microagent_prompts: list[str] = Field(default_factory=list)
     trust: TrustAnnotation | None = None
+    # The project workspace the run's tools work in, and the agent's backend
+    # (informational: runs execute in the worker's own agent loop).
+    workspace_path: str = ""
+    backend: str = ""
+    # Go's HITL approval timeout; tool call decisions are awaited longer
+    # (0 = the worker's default).
+    approval_timeout_seconds: int = 0
+    # How often to report the work alive (Go runtime.heartbeat_interval;
+    # 0 = the worker's default).
+    heartbeat_seconds: int = 0
+    # agent.tool_output_max_chars from Go; 0 = the worker's default.
+    tool_output_max_chars: ToolOutputMaxChars = 0
+    # The tenant's tool UID the run's tool processes run as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
 
     @field_validator("config", mode="before")
     @classmethod
@@ -163,17 +200,85 @@ class QualityGateRequest(BaseModel):
 
     run_id: str
     project_id: str
+    tenant_id: str = ""
     workspace_path: str
     run_tests: bool = False
     run_lint: bool = False
     test_command: str = ""
     lint_command: str = ""
+    # Per-command timeout (runtime.quality_gate_timeout); 0 = the worker's default.
+    timeout_seconds: int = Field(default=0, ge=0)
+    # How often to report the running gate (runs.heartbeat, phase
+    # quality_gate); 0 = the worker's default.
+    heartbeat_seconds: int = Field(default=0, ge=0)
+    # The tenant's tool UID the gate commands run as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
+    # agent.tool_output_max_chars: each check's output is bounded to it
+    # (head and tail, KI-126); 0 = the worker's default.
+    tool_output_max_chars: ToolOutputMaxChars = 0
+
+
+class WorkspaceTestRequest(BaseModel):
+    """Request from Go to verify a workspace (auto-agent, KI-81, KI-152).
+
+    It runs one test file, or else the test and lint commands like quality gate checks.
+    """
+
+    request_id: str
+    tenant_id: str = ""
+    project_id: str = ""
+    conversation_id: str = ""
+    workspace_path: str
+    # A file name matching test_<word>.py in the workspace root; when set, the commands do not run.
+    test_file: str = ""
+    # Gate commands (KI-152); "" skips the check.
+    test_command: str = ""
+    lint_command: str = ""
+    # Bounds each command.
+    timeout_seconds: int = Field(default=0, ge=0)
+    # agent.tool_output_max_chars: each command's output is bounded to it; 0 = the worker's default.
+    tool_output_max_chars: ToolOutputMaxChars = 0
+    # The tenant's tool UID the test runs as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
+
+
+class WorkspaceTestResult(BaseModel):
+    """Outcome of a workspace verification; a verdict is None when its check did not run or finish."""
+
+    request_id: str
+    tenant_id: str = ""
+    conversation_id: str = ""
+    passed: bool | None = None
+    output: str = ""
+    lint_passed: bool | None = None
+    lint_output: str = ""
+    error: str = ""
+
+
+class WorkspaceDeleteRequest(BaseModel):
+    """Request from Go to remove a deleted project's workspace as the tenant's tool UID (KI-96 D11)."""
+
+    deletion_id: str
+    tenant_id: str
+    tool_uid: int = Field(default=0, ge=0)
+    project_id: str = ""
+    workspace_path: str
+
+
+class WorkspaceDeleteResult(BaseModel):
+    """Outcome of a workspace deletion; ok False with the reason in error."""
+
+    deletion_id: str
+    tenant_id: str = ""
+    ok: bool = False
+    error: str = ""
 
 
 class QualityGateResult(BaseModel):
     """Result of quality gate execution sent back to Go control plane."""
 
     run_id: str
+    tenant_id: str = ""
     tests_passed: bool | None = None
     lint_passed: bool | None = None
     test_output: str = ""
@@ -188,6 +293,7 @@ class RepoMapRequest(BaseModel):
     """Request from Go control plane to generate a repository map."""
 
     project_id: str
+    tenant_id: str = ""
     workspace_path: str
     token_budget: int = 1024
     active_files: list[str] = Field(default_factory=list)
@@ -202,6 +308,7 @@ class RepoMapResult(BaseModel):
     """Result of repo map generation sent back to Go control plane."""
 
     project_id: str
+    tenant_id: str = ""
     map_text: str
     token_count: int
     file_count: int
@@ -217,15 +324,20 @@ class RetrievalIndexRequest(BaseModel):
     """Request from Go control plane to build a hybrid retrieval index."""
 
     project_id: str
+    tenant_id: str = ""
     workspace_path: str
     embedding_model: str = "text-embedding-3-small"
     file_extensions: list[str] = Field(default_factory=list)
+    # Set instead of workspace_path for a knowledge base ("kb:<id>"): its
+    # content, relative to the worker's knowledge content root (KI-105).
+    knowledge_path: str = ""
 
 
 class RetrievalIndexResult(BaseModel):
     """Result of retrieval index build sent back to Go control plane."""
 
     project_id: str
+    tenant_id: str = ""
     status: str
     file_count: int = 0
     chunk_count: int = 0
@@ -234,6 +346,8 @@ class RetrievalIndexResult(BaseModel):
     incremental: bool = False
     files_changed: int = 0
     files_unchanged: int = 0
+    # The index ranks by BM25 alone: the embedding model cannot be used (KI-130).
+    bm25_only: bool = False
 
 
 class RetrievalSearchRequest(BaseModel):
@@ -328,6 +442,7 @@ class GraphBuildRequest(BaseModel):
     """Request from Go control plane to build a code graph for a project."""
 
     project_id: str
+    tenant_id: str = ""
     workspace_path: str
     scope_id: str = ""
 
@@ -336,6 +451,7 @@ class GraphBuildResult(BaseModel):
     """Result of graph build sent back to Go control plane."""
 
     project_id: str
+    tenant_id: str = ""
     status: str  # "ready" or "error"
     node_count: int = 0
     edge_count: int = 0
@@ -487,6 +603,21 @@ class ConversationRunStartMessage(BaseModel):
     reminders: list[str] = Field(default_factory=list)
     rollout_count: int = 1
     summarize_threshold: int = 0
+    # agent.tool_output_max_chars from Go; 0 = the worker's default.
+    tool_output_max_chars: ToolOutputMaxChars = 0
+    # Identifies this run of the conversation; echoed on every tool call.
+    turn_id: str = ""
+    # A turn that implements a feature (the auto-agent's): no planning tools,
+    # and an announced action without a tool call is nudged once (KI-153).
+    implementation_turn: bool = False
+    # The tenant's tool UID the turn's tool processes run as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
+    # Go's HITL approval timeout; tool call decisions are awaited longer
+    # (0 = the worker's default).
+    approval_timeout_seconds: int = 0
+    # How often to report the work alive (Go runtime.heartbeat_interval;
+    # 0 = the worker's default).
+    heartbeat_seconds: int = 0
 
     @field_validator("mcp_servers", "context", "tools", "microagent_prompts", "reminders", mode="before")
     @classmethod
@@ -516,6 +647,8 @@ class ConversationRunCompleteMessage(BaseModel):
     step_count: int = 0
     model: str = ""
     tenant_id: str = ""
+    # The turn of the run start this completion ends (echoed from it).
+    turn_id: str = ""
 
 
 class AgentLoopResult(BaseModel):
@@ -554,6 +687,8 @@ class BenchmarkRunRequest(BaseModel):
     rollout_strategy: str = "best"
     provider_name: str = ""
     provider_config: dict[str, Any] = Field(default_factory=dict)
+    # The tenant's tool UID the benchmark's tool processes run as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
 
 
 class BenchmarkTaskResult(BaseModel):
@@ -571,6 +706,9 @@ class BenchmarkTaskResult(BaseModel):
     tokens_out: int = 0
     duration_ms: int = 0
     evaluator_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
+    # Dimensions an evaluator could not score (dimension name -> error); they
+    # are never in scores or evaluator_scores, so no average counts them.
+    evaluation_errors: dict[str, str] = Field(default_factory=dict)
     files_changed: list[str] = Field(default_factory=list)
     functional_test_output: str = ""
     rollout_id: int = 0
@@ -645,35 +783,6 @@ class A2ATaskCompleteMessage(BaseModel):
     tenant_id: str = ""
     state: str = "completed"
     error: str = ""
-
-
-# --- Review/Refactor Models (Phase 31) ---
-
-
-class ReviewTriggerRequestPayload(BaseModel):
-    """Request to trigger a review run on a project (matches Go ReviewTriggerRequestPayload)."""
-
-    project_id: str
-    tenant_id: str
-    commit_sha: str
-    source: str
-
-
-class BoundaryEntry(BaseModel):
-    """A single detected layer boundary (matches Go ReviewBoundaryEntry)."""
-
-    path: str
-    type: str
-    counterpart: str = ""
-    auto_detected: bool = True
-
-
-class ReviewBoundaryAnalyzedPayload(BaseModel):
-    """Published when layer boundaries have been detected (matches Go ReviewBoundaryAnalyzedPayload)."""
-
-    project_id: str
-    tenant_id: str
-    boundaries: list[BoundaryEntry]
 
 
 # --- Prompt Evolution Models (Phase 33) ---

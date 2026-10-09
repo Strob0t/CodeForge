@@ -3,9 +3,14 @@
 // Package integration_test runs API-level tests against a real PostgreSQL database.
 // Requires: docker compose services (postgres) running.
 // Run with: go test -tags=integration ./tests/integration/...
+//
+// The database may be shared with other test runs, so tests never assume empty
+// tables: tests that count rows work in a fresh tenant (see newTestTenant) and
+// remove only the rows of that tenant afterwards.
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -15,6 +20,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib" // Register pgx driver for database/sql (needed by goose)
 
@@ -22,25 +28,43 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 var (
-	testServer     *httptest.Server
+	// testServer runs with authentication disabled (the default deployment):
+	// every request acts as the default admin in the default tenant.
+	testServer *httptest.Server
+	// testAuthServer runs with authentication enabled.
 	testAuthServer *httptest.Server
-	testAuthSvc    *service.AuthService
+	testStore      *postgres.Store
 	testPool       *pgxpool.Pool
+	// testAuth arms the one-time setup token setupAdmin needs (KI-119).
+	testAuth *service.AuthService
 )
 
-func TestMain(m *testing.M) {
-	ctx := context.Background()
+// noRedirectClient returns redirects to the test instead of following them.
+var noRedirectClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"
+func testDSN() string {
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		return dsn
 	}
+	return "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"
+}
+
+func TestMain(m *testing.M) {
+	os.Exit(run(m))
+}
+
+func run(m *testing.M) int {
+	ctx := context.Background()
+	dsn := testDSN()
 
 	cfg := config.Defaults()
 	cfg.Postgres.DSN = dsn
@@ -48,47 +72,26 @@ func TestMain(m *testing.M) {
 	pool, err := postgres.NewPool(ctx, cfg.Postgres)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cannot connect to postgres: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	defer pool.Close()
 	testPool = pool
 
-	// Run migrations
 	if err := postgres.RunMigrations(ctx, dsn); err != nil {
 		fmt.Fprintf(os.Stderr, "migrations failed: %v\n", err)
-		os.Exit(1)
+		return 1
+	}
+	// Tests create and delete tenants on every run: keep the long-lived test
+	// database from running out of tool UIDs (KI-96).
+	if err := resetToolUIDSequence(ctx, pool); err != nil {
+		fmt.Fprintf(os.Stderr, "reset the tool uid sequence: %v\n", err)
+		return 1
 	}
 
-	// Build real router with real store, stub queue/broadcaster
+	// Real router with real store, stub queue/broadcaster.
 	store := postgres.NewStore(pool)
+	testStore = store
 	queue := &stubQueue{}
-	bc := &stubBroadcaster{}
-
-	projectSvc := service.NewProjectService(store, "")
-	taskSvc := service.NewTaskService(store, queue)
-	agentSvc := service.NewAgentService(store, queue, bc)
-	llmClient := litellm.NewClient("http://localhost:4000", "")
-
-	handlers := &cfhttp.Handlers{
-		Projects: projectSvc,
-		Tasks:    taskSvc,
-		Agents:   agentSvc,
-		LiteLLM:  llmClient,
-	}
-
-	r := chi.NewRouter()
-
-	// Liveness endpoint
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
-
-	testServer = httptest.NewServer(r)
-
-	// Build a second server with auth enabled for auth-specific tests.
 	authCfg := config.Auth{
 		Enabled:            true,
 		JWTSecret:          "integration-test-secret-must-be-long",
@@ -97,53 +100,99 @@ func TestMain(m *testing.M) {
 		BcryptCost:         4, // low cost for fast tests
 	}
 	authSvc := service.NewAuthService(store, &authCfg)
-	testAuthSvc = authSvc
+	testAuth = authSvc
 
-	authHandlers := &cfhttp.Handlers{
-		Projects: projectSvc,
-		Tasks:    taskSvc,
-		Agents:   agentSvc,
-		LiteLLM:  llmClient,
+	handlers := &cfhttp.Handlers{
+		Projects: service.NewProjectService(store, ""),
+		Tasks:    service.NewTaskService(store, queue),
+		Agents:   service.NewAgentService(store, queue, &stubBroadcaster{}),
+		LLM:      litellm.NewClient("http://localhost:4000", ""),
 		Auth:     authSvc,
 		Limits:   &cfg.Limits,
 	}
+	handlers.WireGroups()
 
-	authRouter := chi.NewRouter()
-	authRouter.Use(middleware.Auth(authSvc, true))
-	authRouter.Use(middleware.TenantID)
-	authRouter.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+	testServer = httptest.NewServer(newRouter(handlers, authSvc, false))
+	defer testServer.Close()
+	testAuthServer = httptest.NewServer(newRouter(handlers, authSvc, true))
+	defer testAuthServer.Close()
+
+	return m.Run()
+}
+
+// newRouter mirrors the middleware order of cmd/codeforge/main.go that the
+// API depends on: Auth (a default admin when disabled), then TenantID.
+func newRouter(h *cfhttp.Handlers, authSvc *service.AuthService, authEnabled bool) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.Auth(authSvc, authEnabled))
+	r.Use(middleware.TenantID)
+	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	cfhttp.MountRoutes(authRouter, authHandlers, config.Webhook{})
-	testAuthServer = httptest.NewServer(authRouter)
-
-	// Clean test data before running
-	cleanDB(pool)
-
-	code := m.Run()
-
-	// Cleanup
-	cleanDB(pool)
-	testAuthServer.Close()
-	testServer.Close()
-	pool.Close()
-
-	os.Exit(code)
+	cfhttp.MountRoutes(r, h)
+	return r
 }
 
-func cleanDB(pool *pgxpool.Pool) {
+// newTestTenant creates a tenant that only the calling test uses and deletes
+// the rows created in it when the test ends.
+func newTestTenant(t *testing.T) string {
+	t.Helper()
+	tn, err := testStore.CreateTenant(context.Background(), tenant.CreateRequest{
+		Name: "Integration Test Tenant",
+		Slug: "integ-" + uuid.NewString()[:8],
+	})
+	if err != nil {
+		t.Fatalf("create test tenant: %v", err)
+	}
+	t.Cleanup(func() { deleteTenant(t, tn.ID) })
+	return tn.ID
+}
+
+// deleteTenant removes a test tenant with its projects (cascading to tasks
+// and agents) and users (cascading to tokens and API keys).
+func deleteTenant(t *testing.T, tenantID string) {
+	t.Helper()
 	ctx := context.Background()
-	_, _ = pool.Exec(ctx, "DELETE FROM agent_events")
-	_, _ = pool.Exec(ctx, "DELETE FROM tasks")
-	_, _ = pool.Exec(ctx, "DELETE FROM agents")
-	_, _ = pool.Exec(ctx, "DELETE FROM projects")
-	_, _ = pool.Exec(ctx, "DELETE FROM api_keys")
-	_, _ = pool.Exec(ctx, "DELETE FROM password_reset_tokens")
-	_, _ = pool.Exec(ctx, "DELETE FROM revoked_tokens")
-	_, _ = pool.Exec(ctx, "DELETE FROM refresh_tokens")
-	_, _ = pool.Exec(ctx, "DELETE FROM users")
+	for _, stmt := range []string{
+		"DELETE FROM projects WHERE tenant_id = $1",
+		"DELETE FROM users WHERE tenant_id = $1",
+		"DELETE FROM tenants WHERE id = $1",
+	} {
+		if _, err := testPool.Exec(ctx, stmt, tenantID); err != nil {
+			t.Errorf("cleanup tenant %s: %s: %v", tenantID, stmt, err)
+		}
+	}
+}
+
+// tenantRequest builds a JSON request against the auth-enabled server for the
+// given tenant. Public endpoints (setup, login, password reset) resolve the
+// tenant from the X-Tenant-ID header; authenticated requests use the token's
+// tenant. An empty token sends no Authorization header.
+func tenantRequest(t *testing.T, method, path, tenantID, token string, body []byte) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), method, testAuthServer.URL+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build %s %s: %v", method, path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return req
+}
+
+// doRequest sends req and closes the response body when the test ends.
+func doRequest(t *testing.T, req *http.Request) *http.Response {
+	t.Helper()
+	resp, err := noRedirectClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", req.Method, req.URL.Path, err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
 }
 
 // --- Stubs ---
@@ -151,6 +200,9 @@ func cleanDB(pool *pgxpool.Pool) {
 type stubQueue struct{}
 
 func (q *stubQueue) Publish(_ context.Context, _ string, _ []byte) error { return nil }
+func (q *stubQueue) PublishWithDedup(_ context.Context, _ string, _ []byte, _ string) error {
+	return nil
+}
 func (q *stubQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
 	return func() {}, nil
 }

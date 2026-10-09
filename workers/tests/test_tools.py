@@ -66,7 +66,7 @@ async def test_read_file_path_traversal(workspace: Path) -> None:
     tool = ReadFileTool()
     result = await tool.execute({"file_path": "../../etc/passwd"}, str(workspace))
     assert result.success is False
-    assert "traversal" in result.error
+    assert "leaves the workspace" in result.error
 
 
 # --- WriteFileTool ---
@@ -101,7 +101,7 @@ async def test_write_file_path_traversal(workspace: Path) -> None:
     tool = WriteFileTool()
     result = await tool.execute({"file_path": "../outside.txt", "content": "bad"}, str(workspace))
     assert result.success is False
-    assert "traversal" in result.error
+    assert "leaves the workspace" in result.error
 
 
 # --- EditFileTool ---
@@ -151,7 +151,7 @@ async def test_edit_file_path_traversal(workspace: Path) -> None:
         str(workspace),
     )
     assert result.success is False
-    assert "traversal" in result.error
+    assert "leaves the workspace" in result.error
 
 
 # --- BashTool ---
@@ -213,7 +213,7 @@ async def test_search_files_path_traversal(workspace: Path) -> None:
     tool = SearchFilesTool()
     result = await tool.execute({"pattern": "line", "path": "../../etc"}, str(workspace))
     assert result.success is False
-    assert "traversal" in result.error
+    assert "leaves the workspace" in result.error
 
 
 @pytest.mark.asyncio
@@ -221,7 +221,7 @@ async def test_search_files_path_traversal_absolute(workspace: Path) -> None:
     tool = SearchFilesTool()
     result = await tool.execute({"pattern": "line", "path": "/etc"}, str(workspace))
     assert result.success is False
-    assert "traversal" in result.error
+    assert "leaves the workspace" in result.error
 
 
 @pytest.mark.asyncio
@@ -300,7 +300,7 @@ async def test_list_directory_path_traversal(workspace: Path) -> None:
     tool = ListDirectoryTool()
     result = await tool.execute({"path": "../../"}, str(workspace))
     assert result.success is False
-    assert "traversal" in result.error
+    assert "leaves the workspace" in result.error
 
 
 # --- ToolRegistry ---
@@ -361,6 +361,7 @@ def test_build_default_registry_has_all_tools() -> None:
         "write_file",
         "search_skills",
         "create_skill",
+        "search_conversations",
     }
     assert set(registry.tool_names) == expected
 
@@ -368,7 +369,7 @@ def test_build_default_registry_has_all_tools() -> None:
 def test_build_default_registry_openai_format() -> None:
     registry = build_default_registry()
     tools = registry.get_openai_tools()
-    assert len(tools) == 9
+    assert len(tools) == 10
     for tool in tools:
         assert tool["type"] == "function"
         assert "name" in tool["function"]

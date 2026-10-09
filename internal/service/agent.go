@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/google/uuid"
+
+	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -20,16 +24,22 @@ import (
 
 // AgentService handles agent lifecycle and task dispatch.
 type AgentService struct {
-	store  database.Store
-	queue  messagequeue.Queue
-	hub    broadcast.Broadcaster
-	events eventstore.Store
+	toolUIDSource
+	store      database.Store
+	queue      messagequeue.Queue
+	hub        broadcast.Broadcaster
+	events     eventstore.Store
+	runtimeCfg *config.Runtime
 }
 
 // NewAgentService creates a new AgentService.
 func NewAgentService(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster) *AgentService {
 	return &AgentService{store: store, queue: queue, hub: hub}
 }
+
+// SetRuntimeConfig sets the runtime config; its heartbeat interval is sent
+// to the worker with every task.
+func (s *AgentService) SetRuntimeConfig(cfg *config.Runtime) { s.runtimeCfg = cfg }
 
 // SetEventStore attaches an event store for trajectory recording.
 func (s *AgentService) SetEventStore(es eventstore.Store) {
@@ -47,13 +57,13 @@ func (s *AgentService) Get(ctx context.Context, id string) (*agent.Agent, error)
 }
 
 // Create creates a new agent for a project.
-func (s *AgentService) Create(ctx context.Context, projectID, name, backend string, config map[string]string, limits *resource.Limits) (*agent.Agent, error) {
+func (s *AgentService) Create(ctx context.Context, projectID, name, backend string, agentConfig map[string]string, limits *resource.Limits) (*agent.Agent, error) {
 	// Verify the backend exists
 	if _, err := agentbackend.New(backend, nil); err != nil {
 		return nil, fmt.Errorf("unknown backend %q: %w", backend, err)
 	}
 
-	return s.store.CreateAgent(ctx, projectID, name, backend, config, limits)
+	return s.store.CreateAgent(ctx, projectID, name, backend, agentConfig, limits)
 }
 
 // Delete removes an agent.
@@ -78,19 +88,52 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("create backend: %w", err)
 	}
 
+	// The backend edits the agent's project workspace.
+	if err := requireProject("task", t.ID, t.ProjectID, ag.ProjectID); err != nil {
+		return err
+	}
+	proj, err := s.store.GetProject(ctx, ag.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+	if err := requireWorkspace(proj); err != nil {
+		return err
+	}
+
+	// A task runs once at a time: a second dispatch while it is queued or
+	// running would run it twice on the same workspace. The store's status
+	// guard decides between concurrent dispatches.
+	if t.Status == task.StatusQueued || t.Status == task.StatusRunning {
+		return fmt.Errorf("dispatch task %s: it is %s: %w", taskID, t.Status, domain.ErrConflict)
+	}
+	// Every dispatch has its own ID: the worker's heartbeats name it, so a
+	// late heartbeat of an earlier dispatch never counts for this one.
+	dispatchID := uuid.NewString()
+	if err := s.store.QueueTask(ctx, taskID, agentID, dispatchID); err != nil {
+		return fmt.Errorf("queue task: %w", err)
+	}
+	t.AgentID = agentID
+	t.Status = task.StatusQueued
+	t.DispatchID = dispatchID
+
 	// Mark agent as running
 	if err := s.store.UpdateAgentStatus(ctx, agentID, agent.StatusRunning); err != nil {
+		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))
 		return fmt.Errorf("update agent status: %w", err)
 	}
 
-	// Update task with agent assignment and status
-	t.AgentID = agentID
-	if err := s.store.UpdateTaskStatus(ctx, taskID, task.StatusQueued); err != nil {
-		return fmt.Errorf("update task status: %w", err)
+	// Dispatch to backend (async via NATS). The worker echoes the tenant in
+	// its output and result messages, which scopes their WebSocket events.
+	t.TenantID = outgoingTenant(ctx, "tasks.agent")
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, t.TenantID)
+	if err != nil {
+		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
+		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))
+		return fmt.Errorf("tool uid: %w", err)
 	}
-
-	// Dispatch to backend (async via NATS)
-	if _, err := backend.Execute(ctx, t); err != nil {
+	if _, err := backend.Execute(ctx, &agentbackend.Execution{
+		Task: t, WorkspacePath: proj.WorkspacePath, HeartbeatSeconds: heartbeatSeconds(s.runtimeCfg), ToolUID: toolUID,
+	}); err != nil {
 		// Revert agent status on failure
 		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
 		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))
@@ -126,16 +169,21 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("get agent: %w", err)
 	}
 
-	backend, err := agentbackend.New(ag.Backend, ag.Config)
+	// tasks.cancel reaches every worker: only stop a task of the caller's
+	// tenant (the store is tenant-scoped) and of the agent's project.
+	t, err := s.store.GetTask(ctx, taskID)
 	if err != nil {
-		return fmt.Errorf("create backend: %w", err)
+		return fmt.Errorf("get task: %w", err)
+	}
+	if err := requireProject("task", t.ID, t.ProjectID, ag.ProjectID); err != nil {
+		return err
 	}
 
-	if err := backend.Stop(ctx, taskID); err != nil {
-		return fmt.Errorf("stop task: %w", err)
+	if err := stopOnBackend(ctx, ag, taskID); err != nil {
+		return err
 	}
 
-	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
+	s.resetAgent(ctx, agentID, ag.ProjectID)
 	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", taskID))
 
 	// Record event
@@ -143,12 +191,6 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 		"reason": "stopped by user",
 	})
 
-	// Broadcast state changes
-	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
-		AgentID:   agentID,
-		ProjectID: ag.ProjectID,
-		Status:    string(agent.StatusIdle),
-	})
 	s.hub.BroadcastEvent(ctx, event.EventTaskStatus, event.TaskStatusEvent{
 		TaskID:    taskID,
 		ProjectID: ag.ProjectID,
@@ -159,21 +201,88 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 	return nil
 }
 
-// HandleResult processes a task result received from a worker.
-func (s *AgentService) HandleResult(ctx context.Context, result task.Result, taskID, projectID string, costUSD float64) error {
-	if err := s.store.UpdateTaskResult(ctx, taskID, result, costUSD); err != nil {
-		return fmt.Errorf("update task result: %w", err)
+// stopOnBackend tells the worker executing a task of ag to stop it, through
+// the agent's backend.
+func stopOnBackend(ctx context.Context, ag *agent.Agent, taskID string) error {
+	backend, err := agentbackend.New(ag.Backend, ag.Config)
+	if err != nil {
+		return fmt.Errorf("create backend: %w", err)
 	}
+	if err := backend.Stop(ctx, taskID); err != nil {
+		return fmt.Errorf("stop task: %w", err)
+	}
+	return nil
+}
 
-	status := string(task.StatusCompleted)
+// HandleResult processes a worker's result of the task's dispatch
+// dispatchID with the status the worker reported (see resultStatus). Only
+// the result of the task's current dispatch ends the task: a late result of
+// a dispatch that ended (the watchdog failed it, it was stopped) or that a
+// newer dispatch replaced only records its cost, and a repeated result
+// changes nothing (store.RecordTaskResult).
+func (s *AgentService) HandleResult(ctx context.Context, reported string, result task.Result, taskID, projectID, dispatchID string, costUSD float64) error {
+	final := resultStatus(reported, &result)
+	current, err := s.store.RecordTaskResult(ctx, taskID, dispatchID, final, result, costUSD)
+	if err != nil {
+		return fmt.Errorf("record task result: %w", err)
+	}
+	if !current {
+		slog.InfoContext(ctx, "result of a task dispatch that is not current, only its cost recorded",
+			"task_id", taskID, "dispatch_id", dispatchID, "status", final)
+		return nil
+	}
+	s.announceTaskEnd(ctx, final, result, taskID, projectID, costUSD)
+	return nil
+}
+
+// resultStatus is the final status of a task from the status its worker
+// reported: cancelled when the worker stopped it on tasks.cancel, completed
+// only for a completed result without error, failed otherwise (a failure
+// without message, an error, an unknown or missing status).
+func resultStatus(reported string, result *task.Result) task.Status {
+	switch {
+	case reported == string(task.StatusCancelled):
+		return task.StatusCancelled
+	case reported == string(task.StatusCompleted) && result.Error == "":
+		return task.StatusCompleted
+	default:
+		return task.StatusFailed
+	}
+}
+
+// failTaskDispatch fails a task's dispatch for the control plane (a lost
+// worker, a dead-lettered or never accepted dispatch) and announces it like
+// a worker's result. Only the task's current dispatch of a task still queued
+// or running is failed: domain.ErrConflict otherwise (its result arrived or
+// it was dispatched again), which callers skip.
+func (s *AgentService) failTaskDispatch(ctx context.Context, t *task.Task, reason string) error {
+	result := task.Result{Error: reason}
+	if err := s.store.EndTaskDispatch(ctx, t.ID, t.DispatchID, task.StatusFailed, result); err != nil {
+		return fmt.Errorf("end task dispatch: %w", err)
+	}
+	s.announceTaskEnd(ctx, task.StatusFailed, result, t.ID, t.ProjectID, 0)
+	return nil
+}
+
+// announceTaskEnd records the end of a task (event, task status broadcast)
+// and sets its agent idle again.
+func (s *AgentService) announceTaskEnd(ctx context.Context, final task.Status, result task.Result, taskID, projectID string, costUSD float64) {
+	status := string(final)
 	evType := event.TypeAgentFinished
-	if result.Error != "" {
-		status = string(task.StatusFailed)
+	if final != task.StatusCompleted {
 		evType = event.TypeAgentError
 	}
 
-	// Record event (agentID not available here, use empty string)
-	s.appendEvent(ctx, evType, "", taskID, projectID, map[string]string{
+	// The result names no agent: record the task's. A task dispatched without
+	// an assignment has none, and the event is stored without agent.
+	agentID := ""
+	t, err := s.store.GetTask(ctx, taskID)
+	logBestEffort(ctx, err, "GetTask", slog.String("task_id", taskID))
+	if err == nil {
+		agentID = t.AgentID
+	}
+
+	s.appendEvent(ctx, evType, agentID, taskID, projectID, map[string]string{
 		"status": status,
 		"cost":   fmt.Sprintf("%.6f", costUSD),
 		"output": truncate(result.Output, 200),
@@ -186,28 +295,22 @@ func (s *AgentService) HandleResult(ctx context.Context, result task.Result, tas
 		Status:    status,
 	})
 
+	// Dispatch marked the agent running; its task ended.
+	if agentID != "" {
+		s.resetAgent(ctx, agentID, projectID)
+	}
+
 	slog.Info("task result processed", "task_id", taskID, "status", status)
-	return nil
 }
 
 // StartResultSubscriber subscribes to task results from NATS and processes them.
 func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func(), err error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskResult, func(msgCtx context.Context, _ string, data []byte) error {
-		var result struct {
-			TaskID    string   `json:"task_id"`
-			ProjectID string   `json:"project_id"`
-			Status    string   `json:"status"`
-			Output    string   `json:"output"`
-			Files     []string `json:"files"`
-			Error     string   `json:"error"`
-			TokensIn  int64    `json:"tokens_in"`
-			TokensOut int64    `json:"tokens_out"`
-			CostUSD   float64  `json:"cost_usd"`
-		}
-
+		var result messagequeue.TaskResultPayload
 		if err := json.Unmarshal(data, &result); err != nil {
 			return fmt.Errorf("unmarshal result: %w", err)
 		}
+		msgCtx = withPayloadTenant(msgCtx, result.TenantID)
 
 		taskResult := task.Result{
 			Output:    result.Output,
@@ -217,19 +320,22 @@ func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func()
 			TokensOut: result.TokensOut,
 		}
 
-		return s.HandleResult(msgCtx, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
+		return s.HandleResult(msgCtx, result.Status, taskResult, result.TaskID, result.ProjectID, result.DispatchID, result.CostUSD)
 	})
 }
 
 // StartOutputSubscriber subscribes to streaming task output and forwards to WebSocket.
 func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func(), err error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskOutput, func(msgCtx context.Context, _ string, data []byte) error {
-		var output event.TaskOutputEvent
+		var output struct {
+			event.TaskOutputEvent
+			TenantID string `json:"tenant_id"`
+		}
 		if err := json.Unmarshal(data, &output); err != nil {
 			return fmt.Errorf("unmarshal output: %w", err)
 		}
 
-		s.hub.BroadcastEvent(msgCtx, event.EventTaskOutput, output)
+		s.hub.BroadcastEvent(withPayloadTenant(msgCtx, output.TenantID), event.EventTaskOutput, output.TaskOutputEvent)
 		return nil
 	})
 }
@@ -237,12 +343,15 @@ func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func()
 // StartAgentOutputSubscriber subscribes to agent backend output and forwards to WebSocket.
 func (s *AgentService) StartAgentOutputSubscriber(ctx context.Context) (cancel func(), err error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectAgentOutput, func(msgCtx context.Context, _ string, data []byte) error {
-		var output event.AgentOutputEvent
+		var output struct {
+			event.AgentOutputEvent
+			TenantID string `json:"tenant_id"`
+		}
 		if err := json.Unmarshal(data, &output); err != nil {
 			slog.Error("malformed agent output message", "error", err)
 			return nil // log and skip, don't fail subscription
 		}
-		s.hub.BroadcastEvent(msgCtx, event.EventAgentOutput, output)
+		s.hub.BroadcastEvent(withPayloadTenant(msgCtx, output.TenantID), event.EventAgentOutput, output.AgentOutputEvent)
 		return nil
 	})
 }
@@ -310,9 +419,7 @@ func (s *AgentService) appendEvent(ctx context.Context, evType event.Type, agent
 		RequestID: logger.RequestID(ctx),
 		Version:   1,
 	}
-	if err := s.events.Append(ctx, &ev); err != nil {
-		slog.Error("failed to append event", "type", evType, "task_id", taskID, "error", err)
-	}
+	logBestEffort(ctx, s.events.Append(ctx, &ev), "AppendEvent", slog.String("type", string(evType)), slog.String("task_id", taskID))
 }
 
 func truncate(s string, maxLen int) string {

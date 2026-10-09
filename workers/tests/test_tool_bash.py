@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
+import signal
 from typing import TYPE_CHECKING
 
 import pytest
 
-from codeforge.tools.bash import DEFINITION, BashTool, _check_dangerous_command, _truncate
+from codeforge.tools.bash import (
+    DEFAULT_TIMEOUT_SECONDS,
+    DEFINITION,
+    MAX_TIMEOUT_SECONDS,
+    BashTool,
+    _check_dangerous_command,
+    _truncate,
+    timeout_seconds,
+)
+from tests.processes import SPAWN, alive, gone, spawned
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -196,6 +208,95 @@ class TestBashTimeout:
         assert "done" in result.output
 
 
+class TestBashTimeoutArgument:
+    """KI-194 (R8-7): "60" (common with weak local models) raised TypeError after the process
+    started, which then ran on unmanaged with unread pipes; null meant no timeout at all."""
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param(60, 60, id="int"),
+            pytest.param("60", 60, id="string"),
+            pytest.param(" 7 ", 7, id="padded-string"),
+            pytest.param(5.9, 5, id="float"),
+            pytest.param("2.5", 2, id="float-string"),
+            pytest.param(1, 1, id="min"),
+            pytest.param(0, 1, id="zero"),
+            pytest.param(-30, 1, id="negative"),
+            pytest.param(MAX_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, id="max"),
+            pytest.param(MAX_TIMEOUT_SECONDS + 1, MAX_TIMEOUT_SECONDS, id="max-plus-one"),
+            pytest.param(10**12, MAX_TIMEOUT_SECONDS, id="huge"),
+            pytest.param(None, DEFAULT_TIMEOUT_SECONDS, id="null"),
+            pytest.param("", DEFAULT_TIMEOUT_SECONDS, id="empty"),
+            pytest.param("soon", DEFAULT_TIMEOUT_SECONDS, id="not-a-number"),
+            pytest.param("inf", DEFAULT_TIMEOUT_SECONDS, id="infinite"),
+            pytest.param(float("nan"), DEFAULT_TIMEOUT_SECONDS, id="nan"),
+            pytest.param(True, DEFAULT_TIMEOUT_SECONDS, id="bool"),
+            pytest.param([60], DEFAULT_TIMEOUT_SECONDS, id="list"),
+            pytest.param({"seconds": 60}, DEFAULT_TIMEOUT_SECONDS, id="object"),
+        ],
+    )
+    def test_timeout_seconds(self, value: object, expected: int) -> None:
+        assert timeout_seconds(value) == expected
+
+    def test_the_default_is_120(self) -> None:
+        assert DEFAULT_TIMEOUT_SECONDS == 120
+
+    async def test_a_string_timeout_is_enforced(self, tmp_path: Path) -> None:
+        result = await BashTool().execute({"command": SPAWN, "timeout": "1"}, str(tmp_path))
+
+        assert result.success is False
+        assert result.error == "command timed out after 1s"
+        _shell, child = await spawned(tmp_path)
+        assert await gone(child), "the background child survived the timeout"
+
+
+class TestBashLeavesNoProcess:
+    """KI-194 (R8-6): a cancel (Stop, the run's wall clock, a worker abort) left the command running,
+    and a timeout killed only the shell: what it started kept changing the workspace."""
+
+    async def test_a_cancelled_command_leaves_no_process(self, tmp_path: Path) -> None:
+        call = asyncio.create_task(BashTool().execute({"command": SPAWN, "timeout": 120}, str(tmp_path)))
+        shell, child = await spawned(tmp_path)
+
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+
+        assert await gone(shell), "the command survived the cancel"
+        assert await gone(child), "a process the command started survived the cancel"
+
+    async def test_a_timed_out_command_leaves_no_process(self, tmp_path: Path) -> None:
+        result = await BashTool().execute({"command": SPAWN, "timeout": 1}, str(tmp_path))
+
+        assert result.error == "command timed out after 1s"
+        shell, child = await spawned(tmp_path)
+        assert await gone(shell)
+        assert await gone(child), "a process the command started survived the timeout"
+
+    async def test_the_command_runs_in_a_process_group_of_its_own(self, tmp_path: Path) -> None:
+        call = asyncio.create_task(BashTool().execute({"command": SPAWN, "timeout": 120}, str(tmp_path)))
+        try:
+            shell, child = await spawned(tmp_path)
+            assert os.getpgid(shell) == shell
+            assert os.getpgid(child) == shell
+            assert os.getpgid(shell) != os.getpgid(0), "the worker must not share the command's group"
+        finally:
+            call.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await call
+
+    async def test_a_finished_command_keeps_its_background_jobs(self, tmp_path: Path) -> None:
+        """A dev server started in the background (output redirected) stays up for the next calls."""
+        result = await BashTool().execute({"command": "sleep 300 > /dev/null 2>&1 & echo $! > bg.pid"}, str(tmp_path))
+        child = int((tmp_path / "bg.pid").read_text())
+        try:
+            assert result.success is True
+            assert alive(child)
+        finally:
+            os.kill(child, signal.SIGKILL)
+
+
 # ---------------------------------------------------------------------------
 # Truncation
 # ---------------------------------------------------------------------------
@@ -352,10 +453,28 @@ class TestBashDangerousCommandBlocklist:
 # ---------------------------------------------------------------------------
 
 
+class TestRmSystemDirectories:
+    """rm -rf on a top-level system directory stays blocked; deeper paths are allowed."""
+
+    @pytest.mark.parametrize(
+        "cmd",
+        ["rm -rf /etc", "rm -rf /usr/", "rm -fr /home/*", "sudo rm -rf /var", "echo x; rm -rf /boot"],
+    )
+    def test_system_directories_blocked(self, cmd: str) -> None:
+        assert _check_dangerous_command(cmd) is not None
+
+    @pytest.mark.parametrize(
+        "cmd",
+        ["rm -rf /tmp/mydir", "rm -rf /home/user/project/build", "rm -rf /etcetera", "rm -rf /usr-local-copy"],
+    )
+    def test_deeper_or_other_paths_allowed(self, cmd: str) -> None:
+        assert _check_dangerous_command(cmd) is None
+
+
 class TestCommandInjectionEdgeCases:
     """FIX-012: Comprehensive command injection edge-case tests.
 
-    The blocklist uses simple substring matching on the normalized
+    The blocklist matches patterns against the normalized
     (stripped + lowercased) command. These tests verify both the
     patterns that ARE caught and document known limitations.
     """

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -35,9 +36,15 @@ const (
 	TeamStatusFailed       TeamStatus = "failed"
 )
 
+// TerminalTeamStatuses returns the states a team never leaves: the store
+// refuses status updates of a team in one of them.
+func TerminalTeamStatuses() []TeamStatus {
+	return []TeamStatus{TeamStatusCompleted, TeamStatusFailed}
+}
+
 // IsTerminal returns true if the team is in a final state.
 func (s TeamStatus) IsTerminal() bool {
-	return s == TeamStatusCompleted || s == TeamStatusFailed
+	return slices.Contains(TerminalTeamStatuses(), s)
 }
 
 // Team groups multiple agents for collaborative work on a feature.

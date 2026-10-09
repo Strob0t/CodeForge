@@ -3,7 +3,8 @@
 Generates system prompt supplements that help weaker models use tools correctly:
 - full: no extra guide (model is capable enough)
 - api_with_tools: concise hints (when_to_use + common_mistakes)
-- pure_completion: full guide with examples and output format
+- pure_completion: no guide; the text tool protocol renders the run's offered
+  tools into every request (codeforge.tools.text_protocol, S9-C)
 - compact mode: one-line descriptions, no examples/mistakes (for small-context models)
 """
 
@@ -30,23 +31,23 @@ def build_tool_usage_guide(
 ) -> str:
     """Build a tool-usage guide string based on model capability level.
 
-    Returns an empty string for full-capability models.
+    Returns an empty string for full-capability models, and for
+    pure-completion models: the text tool protocol's prompt section lists
+    the run's offered tools (the guide listed the whole registry and asked
+    for API function calls such a model cannot make).
 
     When ``compact=True``, returns a minimal guide that skips examples and
     common-mistakes sections, suitable for models with context windows
     below 32K tokens.
     """
-    if capability_level == CapabilityLevel.FULL:
+    if capability_level in (CapabilityLevel.FULL, CapabilityLevel.PURE_COMPLETION):
         return ""
 
     if compact:
         guide = _build_compact_guide(registry)
         limit = _MAX_COMPACT_CHARS
-    elif capability_level == CapabilityLevel.API_WITH_TOOLS:
-        guide = _build_concise_guide(registry)
-        limit = _MAX_GUIDE_CHARS
     else:
-        guide = _build_full_guide(registry)
+        guide = _build_concise_guide(registry)
         limit = _MAX_GUIDE_CHARS
 
     if len(guide) > limit:
@@ -85,42 +86,6 @@ def _build_concise_guide(registry: ToolRegistry) -> str:
         sections.append("\n".join(parts))
 
     if len(sections) == 1:
-        return ""
-
-    return "\n\n".join(sections)
-
-
-def _build_full_guide(registry: ToolRegistry) -> str:
-    """Build comprehensive guide with examples for pure-completion models."""
-    sections: list[str] = [
-        "## Tool Usage Guide",
-        (
-            "You have access to the following tools. To use a tool, respond with a "
-            "function call in the format specified by the API. Each tool has specific "
-            "parameters - follow the examples carefully."
-        ),
-    ]
-
-    for defn in _iter_tool_definitions(registry):
-        parts: list[str] = [f"### {defn.name}", defn.description]
-
-        if defn.when_to_use:
-            parts.append(f"**When to use:** {defn.when_to_use}")
-        if defn.output_format:
-            parts.append(f"**Output format:** {defn.output_format}")
-        if defn.common_mistakes:
-            parts.append("**Common mistakes:**")
-            parts.extend(f"- {mistake}" for mistake in defn.common_mistakes)
-        if defn.examples:
-            parts.append("**Examples:**")
-            for ex in defn.examples:
-                parts.append(f"*{ex.description}:*")
-                parts.append(f"```json\n{ex.tool_call_json}\n```")
-                parts.append(f"Expected result: {ex.expected_result}")
-
-        sections.append("\n".join(parts))
-
-    if len(sections) == 2:
         return ""
 
     return "\n\n".join(sections)

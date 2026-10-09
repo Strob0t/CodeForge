@@ -50,13 +50,13 @@ export default function FeatureCard(props: FeatureCardProps) {
       }`}
       title={t("featuremap.dragToMove")}
     >
-      <div class="flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2 min-w-0">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex items-start gap-2 min-w-0">
           {/* Status toggle checkbox */}
           <button
             role="checkbox"
             aria-checked={props.feature.status === "done"}
-            class={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border text-xs ${
+            class={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border text-xs ${
               props.feature.status === "done"
                 ? "border-cf-success bg-cf-success text-white"
                 : "border-cf-border text-transparent hover:border-cf-success"
@@ -70,9 +70,9 @@ export default function FeatureCard(props: FeatureCardProps) {
             {props.feature.status === "done" ? "\u2713" : "\u00A0"}
           </button>
 
-          {/* Title (click to edit) */}
+          {/* Title (click to edit): two lines at most, in full on hover (KI-129) */}
           <span
-            class={`text-sm truncate cursor-pointer hover:underline ${
+            class={`text-sm line-clamp-2 break-words cursor-pointer hover:underline ${
               props.feature.status === "done"
                 ? "text-cf-text-muted line-through"
                 : "text-cf-text-primary"
@@ -81,7 +81,7 @@ export default function FeatureCard(props: FeatureCardProps) {
               e.stopPropagation();
               props.onEdit(props.feature);
             }}
-            title={t("featuremap.editFeature")}
+            title={props.feature.title}
           >
             {props.feature.title}
           </span>
@@ -106,6 +106,14 @@ export default function FeatureCard(props: FeatureCardProps) {
           </Badge>
         </div>
       </div>
+      {/* How the auto-agent's verification ended (KI-152) */}
+      <Show when={props.feature.result}>
+        {(result) => (
+          <p class="mt-1 text-xs text-cf-text-muted line-clamp-2" title={result()}>
+            {result()}
+          </p>
+        )}
+      </Show>
     </div>
   );
 }

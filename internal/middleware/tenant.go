@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
@@ -21,6 +22,14 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // DefaultTenantID. This allows auth-disabled mode to work via header or default.
 func TenantID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A webhook names its tenant by the webhook (or channel) its URL
+		// addresses, after checking its signature (KI-85). Nothing in the
+		// request picks it: the X-Tenant-ID header is not read here.
+		if strings.HasPrefix(r.URL.Path, webhookPathPrefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// First: use tenant from authenticated user (set by Auth middleware).
 		if u := UserFromContext(r.Context()); u != nil && u.TenantID != "" {
 			ctx := tenantctx.WithTenant(r.Context(), u.TenantID)

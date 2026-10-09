@@ -54,14 +54,18 @@ func (m *mockQuarantineStore) ListQuarantinedMessages(_ context.Context, project
 	return result, nil
 }
 
-func (m *mockQuarantineStore) UpdateQuarantineStatus(_ context.Context, id string, status quarantine.Status, reviewedBy, note string) error {
+func (m *mockQuarantineStore) UpdateQuarantineStatus(_ context.Context, id string, status quarantine.Status, review *quarantine.Review) error {
 	msg, ok := m.messages[id]
 	if !ok {
 		return domain.ErrNotFound
 	}
+	if msg.Status != quarantine.StatusPending {
+		return domain.ErrConflict
+	}
 	msg.Status = status
-	msg.ReviewedBy = reviewedBy
-	msg.ReviewNote = note
+	msg.ReviewedByID = review.ReviewerID
+	msg.ReviewedBy = review.ReviewerName
+	msg.ReviewNote = review.Note
 	return nil
 }
 
@@ -204,7 +208,7 @@ func TestQuarantineApprove(t *testing.T) {
 	}
 
 	// Approve
-	err := svc.Approve(context.Background(), msgID, "admin-1", "looks safe")
+	err := svc.Approve(context.Background(), msgID, &quarantine.Review{ReviewerID: "user-1", ReviewerName: "Admin One", Note: "looks safe"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,8 +217,8 @@ func TestQuarantineApprove(t *testing.T) {
 	if msg.Status != quarantine.StatusApproved {
 		t.Errorf("expected approved status, got %s", msg.Status)
 	}
-	if msg.ReviewedBy != "admin-1" {
-		t.Errorf("expected reviewed_by admin-1, got %s", msg.ReviewedBy)
+	if msg.ReviewedByID != "user-1" || msg.ReviewedBy != "Admin One" || msg.ReviewNote != "looks safe" {
+		t.Errorf("review = %q (%q) %q, want user-1 (Admin One) with the note", msg.ReviewedByID, msg.ReviewedBy, msg.ReviewNote)
 	}
 
 	// Verify replay published to NATS
@@ -246,7 +250,7 @@ func TestQuarantineReject(t *testing.T) {
 		break
 	}
 
-	err := svc.Reject(context.Background(), msgID, "admin-1", "definitely malicious")
+	err := svc.Reject(context.Background(), msgID, &quarantine.Review{ReviewerID: "user-1", ReviewerName: "Admin One", Note: "definitely malicious"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -254,6 +258,35 @@ func TestQuarantineReject(t *testing.T) {
 	msg := store.messages[msgID]
 	if msg.Status != quarantine.StatusRejected {
 		t.Errorf("expected rejected status, got %s", msg.Status)
+	}
+	if msg.ReviewedByID != "user-1" || msg.ReviewedBy != "Admin One" {
+		t.Errorf("review = %q (%q), want user-1 (Admin One)", msg.ReviewedByID, msg.ReviewedBy)
+	}
+}
+
+// KI-79: a review names the logged-in reviewer; one without a reviewer is
+// refused and leaves the message pending.
+func TestQuarantineReview_RequiresReviewer(t *testing.T) {
+	for name, review := range map[string]*quarantine.Review{
+		"nil review":  nil,
+		"no reviewer": {ReviewerName: "typed name", Note: "n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := newMockQuarantineStore()
+			store.messages["q-1"] = &quarantine.Message{ID: "q-1", ProjectID: "proj-1", Status: quarantine.StatusPending}
+			q := &mockQueue{}
+			svc := NewQuarantineService(store, q, &mockBroadcaster{}, config.Quarantine{Enabled: true})
+
+			if err := svc.Approve(context.Background(), "q-1", review); !errors.Is(err, domain.ErrValidation) {
+				t.Fatalf("Approve error = %v, want ErrValidation", err)
+			}
+			if err := svc.Reject(context.Background(), "q-1", review); !errors.Is(err, domain.ErrValidation) {
+				t.Fatalf("Reject error = %v, want ErrValidation", err)
+			}
+			if store.messages["q-1"].Status != quarantine.StatusPending || len(q.published) != 0 {
+				t.Fatalf("message = %s, %d replays; want pending and none", store.messages["q-1"].Status, len(q.published))
+			}
+		})
 	}
 }
 

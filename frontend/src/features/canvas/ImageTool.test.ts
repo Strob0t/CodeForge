@@ -229,16 +229,16 @@ describe("ImageTool file handling", () => {
     expect(imageEls[0].height).toBe(50);
   });
 
-  it("rejects files larger than 5MB", () => {
+  it("rejects files larger than 15MB", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
 
     simulateClick(tool, 50, 75);
 
     const input = requireInput(capturedInput);
 
-    // Create a file that claims to be > 5MB
+    // Create a file that claims to be > 15MB
     const bigFile = new File(["x"], "huge.png", { type: "image/png" });
-    Object.defineProperty(bigFile, "size", { value: 6 * 1024 * 1024 });
+    Object.defineProperty(bigFile, "size", { value: 15 * 1024 * 1024 + 1 });
     Object.defineProperty(input, "files", { value: [bigFile] });
 
     // Spy on FileReader to ensure it is NOT called
@@ -263,7 +263,7 @@ describe("ImageTool file handling", () => {
     expect(imageEls).toHaveLength(0);
   });
 
-  it("accepts files exactly at 5MB limit", () => {
+  it("accepts files exactly at 15MB limit", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
 
     simulateClick(tool, 10, 20);
@@ -271,7 +271,7 @@ describe("ImageTool file handling", () => {
     const input = requireInput(capturedInput);
 
     const exactFile = new File(["x"], "exact.png", { type: "image/png" });
-    Object.defineProperty(exactFile, "size", { value: 5 * 1024 * 1024 });
+    Object.defineProperty(exactFile, "size", { value: 15 * 1024 * 1024 });
     Object.defineProperty(input, "files", { value: [exactFile] });
 
     const mockDataUrl = "data:image/png;base64,exact";

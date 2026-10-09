@@ -18,7 +18,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -742,7 +741,7 @@ func TestHandleQualityGateResult_NotInGateStatus(t *testing.T) {
 }
 
 // TestHandleQualityGateResult_GateFailedNoRollback tests that when quality
-// gates fail without rollback configured, the run still completes.
+// gates fail without rollback configured, the run fails all the same (D9).
 func TestHandleQualityGateResult_GateFailedNoRollback(t *testing.T) {
 	_, store, _, bc := newRuntimeTestEnv()
 	ctx := context.Background()
@@ -787,10 +786,10 @@ func TestHandleQualityGateResult_GateFailedNoRollback(t *testing.T) {
 		t.Fatalf("HandleQualityGateResult: %v", err)
 	}
 
-	// Without rollback, the run should still be marked completed (not failed)
+	// Without rollback the run still fails: a failed gate never completes a run (D9)
 	r, _ := store.GetRun(ctx, "run-gate-nrb")
-	if r.Status != run.StatusCompleted {
-		t.Fatalf("expected completed (no rollback), got %s", r.Status)
+	if r.Status != run.StatusFailed {
+		t.Fatalf("expected failed (no rollback), got %s", r.Status)
 	}
 }
 
@@ -946,7 +945,7 @@ func TestListFeedbackAudit_MultipleEntries(t *testing.T) {
 func TestResolveApproval_NonExistentKey(t *testing.T) {
 	svc, _, _, _ := newRuntimeTestEnv()
 
-	ok := svc.ResolveApproval("no-run", "no-call", "allow")
+	ok := svc.ResolveApproval(context.Background(), "no-run", "no-call", "allow")
 	if ok {
 		t.Error("expected false for non-existent approval key")
 	}
@@ -1300,7 +1299,7 @@ func TestPersistGoalProposal_Success(t *testing.T) {
 	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
 
 	// Wire GoalDiscoveryService
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()
@@ -1374,7 +1373,7 @@ func TestPersistGoalProposal_InvalidKind(t *testing.T) {
 	runtimeCfg := config.Runtime{}
 	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
 
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()

@@ -6,8 +6,6 @@ import json
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._retrieval import RetrievalHandlerMixin
 from codeforge.consumer._subjects import (
@@ -29,15 +27,8 @@ from codeforge.models import (
 class _TestMixin(RetrievalHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js: AsyncMock | None = AsyncMock()
-        self._processed_ids: set[str] = set()
-        self._processed_ids_max = 10_000
         self._retriever = MagicMock()
         self._subagent = MagicMock()
-
-
-@pytest.fixture(autouse=True)
-def _fresh_state() -> None:
-    ConsumerBaseMixin._processed_ids = set()
 
 
 def _make_msg(data: dict) -> MagicMock:
@@ -60,6 +51,7 @@ class _FakeIndexStatus:
     incremental: bool = False
     files_changed: int = 5
     files_unchanged: int = 5
+    bm25_only: bool = False
 
 
 def _index_payload(project_id: str = "proj-1") -> dict:
@@ -124,17 +116,22 @@ async def test_retrieval_index_duplicate() -> None:
 
 
 async def test_retrieval_index_invalid_json() -> None:
-    """Invalid JSON causes nak."""
+    """Invalid JSON is dead-lettered and terminated (a NAK would redeliver it forever)."""
     mixin = _TestMixin()
     msg = MagicMock()
+    msg.subject = "retrieval.index.request"
     msg.data = b"not json"
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.term = AsyncMock()
     msg.headers = {}
 
     await mixin._handle_retrieval_index(msg)
 
-    msg.nak.assert_called_once()
+    assert mixin._js is not None
+    mixin._js.publish.assert_awaited_once_with("retrieval.index.request.dlq", b"not json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.nak.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +155,7 @@ async def test_retrieval_search_success() -> None:
 
 
 async def test_retrieval_search_failure_publishes_error() -> None:
-    """Search failure publishes error result so Go waiter gets a response, then naks."""
+    """Search failure publishes one error result so Go waiter gets a response, and settles the request."""
     mixin = _TestMixin()
     mixin._retriever.search = AsyncMock(side_effect=RuntimeError("search fail"))
     msg = _make_msg(_search_payload())
@@ -166,14 +163,16 @@ async def test_retrieval_search_failure_publishes_error() -> None:
     await mixin._handle_retrieval_search(msg)
 
     assert mixin._js is not None
-    error_published = False
-    for call in mixin._js.publish.call_args_list:
-        if call.args[0] == SUBJECT_RETRIEVAL_SEARCH_RESULT:
-            result = json.loads(call.args[1])
-            if result.get("error"):
-                error_published = True
-    assert error_published
-    msg.nak.assert_called_once()
+    error_results = [
+        json.loads(call.args[1])
+        for call in mixin._js.publish.call_args_list
+        if call.args[0] == SUBJECT_RETRIEVAL_SEARCH_RESULT
+    ]
+    assert len(error_results) == 1
+    assert error_results[0]["error"]
+    # The error result answered the Go waiter: acked, not retried.
+    msg.ack.assert_called_once()
+    msg.nak.assert_not_called()
 
 
 async def test_retrieval_search_error_shape() -> None:
@@ -226,7 +225,7 @@ async def test_subagent_search_success() -> None:
 
 
 async def test_subagent_search_failure() -> None:
-    """Subagent search failure publishes error result and naks."""
+    """Subagent search failure publishes one error result and settles the request."""
     mixin = _TestMixin()
     mixin._subagent.search = AsyncMock(side_effect=RuntimeError("subagent fail"))
     msg = _make_msg(_subagent_payload())
@@ -234,14 +233,16 @@ async def test_subagent_search_failure() -> None:
     await mixin._handle_subagent_search(msg)
 
     assert mixin._js is not None
-    error_published = False
-    for call in mixin._js.publish.call_args_list:
-        if call.args[0] == SUBJECT_SUBAGENT_SEARCH_RESULT:
-            result = json.loads(call.args[1])
-            if result.get("error"):
-                error_published = True
-    assert error_published
-    msg.nak.assert_called_once()
+    error_results = [
+        json.loads(call.args[1])
+        for call in mixin._js.publish.call_args_list
+        if call.args[0] == SUBJECT_SUBAGENT_SEARCH_RESULT
+    ]
+    assert len(error_results) == 1
+    assert error_results[0]["error"]
+    # The error result answered the Go waiter: acked, not retried (no repeated LLM expansion).
+    msg.ack.assert_called_once()
+    msg.nak.assert_not_called()
 
 
 async def test_subagent_search_duplicate() -> None:
@@ -270,4 +271,23 @@ async def test_retrieval_no_js_error_publish() -> None:
     # Should not raise even with _js=None
     await mixin._handle_retrieval_search(msg)
 
-    msg.nak.assert_called_once()
+    msg.ack.assert_called_once()
+
+
+async def test_retrieval_index_refuses_an_empty_workspace_path() -> None:
+    """A project index without a workspace path is refused, never built from the worker's cwd."""
+    for index, workspace_path in enumerate(("", "   ")):
+        mixin = _TestMixin()
+        mixin._retriever.build_index = AsyncMock(return_value=_FakeIndexStatus())
+        msg = _make_msg(
+            RetrievalIndexRequest(project_id=f"proj-empty-{index}", workspace_path=workspace_path).model_dump()
+        )
+
+        await mixin._handle_retrieval_index(msg)
+
+        mixin._retriever.build_index.assert_not_awaited()
+        assert mixin._js is not None
+        result = json.loads(mixin._js.publish.call_args.args[1])
+        assert result["status"] == "error"
+        assert "workspace_path" in result["error"]
+        msg.ack.assert_called_once()

@@ -11,6 +11,12 @@ import pytest
 from codeforge.consumer import TaskConsumer
 from codeforge.models import RepoMapRequest, RepoMapResult
 from codeforge.repomap import RepoMapGenerator, SymbolTag
+from codeforge.workspace_fs import WorkspaceRoot
+
+
+def _source(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
 
 
 @pytest.fixture
@@ -119,7 +125,7 @@ def test_extract_tags_python(generator: RepoMapGenerator) -> None:
             "_private_var = 42\n"
         )
         f.flush()
-        tags = generator._extract_tags("service.py", f.name, "python")
+        tags = generator._extract_tags("service.py", _source(f.name), "python")
 
     os.unlink(f.name)
 
@@ -156,7 +162,7 @@ def test_extract_tags_go(generator: RepoMapGenerator) -> None:
             "var Count int\n"
         )
         f.flush()
-        tags = generator._extract_tags("main.go", f.name, "go")
+        tags = generator._extract_tags("main.go", _source(f.name), "go")
 
     os.unlink(f.name)
 
@@ -188,7 +194,7 @@ def test_extract_tags_typescript(generator: RepoMapGenerator) -> None:
             "const version = '1.0';\n"
         )
         f.flush()
-        tags = generator._extract_tags("app.ts", f.name, "typescript")
+        tags = generator._extract_tags("app.ts", _source(f.name), "typescript")
 
     os.unlink(f.name)
 
@@ -336,7 +342,8 @@ def test_collect_files_skips_ignored(generator: RepoMapGenerator) -> None:
         with open(os.path.join(ws, "main.py"), "w") as f:
             f.write("def main(): pass\n")
 
-        files = generator._collect_files(ws)
+        with WorkspaceRoot(ws) as root:
+            files = [rel for rel, _ in generator._collect_files(root)]
 
     # Only main.py should be collected
     assert len(files) == 1

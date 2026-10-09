@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nats.js.client import JetStreamContext
 from opentelemetry import context
 from opentelemetry.propagate import extract, inject
 
+from codeforge.tenant_context import with_tenant_header
+
 if TYPE_CHECKING:
+    from nats.js.api import PubAck
     from opentelemetry.context import Context
 
 
@@ -31,3 +35,33 @@ def inject_trace_context(headers: dict[str, str] | None = None) -> dict[str, str
     carrier = dict(headers) if headers else {}
     inject(carrier)
     return carrier
+
+
+class TracingJetStreamContext(JetStreamContext):
+    """JetStream context that adds the current W3C trace context and tenant to every published message.
+
+    The worker handles each message inside the trace context extracted from its
+    headers, so results and events published while handling it continue the
+    Go Core's trace (the Go side extracts ``traceparent`` from every message),
+    and in the tenant of its ``X-Tenant-ID`` header, which they carry back
+    (KI-64). A publish without an active trace context or tenant is sent
+    unchanged.
+    """
+
+    async def publish(
+        self,
+        subject: str,
+        payload: bytes = b"",
+        timeout: float | None = None,
+        stream: str | None = None,
+        headers: dict[str, str] | None = None,
+        msg_ttl: float | None = None,
+    ) -> PubAck:
+        return await super().publish(
+            subject,
+            payload,
+            timeout=timeout,
+            stream=stream,
+            headers=with_tenant_header(inject_trace_context(headers)) or None,
+            msg_ttl=msg_ttl,
+        )

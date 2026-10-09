@@ -169,7 +169,7 @@ func TestAgentServiceHandleResultCompleted(t *testing.T) {
 	svc.SetEventStore(es)
 
 	result := task.Result{Output: "done", TokensIn: 100, TokensOut: 50}
-	err := svc.HandleResult(context.Background(), result, "t1", "p1", 0.005)
+	err := svc.HandleResult(context.Background(), "completed", result, "t1", "p1", "", 0.005)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestAgentServiceHandleResultFailed(t *testing.T) {
 	svc.SetEventStore(es)
 
 	result := task.Result{Error: "something broke"}
-	err := svc.HandleResult(context.Background(), result, "t1", "p1", 0.001)
+	err := svc.HandleResult(context.Background(), "failed", result, "t1", "p1", "", 0.001)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestAgentServiceHandleResultNoEventStore(t *testing.T) {
 	// No event store set — should not panic
 
 	result := task.Result{Output: "ok"}
-	err := svc.HandleResult(context.Background(), result, "t1", "p1", 0.0)
+	err := svc.HandleResult(context.Background(), "completed", result, "t1", "p1", "", 0.0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

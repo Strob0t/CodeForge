@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -21,6 +22,7 @@ import httpx
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 
+from codeforge.history import DEFAULT_TOOL_OUTPUT_MAX_CHARS
 from codeforge.json_utils import safe_json_loads
 from codeforge.llm import LLMError, classify_error_type, is_fallback_eligible
 from codeforge.loop_helpers import (
@@ -39,7 +41,9 @@ from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
 )
+from codeforge.policy_args import canonical_tool
 from codeforge.pricing import resolve_cost
+from codeforge.provider_keys import fallbacks_for_key, model_provider
 from codeforge.quality_tracking import (
     IterationQualityTracker,
     compute_rollout_score,
@@ -48,15 +52,30 @@ from codeforge.quality_tracking import (
 )
 from codeforge.routing.blocklist import get_blocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
-from codeforge.stall_detection import StallDetector
+from codeforge.stall_detection import StallDetector, stall_error
+from codeforge.subprocess_env import tool_env
+from codeforge.subprocess_utils import terminate_process_group
 from codeforge.tool_executor import ToolExecutor
-from codeforge.tools.capability import TOOLS_BY_CAPABILITY, CapabilityLevel
+from codeforge.tool_process import start_tool_process
+from codeforge.tools.capability import ALWAYS_OFFERED_TOOLS, TOOLS_BY_CAPABILITY, CapabilityLevel
+from codeforge.tools.text_protocol import (
+    EXTRA_CALLS_NOTE,
+    REPAIR_NOTICE,
+    TextProtocolError,
+    TextToolCall,
+    TextToolProtocol,
+    grammar_rejected,
+    native_response,
+    native_tools_refused,
+    output_limit_rejected,
+    turn_max_tokens,
+)
+from codeforge.tools.text_protocol_stream import ProtocolStreamFilter
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
-    from codeforge.memory.experience import ExperiencePool
     from codeforge.models import ToolCallDecision
     from codeforge.plan_act import PlanActController
     from codeforge.routing.models import RoutingConfig, RoutingMetadata
@@ -127,6 +146,37 @@ class LoopConfig:
     top_p: float | None = None
     extra_body: dict[str, object] | None = None
     selected_tools: list[str] | None = None
+    # agent.tool_output_max_chars: tool results added in the loop are
+    # truncated to it (0 = DEFAULT_TOOL_OUTPUT_MAX_CHARS).
+    tool_output_max_chars: int = 0
+    # A turn that implements (runs.start, the auto-agent's feature turns):
+    # an announced action without a tool call is nudged once (KI-153).
+    implementation_turn: bool = False
+    # Pure-completion models: constrain text tool protocol replies with a
+    # JSON-schema grammar (litellm.text_tool_grammar, S9-C).
+    text_tool_grammar: bool = True
+    # The model's context window in tokens (LiteLLM's max_input_tokens),
+    # 0 when unknown: text protocol turns cut max_tokens to fit it.
+    context_window: int = 0
+
+
+# An announced next step in the last part of a reply ("I will now ...",
+# "Let me ...") - intent without action, which weak models end turns with.
+_ANNOUNCED_ACTION = re.compile(
+    r"\b(?:i will|i'll|i am going to|i'm going to|i shall|let me|let's|next,? i)\s+(?!know\b)\w+",
+    re.IGNORECASE,
+)
+# How much of the reply's end is searched for an announcement.
+_ANNOUNCEMENT_TAIL_CHARS = 400
+
+CONTINUE_NUDGE = (
+    "Continue: call the tool now instead of announcing it. If the work is already done, say so in one sentence."
+)
+
+
+def announces_action(content: str) -> bool:
+    """Whether a reply without tool calls ends with an announced action."""
+    return bool(_ANNOUNCED_ACTION.search(content.strip()[-_ANNOUNCEMENT_TAIL_CHARS:]))
 
 
 @dataclass
@@ -145,6 +195,52 @@ class _LoopState:
     quality_tracker: IterationQualityTracker | None = None
     files_read: set[str] = field(default_factory=set)
     writes_since_verify: int = 0
+    tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS
+    nudged: bool = False  # the turn got its "continue" nudge (KI-153)
+    # The text tool protocol of a pure-completion model (S9-C), and how many
+    # unusable replies in a row were sent back to the model.
+    tool_protocol: TextToolProtocol | None = None
+    protocol_repairs: int = 0
+
+
+# Unusable text protocol replies in a row the model is asked again for.
+_MAX_PROTOCOL_REPAIRS = 1
+
+
+@dataclass(frozen=True, slots=True)
+class _LLMReply:
+    """A streamed completion and the text the user saw of it."""
+
+    response: ChatCompletionResponse
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class _LLMRequest:
+    """What a completion request sends: messages, tools, grammar and output limit."""
+
+    messages: list[dict[str, object]]
+    tools: list[dict[str, object]] | None
+    response_format: dict[str, object] | None = None
+    max_tokens: int | None = None
+
+
+def _llm_request(
+    protocol: TextToolProtocol | None,
+    tools_array: list[dict[str, object]],
+    messages: list[dict[str, object]],
+    context_window: int,
+) -> _LLMRequest:
+    """The request of an iteration: native tools, or the text tool protocol's text, grammar and output limit (S9-C)."""
+    if protocol is None:
+        return _LLMRequest(messages=messages, tools=tools_array or None)
+    wire = protocol.wire_messages(messages)
+    return _LLMRequest(
+        messages=wire,
+        tools=None,
+        response_format=protocol.response_format(),
+        max_tokens=turn_max_tokens(context_window, wire) if protocol.send_max_tokens else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -211,13 +307,11 @@ class AgentLoopExecutor:
         tool_registry: ToolRegistry,
         runtime: RuntimeClient,
         workspace_path: str,
-        experience_pool: ExperiencePool | None = None,
     ) -> None:
         self._llm = llm
         self._tools = tool_registry
         self._runtime = runtime
         self._workspace = workspace_path
-        self._experience_pool = experience_pool
         self._tool_executor = ToolExecutor(tool_registry, runtime, workspace_path)
 
     _MCP_READONLY_KEYWORDS: frozenset[str] = frozenset({"search", "list", "find", "get", "fetch_url"})
@@ -229,21 +323,23 @@ class AgentLoopExecutor:
         mode_tools: frozenset[str] | None = None,
         selected_tools: list[str] | None = None,
     ) -> list[dict[str, object]]:
-        """Filter tools based on model capability level and ToolRouter selection."""
+        """Filter tools based on model capability level and ToolRouter selection.
+
+        The mode's tools and ALWAYS_OFFERED_TOOLS are always offered on top.
+        Go sends the mode's tools as canonical policy names (Read, Edit,
+        Bash, ...), so they are compared canonically.
+        """
         if selected_tools is not None:
             allowed: frozenset[str] = frozenset(selected_tools)
-            if mode_tools:
-                allowed = allowed | mode_tools
         else:
             allowed = TOOLS_BY_CAPABILITY.get(capability, frozenset())
             if not allowed:
                 return tools_array
-            if mode_tools:
-                allowed = allowed | mode_tools
+        mode_canonical = frozenset(canonical_tool(t) for t in mode_tools or ())
 
         def _is_allowed(tool: dict[str, object]) -> bool:
             name = tool.get("function", {}).get("name", "")
-            if name in allowed:
+            if name in allowed or name in ALWAYS_OFFERED_TOOLS or canonical_tool(name) in mode_canonical:
                 return True
             if selected_tools is None and name.startswith("mcp__"):
                 tool_action = name.rsplit("__", 1)[-1]
@@ -251,20 +347,6 @@ class AgentLoopExecutor:
             return False
 
         return [t for t in tools_array if _is_allowed(t)]
-
-    @staticmethod
-    def _extract_user_prompt(messages: list[dict[str, object]]) -> str:
-        """Extract the last user message content from the conversation."""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    return content
-                if isinstance(content, list):
-                    text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
-                    return " ".join(text_parts).strip()
-                return str(content)
-        return ""
 
     async def _publish_routing_decision(self, cfg: LoopConfig) -> None:
         """Publish a trajectory.routing_decision event if routing is active (C1.7)."""
@@ -322,9 +404,22 @@ class AgentLoopExecutor:
         state: _LoopState,
         rate_tracker: RateLimitTracker | None = None,
     ) -> str | None:
-        """Return the next untried fallback model, or None if exhausted."""
+        """Return the next untried fallback model, or None if exhausted.
+
+        With a user's own key (``cfg.provider_api_key``) only models of the
+        provider of the current model (the key's provider) qualify: the key
+        is sent with every call and must never reach another provider.
+        """
+        same_provider = fallbacks_for_key(cfg.model, cfg.fallback_models) if cfg.provider_api_key else None
         for m in cfg.fallback_models:
             if m in state.failed_models:
+                continue
+            if same_provider is not None and m not in same_provider:
+                logger.warning(
+                    "skipping fallback model %s of another provider: the run uses the user's own key for %r",
+                    m,
+                    model_provider(cfg.model),
+                )
                 continue
             if not AgentLoopExecutor._validate_model_name(m):
                 logger.warning("skipping fallback model with invalid format: %r", m)
@@ -353,6 +448,7 @@ class AgentLoopExecutor:
         if next_model is None:
             return f"LLM call failed: {exc}"
         cfg.model = next_model
+        cfg.context_window = 0  # the window was the failed model's
         logger.warning("model fallback: %s -> %s (status %d)", failed_model, next_model, exc.status_code)
         notice = f"\n[Model {failed_model} unavailable ({exc.status_code}). Switching to {next_model}]\n"
         await self._runtime.send_output(notice)
@@ -377,46 +473,21 @@ class AgentLoopExecutor:
             )
         return await self._try_model_fallback(cfg, state, exc)
 
-    async def _check_experience_cache(self, user_prompt: str, model: str) -> AgentLoopResult | None:
-        """Return a cached result from the experience pool, or None."""
-        if not self._experience_pool or not user_prompt:
-            return None
-        try:
-            cached = await self._experience_pool.lookup(user_prompt, self._runtime.project_id)
-            if cached:
-                logger.info("experience cache hit, entry_id=%s similarity=%.3f", cached["id"], cached["similarity"])
-                return AgentLoopResult(
-                    final_content=cached["result_output"],
-                    tool_messages=[],
-                    total_cost=0.0,
-                    total_tokens_in=0,
-                    total_tokens_out=0,
-                    step_count=0,
-                    model=model,
-                    error="",
-                )
-        except (ConnectionError, TimeoutError, OSError) as exc:
-            logger.warning("experience cache lookup failed (transient): %s", exc)
-        except ValueError as exc:
-            logger.error("experience cache data corruption: %s", exc)
-        except Exception as exc:
-            logger.error("unexpected experience cache error: %s", type(exc).__name__, exc_info=True)
-        return None
-
     @_tracer.trace_agent("agent_loop")
     async def run(self, messages: list[dict[str, object]], config: LoopConfig | None = None) -> AgentLoopResult:  # noqa: C901
         """Execute the agentic loop until the LLM stops or limits are hit."""
         cfg = config or LoopConfig()
         quality_tracker = IterationQualityTracker()
-        state = _LoopState(model=cfg.model, quality_tracker=quality_tracker)
+        state = _LoopState(
+            model=cfg.model,
+            quality_tracker=quality_tracker,
+            tool_output_max_chars=cfg.tool_output_max_chars or DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+        )
         stall_detector = StallDetector()
         error_tracker = ToolErrorTracker()
 
-        user_prompt = self._extract_user_prompt(messages)
-        cached_result = await self._check_experience_cache(user_prompt, cfg.model)
-        if cached_result is not None:
-            return cached_result
-
+        # No experience cache here: an agentic turn's result is the work it
+        # does in the workspace, which a cached answer cannot replace (KI-16).
         plan_act = init_plan_act(cfg, messages)
         tools_array = self._tools.get_openai_tools()
         cap_level = CapabilityLevel(cfg.capability_level) if cfg.capability_level else CapabilityLevel.FULL
@@ -424,10 +495,12 @@ class AgentLoopExecutor:
             tools_array, cap_level, cfg.mode_tools or None, cfg.selected_tools
         )
 
-        # If the model doesn't support function calling, don't send tools param.
-        # Tools are already injected into the system prompt via tool_guide for these models.
-        if cap_level == CapabilityLevel.PURE_COMPLETION:
-            tools_array = []  # Empty = won't be sent to LLM (see _build_stream_payload)
+        # A model without function calling gets no tools parameter: it calls
+        # the offered tools through the text tool protocol (S9-C).
+        if cap_level == CapabilityLevel.PURE_COMPLETION and tools_array:
+            state.tool_protocol = TextToolProtocol(
+                tools_array, plan_act=plan_act.enabled, grammar=cfg.text_tool_grammar
+            )
 
         loop_start = time.monotonic()
         await self._publish_routing_decision(cfg)
@@ -462,6 +535,7 @@ class AgentLoopExecutor:
             check_model_switch(quality_tracker, cfg)
             check_plan_act_transition(plan_act, messages)
 
+            stored_before = len(state.tool_messages)
             result = await self._do_llm_iteration(
                 cfg, tools_array, messages, state, iteration, plan_act=plan_act, error_tracker=error_tracker
             )
@@ -474,7 +548,11 @@ class AgentLoopExecutor:
                 case IterationContinue():
                     pass
 
-            self._record_tool_calls_for_stall(state, stall_detector)
+            # Only an iteration that called tools feeds the stall detector: a
+            # retry (a protocol repair, a dropped grammar, a fallback model)
+            # would count the previous call again.
+            if len(state.tool_messages) > stored_before:
+                self._record_tool_calls_for_stall(state, stall_detector)
             quality_tracker.end_iteration()
 
             if cfg.max_cost > 0 and state.total_cost >= cfg.max_cost:
@@ -488,19 +566,6 @@ class AgentLoopExecutor:
 
         if cfg.output_schema and state.final_content and not state.error:
             state = await self._validate_output_schema(cfg, state, messages)
-
-        if self._experience_pool and not state.error and state.final_content and user_prompt:
-            try:
-                await self._experience_pool.store(
-                    task_desc=user_prompt,
-                    project_id=self._runtime.project_id,
-                    result_output=state.final_content,
-                    result_cost=state.total_cost,
-                    result_status="completed",
-                    run_id=self._runtime.run_id,
-                )
-            except (ConnectionError, TimeoutError, OSError, ValueError) as exc:
-                logger.warning("experience pool store failed: %s", exc)
 
         try:
             await self._runtime.publish_trajectory_event(
@@ -595,10 +660,7 @@ class AgentLoopExecutor:
         """Check for stall and handle abort or escape injection. Returns True to break."""
         if stall_detector.should_abort():
             abort_info = stall_detector.get_abort_info()
-            state.error = (
-                f"stall detected: repeated {abort_info['repeated_action']} "
-                f"after {abort_info['escape_count']} escape attempts"
-            )
+            state.error = stall_error(abort_info["repeated_action"], abort_info["escape_count"])
             logger.warning("agent loop aborted due to stall: %s", state.error)
             try:
                 await self._runtime.publish_trajectory_event(
@@ -632,14 +694,66 @@ class AgentLoopExecutor:
         plan_act: PlanActController | None = None,
         error_tracker: ToolErrorTracker | None = None,
     ) -> IterationOutcome:
-        """Run one LLM iteration. Returns typed IterationOutcome."""
+        """Run one LLM iteration. Returns typed IterationOutcome.
+
+        With the text tool protocol (state.tool_protocol) a reply without
+        native tool calls is parsed: a call continues as a native one, an
+        unusable reply is sent back to the model once (S9-C).
+        """
         llm_decision = await self._runtime.request_tool_call(tool="LLM", command="chat_completion")
         if llm_decision.decision != "allow":
             logger.warning("LLM call denied by policy: %s", llm_decision.reason)
             return IterationError(f"LLM call denied: {llm_decision.reason}")
 
+        reply = await self._call_llm(cfg, tools_array, messages, state, iteration)
+        if not isinstance(reply, _LLMReply):
+            return reply
+        response, full_text = reply.response, reply.text
+
+        protocol = state.tool_protocol
+        ignored_calls = 0
+        if protocol is not None and not response.tool_calls:
+            reply_text = response.raw_content or response.content
+            turn = protocol.parse(reply_text, truncated=response.finish_reason == "length")
+            if isinstance(turn, TextProtocolError):
+                return await self._handle_protocol_error(cfg, state, response, llm_decision, full_text, messages, turn)
+            response = native_response(response, turn)
+            ignored_calls = turn.ignored_calls if isinstance(turn, TextToolCall) else 0
+        state.protocol_repairs = 0
+
+        outcome = await self._process_llm_response(
+            cfg,
+            state,
+            response,
+            llm_decision,
+            full_text,
+            messages,
+            iteration=iteration,
+            plan_act=plan_act,
+            error_tracker=error_tracker,
+        )
+        if ignored_calls and isinstance(outcome, IterationContinue):
+            messages.append({"role": "user", "content": EXTRA_CALLS_NOTE})
+        return outcome
+
+    async def _call_llm(
+        self,
+        cfg: LoopConfig,
+        tools_array: list[dict[str, object]],
+        messages: list[dict[str, object]],
+        state: _LoopState,
+        iteration: int,
+    ) -> _LLMReply | IterationOutcome:
+        """Stream one completion; the reply and its visible text, or the outcome of a failed call.
+
+        With the text tool protocol the request carries the protocol's wire
+        messages, grammar and max_tokens instead of tools, and the stream
+        shows only the reply's prose, thought and final text.
+        """
+        request = _llm_request(state.tool_protocol, tools_array, messages, cfg.context_window)
         tracer = trace.get_tracer("codeforge")
-        model_name = cfg.model or resolve_model()
+        # The default model may need LiteLLM: resolved off the event loop (KI-196).
+        model_name = cfg.model or await asyncio.to_thread(resolve_model)
         llm_start = time.monotonic()
         streamed_text: list[str] = []
         loop = asyncio.get_running_loop()
@@ -649,6 +763,9 @@ class AgentLoopExecutor:
             streamed_text.append(chunk_text)
             task = loop.create_task(self._runtime.send_output(chunk_text))
             pending_sends.append(task)
+
+        protocol = state.tool_protocol
+        stream_filter = ProtocolStreamFilter(_on_chunk, protocol.tool_names) if protocol is not None else None
 
         with tracer.start_as_current_span(
             "llm.chat_completion",
@@ -660,35 +777,31 @@ class AgentLoopExecutor:
             sanitize_tool_messages(messages)
             try:
                 response = await self._llm.chat_completion_stream(
-                    messages=messages,
+                    messages=request.messages,
                     model=model_name,
-                    tools=tools_array or None,
+                    tools=request.tools,
                     temperature=cfg.temperature,
                     tags=cfg.tags or None,
-                    on_chunk=_on_chunk,
+                    on_chunk=stream_filter.feed if stream_filter is not None else _on_chunk,
                     provider_api_key=cfg.provider_api_key,
                     top_p=cfg.top_p,
                     extra_body=cfg.extra_body,
+                    response_format=request.response_format,
+                    max_tokens=request.max_tokens,
                 )
-            except LLMError as exc:
-                llm_span.set_status(StatusCode.ERROR, str(exc))
-                llm_span.record_exception(exc)
-                err = await self._handle_llm_error(cfg, state, exc, iteration)
-                return IterationError(err) if err else IterationContinue()
             except asyncio.CancelledError:
                 raise
-            except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+            except (LLMError, httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))
                 llm_span.record_exception(exc)
-                logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
-                wrapped = LLMError(status_code=500, model=model_name, body=str(exc))
-                err = await self._handle_llm_error(cfg, state, wrapped, iteration)
-                return IterationError(err) if err else IterationContinue()
+                return await self._llm_call_failed(cfg, state, tools_array, exc, iteration, model_name)
             llm_span.set_attribute("gen_ai.usage.input_tokens", response.tokens_in)
             llm_span.set_attribute("gen_ai.usage.output_tokens", response.tokens_out)
             if response.model:
                 llm_span.set_attribute("gen_ai.response.model", response.model)
 
+        if stream_filter is not None:
+            stream_filter.finish()
         if pending_sends:
             await asyncio.gather(*pending_sends, return_exceptions=True)
         otel_metrics.llm_call_duration.record(time.monotonic() - llm_start)
@@ -696,20 +809,93 @@ class AgentLoopExecutor:
         full_text = "".join(streamed_text)
         if full_text and not pending_sends:
             await self._runtime.send_output(full_text)
+        return _LLMReply(response=response, text=full_text)
 
-        return await self._process_llm_response(
-            cfg,
-            state,
-            response,
-            llm_decision,
-            full_text,
-            messages,
-            iteration=iteration,
-            plan_act=plan_act,
-            error_tracker=error_tracker,
+    async def _llm_call_failed(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        tools_array: list[dict[str, object]],
+        exc: Exception,
+        iteration: int,
+        model_name: str,
+    ) -> IterationOutcome:
+        """The outcome of a failed completion.
+
+        A retry without a rejected grammar, a retry through the text tool
+        protocol when the server refused native tools, a fallback model, or
+        an error.
+        """
+        if not isinstance(exc, LLMError):
+            logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
+            exc = LLMError(status_code=500, model=model_name, body=str(exc))
+        elif (
+            self._drop_rejected_grammar(state.tool_protocol, exc)
+            or self._drop_rejected_output_limit(state.tool_protocol, exc)
+            or await self._switch_to_text_protocol(cfg, state, tools_array, exc)
+        ):
+            return IterationContinue()
+        err = await self._handle_llm_error(cfg, state, exc, iteration)
+        return IterationError(err) if err else IterationContinue()
+
+    async def _switch_to_text_protocol(
+        self, cfg: LoopConfig, state: _LoopState, tools_array: list[dict[str, object]], exc: LLMError
+    ) -> bool:
+        """Use the text tool protocol for the rest of the run when the server refused native tools.
+
+        A wrong capability (an operator's ``ollama/*=api_with_tools`` for a
+        model without tool support) then costs one failed request instead
+        of the run. Returns True when the iteration should be retried.
+        """
+        if state.tool_protocol is not None or not tools_array or not native_tools_refused(exc.status_code, exc.body):
+            return False
+        state.tool_protocol = TextToolProtocol(
+            tools_array, plan_act=cfg.plan_act_enabled, grammar=cfg.text_tool_grammar
         )
+        logger.warning(
+            "model %s refused native tools (status %d), switching to the text tool protocol: %s",
+            cfg.model,
+            exc.status_code,
+            exc.body[:200],
+        )
+        await self._runtime.send_output(
+            f"\n[Model {cfg.model} does not support native tool calls. Switching to the text tool protocol]\n"
+        )
+        return True
 
-    async def _process_llm_response(
+    @staticmethod
+    def _drop_rejected_output_limit(protocol: TextToolProtocol | None, exc: LLMError) -> bool:
+        """Stop sending max_tokens for the run when the server refused it (it exceeds the context window).
+
+        Returns True when the iteration should be retried without it: the
+        server then uses what the prompt leaves of the window.
+        """
+        if protocol is None or not protocol.send_max_tokens or not output_limit_rejected(exc.status_code, exc.body):
+            return False
+        protocol.send_max_tokens = False
+        logger.warning(
+            "the server refused max_tokens (status %d), continuing without it: %s", exc.status_code, exc.body[:200]
+        )
+        return True
+
+    @staticmethod
+    def _drop_rejected_grammar(protocol: TextToolProtocol | None, exc: LLMError) -> bool:
+        """Turn the text protocol's grammar off for the run when the server rejected it.
+
+        Returns True when the iteration should be retried without it: there
+        is no cache across runs, a later run tries the grammar again.
+        """
+        if protocol is None or not protocol.grammar or not grammar_rejected(exc.status_code, exc.body):
+            return False
+        protocol.grammar = False
+        logger.warning(
+            "the server rejected the text tool grammar (status %d), continuing without it: %s",
+            exc.status_code,
+            exc.body[:200],
+        )
+        return True
+
+    async def _handle_protocol_error(
         self,
         cfg: LoopConfig,
         state: _LoopState,
@@ -717,12 +903,38 @@ class AgentLoopExecutor:
         llm_decision: ToolCallDecision,
         full_text: str,
         messages: list[dict[str, object]],
-        *,
-        iteration: int = 0,
-        plan_act: PlanActController | None = None,
-        error_tracker: ToolErrorTracker | None = None,
+        error: TextProtocolError,
     ) -> IterationOutcome:
-        """Process LLM response: update state, report results, execute tool calls."""
+        """An unusable text protocol reply: costed, then asked once more; a second in a row ends the run.
+
+        The repair message goes into the loop's messages only (not
+        state.tool_messages), without the malformed reply.
+        """
+        await self._record_llm_turn(cfg, state, response, llm_decision, full_text, usable=False)
+        if state.protocol_repairs >= _MAX_PROTOCOL_REPAIRS:
+            return IterationError(f"text tool protocol: {error.message}")
+        state.protocol_repairs += 1
+        logger.warning("unusable text tool protocol reply, asking the model again: %s", error.message)
+        messages.append({"role": "user", "content": TextToolProtocol.repair_message(error)})
+        await self._runtime.send_output(REPAIR_NOTICE)
+        return IterationContinue()
+
+    async def _record_llm_turn(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        response: ChatCompletionResponse,
+        llm_decision: ToolCallDecision,
+        full_text: str,
+        *,
+        usable: bool = True,
+    ) -> None:
+        """Account an LLM reply: cost and tokens, its LLM tool result, trajectory and routing outcome.
+
+        An unusable text protocol reply (*usable* False) is a failed routing
+        outcome: the call worked, but the MAB router must not learn that
+        the model did the job.
+        """
         cost = resolve_cost(response.cost_usd, response.model, response.tokens_in, response.tokens_out)
         state.total_cost += cost
         state.total_tokens_in += response.tokens_in
@@ -760,7 +972,7 @@ class AgentLoopExecutor:
                 model=response.model or cfg.model,
                 task_type=cfg.task_type,
                 complexity_tier=cfg.complexity_tier,
-                success=True,
+                success=usable,
                 cost_usd=cost,
                 latency_ms=0,
                 tokens_in=response.tokens_in,
@@ -769,6 +981,22 @@ class AgentLoopExecutor:
                 run_id=self._runtime.run_id,
                 routing_config=cfg.routing_config,
             )
+
+    async def _process_llm_response(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        response: ChatCompletionResponse,
+        llm_decision: ToolCallDecision,
+        full_text: str,
+        messages: list[dict[str, object]],
+        *,
+        iteration: int = 0,
+        plan_act: PlanActController | None = None,
+        error_tracker: ToolErrorTracker | None = None,
+    ) -> IterationOutcome:
+        """Process LLM response: update state, report results, execute tool calls."""
+        await self._record_llm_turn(cfg, state, response, llm_decision, full_text)
 
         if not response.tool_calls:
             # On first iteration of agentic run, if model returns text without tool calls,
@@ -786,6 +1014,14 @@ class AgentLoopExecutor:
                     }
                 )
                 logger.warning("no tool calls on first iteration, re-prompting agent to use tools")
+                return IterationContinue()
+            if cfg.implementation_turn and not state.nudged and announces_action(response.content):
+                state.nudged = True
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": CONTINUE_NUDGE})
+                logger.warning(
+                    "announced action without a tool call at iteration %d, nudging the agent once", iteration
+                )
                 return IterationContinue()
             state.final_content = response.content
             return IterationStop()
@@ -870,33 +1106,115 @@ class AgentLoopExecutor:
 # ---------------------------------------------------------------------------
 
 
-async def _run_git(workspace_path: str, *args: str) -> None:
-    """Run a git sub-command and raise on non-zero exit.
+# A git call of the rollout workspace runs the workspace's hooks and config;
+# one that hangs (a hook, a lock) must not hold the conversation turn.
+_GIT_TIMEOUT_SECONDS: float = 120
 
-    Uses create_subprocess_exec (no shell) to avoid injection risks.
+
+async def _run_git(workspace_path: str, *args: str) -> str:
+    """Run a git sub-command, return its stdout and raise on non-zero exit or timeout.
+
+    No shell, to avoid injection risks; git runs as a tool process (it
+    executes the workspace's hooks and config), in a session of its own, so
+    that a timeout or cancel stops it and everything it started.
     """
-    proc = await asyncio.create_subprocess_exec(
+    proc = await start_tool_process(
         "git",
         *args,
         cwd=workspace_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=tool_env(),
+        start_new_session=True,
     )
-    _, stderr = await proc.communicate()
+    cmd = " ".join(args)
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_GIT_TIMEOUT_SECONDS)
+    except TimeoutError:
+        await terminate_process_group(proc)
+        raise RuntimeError(f"git {cmd} timed out after {_GIT_TIMEOUT_SECONDS} s") from None
+    except asyncio.CancelledError:
+        await terminate_process_group(proc)
+        raise
     if proc.returncode:
-        cmd = " ".join(args)
         raise RuntimeError(f"git {cmd} failed (exit {proc.returncode}): {stderr.decode()}")
+    return stdout.decode()
 
 
-async def _snapshot_workspace(workspace_path: str, rollout_id: int) -> None:
-    """Snapshot workspace state via git stash."""
-    await _run_git(workspace_path, "stash", "push", "-m", f"rollout-{rollout_id}", "--include-untracked")
+class _RolloutWorkspace:
+    """The git workspace a multi-rollout conversation runs in (KI-195).
+
+    Rollouts run only from a clean workspace (no uncommitted change, no
+    untracked file), so the user's own work is never stashed, reset or lost.
+    Each rollout's result is recorded as a git tree, the workspace is reset to
+    the start commit between rollouts, and the best rollout's tree is left in
+    the working tree, as uncommitted changes on the start commit. No ref or
+    stash entry is created. A rollout may check out another branch: HEAD is
+    pointed back at the start branch (or the start commit, when it was
+    detached) before every reset, so a reset never moves that other branch.
+
+    No rollout runs between a capture and the next reset or keep: a change
+    then (another turn or run, the user) is not a rollout's, and
+    ``changed_since_capture`` reports it before anything is reset.
+    """
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._head = ""
+        self._ref = ""  # the start branch (refs/heads/...), or "HEAD" when detached
+        self._captured = ""  # the workspace's status right after the last capture
+
+    async def start(self) -> str:
+        """Record the start commit and branch; return why rollouts cannot run here, or ""."""
+        try:
+            self._head = (await _run_git(self._path, "rev-parse", "--verify", "HEAD")).strip()
+        except RuntimeError:
+            return "no_commit"
+        self._ref = (await _run_git(self._path, "rev-parse", "--symbolic-full-name", "HEAD")).strip()
+        status = await _run_git(self._path, "status", "--porcelain", "--untracked-files=all")
+        return "uncommitted_changes" if status.strip() else ""
+
+    async def capture(self) -> str:
+        """Record the working tree (every file but ignored ones) as a git tree."""
+        await _run_git(self._path, "add", "--all")
+        tree = (await _run_git(self._path, "write-tree")).strip()
+        self._captured = await self._status()
+        return tree
+
+    async def _status(self) -> str:
+        # Porcelain v2 with --branch names HEAD's commit and branch and the
+        # index object of every entry, so a commit, a checkout, a staged or an
+        # unstaged change and a new file each change it.
+        return await _run_git(self._path, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
+
+    async def changed_since_capture(self) -> bool:
+        """Report whether the workspace changed after the last capture (no rollout ran since)."""
+        return await self._status() != self._captured
+
+    async def _restore_head(self) -> None:
+        """Point HEAD at the start branch, or detach it at the start commit; files stay as they are."""
+        if self._ref.startswith("refs/heads/"):
+            await _run_git(self._path, "symbolic-ref", "HEAD", self._ref)
+        else:
+            await _run_git(self._path, "update-ref", "--no-deref", "HEAD", self._head)
+
+    async def reset(self) -> None:
+        """Return the workspace to the start commit and branch, without the rollout's files."""
+        await self._restore_head()
+        await _run_git(self._path, "reset", "--quiet", "--hard", self._head)
+        await _run_git(self._path, "clean", "--quiet", "-d", "--force")
+
+    async def keep(self, tree: str) -> None:
+        """Leave *tree* in the working tree as uncommitted changes on the start commit."""
+        await self.reset()
+        await _run_git(self._path, "read-tree", "-u", "--reset", tree)
+        await _run_git(self._path, "reset", "--quiet", "--mixed", self._head)
 
 
-async def _restore_workspace(workspace_path: str) -> None:
-    """Restore workspace state via git checkout + clean."""
-    await _run_git(workspace_path, "checkout", ".")
-    await _run_git(workspace_path, "clean", "-fd")
+_ROLLOUT_REFUSALS = {
+    "no_commit": "the repository has no commit yet",
+    "uncommitted_changes": "the workspace has uncommitted changes",
+}
 
 
 _MAX_ROLLOUT_COUNT = 8
@@ -928,20 +1246,38 @@ class ConversationRolloutExecutor:
         if self._rollout_count <= 1:
             return await self._executor.run(messages, config=config)
 
+        workspace = _RolloutWorkspace(self._workspace)
+        refusal = await workspace.start()
+        if refusal:
+            # Rollouts reset the workspace between runs; the user's own work
+            # must not be touched (KI-195).
+            reason = _ROLLOUT_REFUSALS[refusal]
+            logger.warning("multi-rollout refused (%s), running once", reason)
+            if self._runtime is not None:
+                await self._runtime.send_output(f"\n[Multi-rollout skipped: {reason}. Running once.]\n")
+            result = await self._executor.run(messages, config=config)
+            result.metadata = {"fallback_reason": refusal}
+            return result
+
         results: list[AgentLoopResult] = []
+        trees: list[str] = []
         outputs: list[str] = []
         exit_codes: list[int] = []
         total_cost = 0.0
         total_tokens_in = 0
         total_tokens_out = 0
         early_stopped = False
+        workspace_changed = False
 
         for rollout_id in range(self._rollout_count):
             if rollout_id > 0:
-                await _restore_workspace(self._workspace)
+                if await workspace.changed_since_capture():
+                    workspace_changed = True
+                    break
+                await workspace.reset()
             config.rollout_id = rollout_id
-            await _snapshot_workspace(self._workspace, rollout_id)
             result = await self._executor.run(list(messages), config=config)
+            trees.append(await workspace.capture())
             results.append(result)
             outputs.append(result.final_content)
             exit_codes.append(1 if result.error else 0)
@@ -955,11 +1291,28 @@ class ConversationRolloutExecutor:
                 break
 
         scores = [compute_rollout_score(r) for r in results]
-        best_idx = select_best_rollout(results, scores)
+        # The workspace ends with the rollout that is reported.
+        if workspace_changed or await workspace.changed_since_capture():
+            # Someone else wrote to the workspace: nothing is reset, so it
+            # holds the last rollout and that change (KI-195).
+            workspace_changed = True
+            best_idx = len(results) - 1
+            await self._report_workspace_changed(best_idx)
+        else:
+            best_idx = select_best_rollout(results, scores)
+            await workspace.keep(trees[best_idx])
         best = results[best_idx]
         await self._publish_rollout_trajectory(
             total_rollouts=len(results), selected_index=best_idx, scores=scores, early_stopped=early_stopped
         )
+        metadata: dict[str, object] = {
+            "rollout_count": len(results),
+            "selected_index": best_idx,
+            "scores": scores,
+            "early_stopped": early_stopped,
+        }
+        if workspace_changed:
+            metadata["stopped_reason"] = "workspace_changed"
 
         return AgentLoopResult(
             final_content=best.final_content,
@@ -970,13 +1323,16 @@ class ConversationRolloutExecutor:
             step_count=best.step_count,
             model=best.model,
             error=best.error,
-            metadata={
-                "rollout_count": len(results),
-                "selected_index": best_idx,
-                "scores": scores,
-                "early_stopped": early_stopped,
-            },
+            metadata=metadata,
         )
+
+    async def _report_workspace_changed(self, last_idx: int) -> None:
+        logger.warning("workspace changed outside the rollouts, stopping after rollout %d", last_idx + 1)
+        if self._runtime is not None:
+            await self._runtime.send_output(
+                "\n[Multi-rollout stopped: the workspace changed outside the rollouts. It is left as it is, "
+                f"with the changes of rollout {last_idx + 1}.]\n"
+            )
 
     async def _publish_rollout_trajectory(
         self, total_rollouts: int, selected_index: int, scores: list[float], early_stopped: bool

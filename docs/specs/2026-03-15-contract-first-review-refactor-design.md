@@ -206,9 +206,9 @@ Central service that deduplicates all trigger sources and starts the pipeline.
 
 ### NATS Subjects
 
+> **Implementation status (2026-09-30):** `review.trigger.request` / `review.trigger.complete` were removed (KI-22): Go never published the request, and the worker's consumer started a conversation run Go could not track. Triggers run through `ReviewTriggerService` and the orchestrator's review pipeline (not wired yet, KI-17).
+
 ```
-review.trigger.request
-review.trigger.complete
 review.boundary.analyzed
 review.approval.required
 review.approval.response

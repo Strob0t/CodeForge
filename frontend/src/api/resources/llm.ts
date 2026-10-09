@@ -2,6 +2,7 @@ import type { CoreClient } from "../core";
 import { url } from "../factory";
 import type {
   AddModelRequest,
+  AvailableModelsResponse,
   CostSummary,
   DailyCost,
   DiscoverModelsResponse,
@@ -31,6 +32,9 @@ export function createLLMResource(c: CoreClient) {
     health: () => c.get<{ status: string }>("/llm/health"),
 
     discover: () => c.get<DiscoverModelsResponse>("/llm/discover"),
+
+    /** The model registry's models (LiteLLM and discovered Ollama models), as the worker routes. */
+    available: () => c.get<AvailableModelsResponse>("/llm/available"),
   };
 }
 

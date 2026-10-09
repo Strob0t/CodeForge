@@ -7,12 +7,14 @@ tools under the ``mcp__{server}__{tool}`` namespace.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
+from codeforge.policy_args import mode_allows_tool
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+
     from codeforge.mcp_workbench import McpWorkbench
 
 logger = logging.getLogger(__name__)
@@ -32,10 +34,26 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, tuple[ToolDefinition, ToolExecutor]] = {}
+        self._mode_tools: tuple[str, ...] = ()
+        self._mode_denied: tuple[str, ...] = ()
 
     def register(self, definition: ToolDefinition, executor: ToolExecutor) -> None:
-        """Register a tool definition with its executor."""
+        """Register a tool definition with its executor, unless the agent mode forbids the tool."""
+        if not mode_allows_tool(definition.name, self._mode_tools, self._mode_denied):
+            logger.debug("tool %s not registered: forbidden by the agent mode", definition.name)
+            return
         self._tools[definition.name] = (definition, executor)
+
+    def restrict_to_mode(self, tools: Sequence[str], denied: Sequence[str]) -> None:
+        """Offer only the tools the agent mode may use, now and for tools registered later.
+
+        The Go policy denies every call to a tool the mode denies or, for a
+        built-in tool, does not list (canonical names); offering such a tool
+        to the LLM would only waste turns on calls that are denied.
+        """
+        self._mode_tools, self._mode_denied = tuple(tools), tuple(denied)
+        for name in [n for n in self._tools if not mode_allows_tool(n, tools, denied)]:
+            del self._tools[name]
 
     def get_openai_tools(self) -> list[dict[str, Any]]:
         """Return all tool definitions in OpenAI function-calling format."""
@@ -114,8 +132,12 @@ class _McpToolProxy:
         )
 
 
-def build_default_registry() -> ToolRegistry:
-    """Create a ToolRegistry with all built-in tools registered."""
+def build_default_registry(*, skill_tools: bool = True) -> ToolRegistry:
+    """Create a ToolRegistry with all built-in tools registered.
+
+    *skill_tools* False leaves out search_skills and create_skill, which only
+    work once the conversation path wired them (wire_skill_tools).
+    """
     from codeforge.tools import (
         bash,
         create_skill,
@@ -138,6 +160,7 @@ def build_default_registry() -> ToolRegistry:
     registry.register(search_conversations.DEFINITION, search_conversations.SearchConversationsTool())
     registry.register(glob_files.DEFINITION, glob_files.GlobFilesTool())
     registry.register(list_directory.DEFINITION, list_directory.ListDirectoryTool())
-    registry.register(search_skills.DEFINITION, search_skills.SearchSkillsTool())
-    registry.register(create_skill.DEFINITION, create_skill.CreateSkillTool())
+    if skill_tools:
+        registry.register(search_skills.DEFINITION, search_skills.SearchSkillsTool())
+        registry.register(create_skill.DEFINITION, create_skill.CreateSkillTool())
     return registry

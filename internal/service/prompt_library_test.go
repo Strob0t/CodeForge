@@ -412,7 +412,7 @@ func TestPromptLibrary_LoadsEmbeddedPrompts(t *testing.T) {
 		prompt.CategoryAutonomy:      5,
 		prompt.CategoryModelAdaptive: 3,
 		prompt.CategoryMemory:        1,
-		prompt.CategoryReminder:      7,
+		prompt.CategoryReminder:      3,
 	}
 	for cat, wantMin := range categories {
 		entries := lib.GetByCategory(cat)

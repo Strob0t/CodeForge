@@ -24,6 +24,10 @@ type TokenManager struct {
 	store  database.Store
 	secret []byte
 	cfg    *config.Auth
+	epochs *tokenEpochCache
+	// connections closes the WebSocket connections of a user whose sessions
+	// end (nil: none to close).
+	connections connectionDropper
 }
 
 // NewTokenManager creates a token manager.
@@ -32,6 +36,7 @@ func NewTokenManager(store database.Store, cfg *config.Auth) *TokenManager {
 		store:  store,
 		secret: []byte(cfg.JWTSecret),
 		cfg:    cfg,
+		epochs: newTokenEpochCache(tokenEpochCacheTTL, tokenEpochCacheMax),
 	}
 }
 
@@ -56,6 +61,12 @@ func (t *TokenManager) RefreshTokens(ctx context.Context, rawToken string) (*use
 
 	if !u.Enabled {
 		return nil, "", errors.New("account is disabled")
+	}
+
+	// A disabled tenant's users get no tokens (tenant.ErrDisabled); the
+	// refresh token is not rotated, so it works again once the tenant is.
+	if err := tenantEnabled(ctx, t.store, u.TenantID); err != nil {
+		return nil, "", err
 	}
 
 	accessToken, err := t.signJWT(u)
@@ -105,15 +116,17 @@ func (t *TokenManager) RevokeAccessToken(ctx context.Context, jti string, expire
 }
 
 // ValidateAccessToken verifies a JWT and returns the claims.
-// It checks token revocation when a JTI is present (fail-closed on DB error).
+// It checks token revocation when a JTI is present and the user's token epoch
+// (KI-143), both fail-closed on DB error.
 func (t *TokenManager) ValidateAccessToken(tokenStr string) (*user.TokenClaims, error) {
 	claims, err := t.verifyJWT(tokenStr)
 	if err != nil {
 		return nil, err
 	}
+	ctx := context.Background()
 
 	if claims.JTI != "" {
-		revoked, dbErr := t.store.IsTokenRevoked(context.Background(), claims.JTI)
+		revoked, dbErr := t.store.IsTokenRevoked(ctx, claims.JTI)
 		if dbErr != nil {
 			slog.Error("token revocation check failed, denying token", "jti", claims.JTI, "error", dbErr)
 			return nil, errors.New("unable to verify token status")
@@ -123,6 +136,9 @@ func (t *TokenManager) ValidateAccessToken(tokenStr string) (*user.TokenClaims, 
 		}
 	}
 
+	if err := t.checkTokenEpoch(ctx, claims); err != nil {
+		return nil, err
+	}
 	return claims, nil
 }
 
@@ -182,6 +198,7 @@ func base64URLDecode(s string) ([]byte, error) {
 
 func (t *TokenManager) signJWT(u *user.User) (string, error) {
 	now := time.Now()
+	epoch := u.TokenEpoch
 	claims := user.TokenClaims{
 		UserID:             u.ID,
 		Email:              u.Email,
@@ -194,6 +211,7 @@ func (t *TokenManager) signJWT(u *user.User) (string, error) {
 		Audience:           "codeforge",
 		Issuer:             "codeforge-core",
 		MustChangePassword: u.MustChangePassword,
+		TokenEpoch:         &epoch,
 	}
 
 	payload, err := json.Marshal(claims)

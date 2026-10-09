@@ -12,6 +12,7 @@ response, the skill is treated as UNSAFE and rejected. Runtime sandboxing
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING
@@ -49,7 +50,8 @@ async def check_skill_safety(content: str, llm_client: LiteLLMClient) -> SafetyR
     Returns SafetyResult. Fails closed (safe=False) if LLM is unavailable
     or returns a malformed response, denying the skill by default.
     """
-    model = resolve_skill_selection_model()
+    # It may ask LiteLLM for its model list: off the event loop (KI-196).
+    model = await asyncio.to_thread(resolve_skill_selection_model)
     if not model:
         return SafetyResult(safe=False, risks=["no model available for safety check"])
 
@@ -68,5 +70,5 @@ async def check_skill_safety(content: str, llm_client: LiteLLMClient) -> SafetyR
             risks=list(data.get("risks", [])),
         )
     except Exception as exc:
-        logger.error("Skill safety check failed, treating as UNSAFE (fail-closed)", exc_info=True, error=str(exc))
+        logger.error("Skill safety check failed, treating as UNSAFE (fail-closed): %s", exc, exc_info=True)
         return SafetyResult(safe=False, risks=["safety check unavailable - denied by fail-closed policy"])

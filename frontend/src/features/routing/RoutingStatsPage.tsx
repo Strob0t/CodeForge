@@ -6,6 +6,7 @@ import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks";
 import { useFormState } from "~/hooks/useFormState";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import {
   Badge,
   Button,
@@ -21,6 +22,8 @@ import {
   Table,
 } from "~/ui";
 import type { TableColumn } from "~/ui/composites/Table";
+
+import { isConfiguredModel } from "./configuredModels";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -47,6 +50,22 @@ export default function RoutingStatsPage() {
     () => ({ taskType: taskType(), tier: tier() }),
     (opts) => api.routing.stats(opts.taskType || undefined, opts.tier || undefined),
   );
+  // The models the router can pick: the configured LiteLLM models and the
+  // model registry's, which also holds discovered Ollama models under their
+  // bare names (the worker routes from it). null when either could not be
+  // loaded: then no row is marked as removed.
+  const [configuredModels] = createResource(async (): Promise<string[] | null> => {
+    try {
+      const [configured, available] = await Promise.all([api.llm.models(), api.llm.available()]);
+      return [...configured, ...available.models].map((m) => m.model_name);
+    } catch {
+      return null;
+    }
+  });
+  const isRemoved = (model: string): boolean => {
+    const configured = configuredModels();
+    return configured != null && !isConfiguredModel(model, configured);
+  };
 
   // ---- Outcomes section ----
   const [outcomes, { refetch: refetchOutcomes }] = createResource(() => api.routing.outcomes(50));
@@ -89,7 +108,17 @@ export default function RoutingStatsPage() {
     {
       key: "model_name",
       header: t("routing.field.modelName"),
-      render: (row) => <span class="font-mono text-sm">{row.model_name}</span>,
+      render: (row) => (
+        <Show
+          when={isRemoved(row.model_name)}
+          fallback={<span class="font-mono text-sm">{row.model_name}</span>}
+        >
+          <span class="inline-flex items-center gap-2" title={t("routing.stats.removedHint")}>
+            <span class="font-mono text-sm text-cf-text-muted line-through">{row.model_name}</span>
+            <Badge variant="neutral">{t("routing.stats.removed")}</Badge>
+          </span>
+        </Show>
+      ),
     },
     { key: "task_type", header: t("routing.field.taskType") },
     {
@@ -263,7 +292,7 @@ export default function RoutingStatsPage() {
           <LoadingState message={t("common.loading")} />
         </Show>
         <Show when={stats.error}>
-          <ErrorBanner error={stats.error} />
+          <ErrorBanner error={() => extractErrorMessage(stats.error, String(stats.error))} />
         </Show>
         <Show when={!stats.loading && !stats.error}>
           <Show
@@ -294,7 +323,7 @@ export default function RoutingStatsPage() {
           <LoadingState message={t("common.loading")} />
         </Show>
         <Show when={outcomes.error}>
-          <ErrorBanner error={outcomes.error} />
+          <ErrorBanner error={() => extractErrorMessage(outcomes.error, String(outcomes.error))} />
         </Show>
         <Show when={!outcomes.loading && !outcomes.error}>
           <Show

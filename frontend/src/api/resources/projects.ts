@@ -6,8 +6,10 @@ import type {
   CreateProjectRequest,
   GitStatus,
   ParsedRepoURL,
+  PendingReviewDecision,
   Project,
   RepoInfo,
+  ReviewTriggerResponse,
   SetupResult,
   UpdateProjectRequest,
 } from "../types";
@@ -53,7 +55,16 @@ export function createProjectsResource(c: CoreClient) {
     getBoundaries: (id: string) => c.get<BoundaryConfig>(url`/projects/${id}/boundaries`),
 
     triggerBoundaryAnalysis: (id: string) =>
-      c.post<undefined>(url`/projects/${id}/boundaries/analyze`),
+      c.post<ReviewTriggerResponse>(url`/projects/${id}/boundaries/analyze`),
+
+    triggerReviewRefactor: (id: string, commitSha?: string) =>
+      c.post<ReviewTriggerResponse>(url`/projects/${id}/review-refactor`, {
+        commit_sha: commitSha ?? "",
+      }),
+
+    /** Refactorings of the project that wait for keep or undo. */
+    pendingReviewDecisions: (id: string) =>
+      c.get<PendingReviewDecision[]>(url`/projects/${id}/review/pending`),
   };
 }
 

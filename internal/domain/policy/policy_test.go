@@ -130,6 +130,44 @@ func TestPermissionRuleValidateValid(t *testing.T) {
 	}
 }
 
+// KI-204: a misspelled trust_minimum used to accept every trust level; it is
+// now rejected when the profile is validated.
+func TestPermissionRuleValidateTrustMinimum(t *testing.T) {
+	tests := []struct {
+		name    string
+		min     trust.Level
+		wantErr bool
+	}{
+		{"unset", "", false},
+		{"full", trust.LevelFull, false},
+		{"verified", trust.LevelVerified, false},
+		{"partial", trust.LevelPartial, false},
+		{"untrusted", trust.LevelUntrusted, false},
+		{"wrong case", "Verified", true},
+		{"unknown", "high", true},
+		{"whitespace", " ", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := PermissionRule{
+				Specifier:    ToolSpecifier{Tool: "Read"},
+				Decision:     DecisionAllow,
+				TrustMinimum: tt.min,
+			}
+			err := r.Validate()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "trust_minimum") {
+					t.Fatalf("Validate() = %v, want an error naming trust_minimum", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestIsValidMode(t *testing.T) {
 	valid := []PermissionMode{ModeDefault, ModeAcceptEdits, ModePlan, ModeDelegate}
 	for _, m := range valid {
@@ -183,21 +221,34 @@ func TestPolicyDomain_EvaluateFirstMatchWins(t *testing.T) {
 	}
 }
 
-func TestEvaluateNoMatchDenyByDefault(t *testing.T) {
-	p := PolicyProfile{
-		Name: "test",
-		Mode: ModeDefault,
-		Rules: []PermissionRule{
-			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
-		},
+// When no rule matches, the profile's permission mode decides (ADR-007).
+func TestEvaluateNoMatchUsesModeDefault(t *testing.T) {
+	tests := []struct {
+		mode PermissionMode
+		want Decision
+	}{
+		{ModePlan, DecisionDeny},
+		{ModeDefault, DecisionAsk},
+		{ModeAcceptEdits, DecisionAllow},
+		{ModeDelegate, DecisionAllow},
 	}
-
-	result := p.Evaluate(ToolCall{Tool: "Write"})
-	if result.Decision != DecisionDeny {
-		t.Errorf("expected deny by default, got %q", result.Decision)
-	}
-	if result.RuleIndex != -1 {
-		t.Errorf("expected rule index -1, got %d", result.RuleIndex)
+	for _, tt := range tests {
+		t.Run(string(tt.mode), func(t *testing.T) {
+			p := PolicyProfile{
+				Name: "test",
+				Mode: tt.mode,
+				Rules: []PermissionRule{
+					{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
+				},
+			}
+			result := p.Evaluate(ToolCall{Tool: "Write"})
+			if result.Decision != tt.want {
+				t.Errorf("expected %q, got %q", tt.want, result.Decision)
+			}
+			if result.RuleIndex != -1 {
+				t.Errorf("expected rule index -1, got %d", result.RuleIndex)
+			}
+		})
 	}
 }
 
@@ -353,9 +404,9 @@ func TestEvaluateMCPToolsFirstMatchWins(t *testing.T) {
 			ruleIdx:  3,
 		},
 		{
-			name:     "unmatched tool denied by default",
+			name:     "unmatched tool falls to the mode default (ask)",
 			call:     ToolCall{Tool: "Bash"},
-			decision: DecisionDeny,
+			decision: DecisionAsk,
 			ruleIdx:  -1,
 		},
 	}
@@ -477,13 +528,20 @@ func TestEvaluateTrustMinimumDenied(t *testing.T) {
 		},
 	}
 
+	// The allow rule does not apply (untrusted < verified), so the mode
+	// default of ModeDefault (ask) decides instead of the rule.
 	ann := &trust.Annotation{TrustLevel: trust.LevelUntrusted, Origin: "a2a"}
 	result := p.Evaluate(ToolCall{Tool: "Bash"}, WithTrust(ann))
-	if result.Decision != DecisionDeny {
-		t.Errorf("expected deny (untrusted < verified), got %q", result.Decision)
+	if result.Decision != DecisionAsk {
+		t.Errorf("expected ask (untrusted < verified, mode default), got %q", result.Decision)
 	}
 	if result.RuleIndex != -1 {
 		t.Errorf("expected no rule match, got index %d", result.RuleIndex)
+	}
+
+	p.Mode = ModePlan
+	if result := p.Evaluate(ToolCall{Tool: "Bash"}, WithTrust(ann)); result.Decision != DecisionDeny {
+		t.Errorf("expected deny (untrusted < verified, plan mode default), got %q", result.Decision)
 	}
 }
 
@@ -510,7 +568,10 @@ func TestEvaluateTrustMinimumAllowed(t *testing.T) {
 	}
 }
 
-func TestEvaluateNoTrustAnnotationBackwardsCompatible(t *testing.T) {
+// An allow rule with a trust minimum must not allow a call that carries no
+// trust annotation (fail closed); previously a missing annotation skipped
+// the check and the rule allowed untrusted calls.
+func TestEvaluateNoTrustAnnotationFailsClosed(t *testing.T) {
 	p := PolicyProfile{
 		Name: "trust-test",
 		Mode: ModeDefault,
@@ -523,78 +584,84 @@ func TestEvaluateNoTrustAnnotationBackwardsCompatible(t *testing.T) {
 		},
 	}
 
-	// No WithTrust option — rule with TrustMinimum should still match
-	// because we only filter when both rule.TrustMinimum and ctx.trust are set.
 	result := p.Evaluate(ToolCall{Tool: "Bash"})
-	if result.Decision != DecisionAllow {
-		t.Errorf("expected allow (no annotation = no filtering), got %q", result.Decision)
+	if result.Decision == DecisionAllow {
+		t.Errorf("expected no allow without a trust annotation, got %q", result.Decision)
 	}
-	if result.RuleIndex != 0 {
-		t.Errorf("expected rule index 0, got %d", result.RuleIndex)
+	if result.RuleIndex != -1 {
+		t.Errorf("expected no rule match, got index %d", result.RuleIndex)
+	}
+	result = p.Evaluate(ToolCall{Tool: "Bash"}, WithTrust(nil))
+	if result.Decision == DecisionAllow {
+		t.Errorf("expected no allow with a nil trust annotation, got %q", result.Decision)
 	}
 }
 
-// --- HasRuleForSpecifier tests ---
+// Trust minimums only restrict what an allow rule grants: deny and ask
+// rules apply to every caller.
+func TestEvaluateTrustMinimumNeverSkipsRestrictiveRules(t *testing.T) {
+	p := PolicyProfile{
+		Name: "trust-test",
+		Mode: ModeAcceptEdits,
+		Rules: []PermissionRule{
+			{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionDeny, TrustMinimum: trust.LevelVerified},
+			{Specifier: ToolSpecifier{Tool: "Edit"}, Decision: DecisionAsk, TrustMinimum: trust.LevelFull},
+		},
+	}
+	untrusted := &trust.Annotation{TrustLevel: trust.LevelUntrusted}
+	if res := p.Evaluate(ToolCall{Tool: "Bash"}, WithTrust(untrusted)); res.Decision != DecisionDeny {
+		t.Errorf("deny rule skipped for an untrusted caller: %s", res.Decision)
+	}
+	if res := p.Evaluate(ToolCall{Tool: "Edit", Path: "a"}); res.Decision != DecisionAsk {
+		t.Errorf("ask rule skipped without annotation: %s", res.Decision)
+	}
+}
 
-func TestHasRuleForSpecifier(t *testing.T) {
-	bashSpec := ToolSpecifier{Tool: "Bash"}
-	readSpec := ToolSpecifier{Tool: "Read"}
-	bashGitSpec := ToolSpecifier{Tool: "Bash", SubPattern: "git*"}
+// --- HasRule tests ---
+
+func TestHasRule(t *testing.T) {
+	bashDeny := PermissionRule{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionDeny}
+	bashGitSpec := PermissionRule{Specifier: ToolSpecifier{Tool: "Bash", SubPattern: "git*"}, Decision: DecisionAllow}
+	bashGoAllow := PermissionRule{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionAllow, CommandAllow: []string{"go"}}
 
 	profileWithRules := PolicyProfile{
-		Name: "test",
-		Mode: ModeDefault,
-		Rules: []PermissionRule{
-			{Specifier: bashSpec, Decision: DecisionDeny},
-			{Specifier: bashGitSpec, Decision: DecisionAllow},
-		},
+		Name:  "test",
+		Mode:  ModeDefault,
+		Rules: []PermissionRule{bashDeny, bashGitSpec, bashGoAllow},
 	}
 	emptyProfile := PolicyProfile{Name: "empty", Mode: ModeDefault}
 
 	tests := []struct {
 		name    string
 		profile PolicyProfile
-		spec    ToolSpecifier
+		rule    PermissionRule
 		want    bool
 	}{
-		{
-			name:    "found exact tool specifier",
-			profile: profileWithRules,
-			spec:    bashSpec,
-			want:    true,
-		},
-		{
-			name:    "found specifier with sub-pattern",
-			profile: profileWithRules,
-			spec:    bashGitSpec,
-			want:    true,
-		},
-		{
-			name:    "not found - different tool",
-			profile: profileWithRules,
-			spec:    readSpec,
-			want:    false,
-		},
-		{
-			name:    "not found - same tool different sub-pattern",
-			profile: profileWithRules,
-			spec:    ToolSpecifier{Tool: "Bash", SubPattern: "npm*"},
-			want:    false,
-		},
-		{
-			name:    "not found - empty profile rules",
-			profile: emptyProfile,
-			spec:    bashSpec,
-			want:    false,
-		},
+		{"found exact tool rule", profileWithRules, bashDeny, true},
+		{"found rule with sub-pattern", profileWithRules, bashGitSpec, true},
+		{"found rule with command list", profileWithRules, bashGoAllow, true},
+		{"not found - different tool", profileWithRules, PermissionRule{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionDeny}, false},
+		{"not found - same tool different sub-pattern", profileWithRules, PermissionRule{Specifier: ToolSpecifier{Tool: "Bash", SubPattern: "npm*"}, Decision: DecisionAllow}, false},
+		// A deny rule with the same specifier must not hide a new allow rule.
+		{"not found - same specifier different decision", profileWithRules, PermissionRule{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionAllow}, false},
+		{"not found - same specifier different command list", profileWithRules, PermissionRule{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionAllow, CommandAllow: []string{"npm"}}, false},
+		{"not found - empty profile rules", emptyProfile, bashDeny, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.profile.HasRuleForSpecifier(tt.spec)
+			got := tt.profile.HasRule(&tt.rule)
 			if got != tt.want {
-				t.Errorf("HasRuleForSpecifier(%v) = %v, want %v", tt.spec, got, tt.want)
+				t.Errorf("HasRule(%+v) = %v, want %v", tt.rule, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPermissionRuleEqualNilAndEmptyLists(t *testing.T) {
+	a := PermissionRule{Specifier: ToolSpecifier{Tool: "Edit"}, Decision: DecisionAllow}
+	b := PermissionRule{Specifier: ToolSpecifier{Tool: "Edit"}, Decision: DecisionAllow, PathDeny: []string{}}
+	if !a.Equal(&b) {
+		t.Error("nil and empty path_deny should be equal")
 	}
 }

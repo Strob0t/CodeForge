@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 )
@@ -423,9 +422,9 @@ func TestTruncateUTF8(t *testing.T) {
 
 // --- helpers ---
 
-// testGoalSvc creates a GoalDiscoveryService with a real OS filesystem and no database.
+// testGoalSvc creates a GoalDiscoveryService without a database.
 func testGoalSvc() *GoalDiscoveryService {
-	return &GoalDiscoveryService{fs: osfs.New()}
+	return &GoalDiscoveryService{}
 }
 
 func writeFile(t *testing.T, path, content string) {

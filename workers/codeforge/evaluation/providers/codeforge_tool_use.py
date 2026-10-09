@@ -7,7 +7,6 @@ Auto-registers via module import.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
 
 import yaml
 
@@ -18,9 +17,6 @@ from codeforge.evaluation.providers.base import (
     ToolCall,
     register_provider,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class CodeForgeToolUseProvider:
@@ -42,10 +38,9 @@ class CodeForgeToolUseProvider:
         return Capabilities(llm_judge=True, functional_tests=True)
 
     async def load_tasks(self) -> list[TaskSpec]:
-        from pathlib import Path as _Path
+        from codeforge.evaluation.datasets import read_dataset_text
 
-        path: Path = _Path(self._dataset_path)
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(read_dataset_text(self._dataset_path))
         tasks: list[TaskSpec] = []
         for t in raw.get("tasks", []):
             expected_tools = [

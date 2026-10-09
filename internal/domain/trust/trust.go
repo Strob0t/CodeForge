@@ -66,8 +66,20 @@ func Rank(l Level) int {
 	return r
 }
 
+// IsValidLevel reports whether l is one of the four defined levels. The
+// comparison is case-sensitive: "Verified" is not a valid level.
+func IsValidLevel(l Level) bool {
+	_, ok := levelRank[l]
+	return ok
+}
+
 // MeetsMinimum returns true if the annotation's trust level is at least
-// the specified minimum. Returns false for unknown levels.
+// the specified minimum. It fails closed: an unknown level or an unknown
+// minimum never meets (an unknown minimum used to rank -1, so every level
+// met it, KI-204).
 func (a *Annotation) MeetsMinimum(minLevel Level) bool {
+	if !IsValidLevel(a.TrustLevel) || !IsValidLevel(minLevel) {
+		return false
+	}
 	return Rank(a.TrustLevel) >= Rank(minLevel)
 }

@@ -1,5 +1,7 @@
-import { batch, createSignal, onCleanup } from "solid-js";
+import { batch, createEffect, createSignal, on, onCleanup } from "solid-js";
 
+import { api } from "~/api/client";
+import type { ConversationRunState } from "~/api/types";
 import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 import { useWebSocket } from "~/components/WebSocketProvider";
 
@@ -11,12 +13,19 @@ import type {
   RoadmapProposalState,
   ToolCallState,
 } from "./chatPanelTypes";
+import { addPermissionRequest, mergePermissionRequests, mergeStreamedText } from "./chatRunRestore";
 
 interface UseChatAGUIOptions {
   activeConversation: () => string | null;
   scrollToBottom: () => void;
   refetchMessages: () => void;
   refetchSession: () => void;
+  /**
+   * Called when the active conversation's agent may have changed the
+   * workspace (a tool result, the turn's end), e.g. to refresh the branch
+   * badge (KI-129).
+   */
+  onWorkspaceActivity?: () => void;
 }
 
 export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
@@ -26,6 +35,11 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   const [streamingContent, setStreamingContent] = createSignal("");
   // Track whether the assistant is actively processing via run_started / run_finished
   const [agentRunning, setAgentRunning] = createSignal(false);
+  // Runs of the active conversation that started and finished: a restore
+  // whose answer comes after one of them describes an older state, and the
+  // live events show the current one (KI-148).
+  let runsStarted = 0;
+  let runsFinished = 0;
   // Error message from a failed run, shown as a system message in the chat
   const [runError, setRunError] = createSignal<string | null>(null);
 
@@ -92,6 +106,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   const cleanupRunStarted = onAGUIEvent("agui.run_started", (payload) => {
     const runId = payload.run_id as string;
     if (runId === opts.activeConversation()) {
+      runsStarted++;
       batch(() => {
         setAgentRunning(true);
         setStreamingContent("");
@@ -122,15 +137,18 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
     const runId = payload.run_id as string;
     if (runId === opts.activeConversation()) {
       const callId = payload.call_id as string;
+      const rawArgs = (payload.args as string | undefined) ?? "";
       let args: Record<string, unknown> | undefined;
+      let argsText: string | undefined;
       try {
-        args = JSON.parse(payload.args as string) as Record<string, unknown>;
+        args = JSON.parse(rawArgs) as Record<string, unknown>;
       } catch {
-        // args may not be valid JSON
+        // No JSON (a preview cut with "..."): the card shows the text.
+        argsText = rawArgs || undefined;
       }
       setToolCalls((prev) => [
         ...prev,
-        { callId, name: payload.name as string, args, status: "running" },
+        { callId, name: payload.name as string, args, argsText, status: "running" },
       ]);
       setStepCount((n) => n + 1);
       opts.scrollToBottom();
@@ -150,13 +168,15 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
           tc.callId === callId
             ? {
                 ...tc,
-                result: payload.result as string,
+                // A denied call has no output, only the reason as its error.
+                result: (payload.result as string | undefined) || error,
                 status: error ? "failed" : "completed",
                 diff,
               }
             : tc,
         ),
       );
+      opts.onWorkspaceActivity?.();
       // Track running cost if the event carries it
       if (typeof payload.cost_usd === "number") {
         setRunningCost((prev) => prev + (payload.cost_usd as number));
@@ -192,6 +212,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   const cleanupRunFinished = onAGUIEvent("agui.run_finished", (payload) => {
     const runId = payload.run_id as string;
     if (runId === opts.activeConversation()) {
+      runsFinished++;
       const status = payload.status as string;
       const errorMsg = payload.error as string | undefined;
       // Extract usage data from run_finished payload
@@ -227,6 +248,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
 
       opts.refetchMessages();
       opts.refetchSession();
+      opts.onWorkspaceActivity?.();
     }
   });
 
@@ -287,7 +309,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
 
   const cleanupPermissionRequest = onAGUIEvent("agui.permission_request", (payload) => {
     if (payload.run_id === opts.activeConversation()) {
-      setPermissionRequests((prev) => [...prev, payload]);
+      setPermissionRequests((prev) => addPermissionRequest(prev, payload));
       opts.scrollToBottom();
     }
   });
@@ -304,6 +326,48 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
       setActionSuggestions((prev) => [...prev, suggestion]);
     }
   });
+
+  // On page load (and when switching conversations) the chat restores the
+  // running turn from the Core: the running state, the text streamed so far
+  // and every pending approval, so a reload does not lose them (KI-148).
+  // The caller cleared the streamed text, so what it holds when the answer
+  // comes arrived after the request was sent.
+  async function restoreRun(conversationId: string): Promise<void> {
+    const startedBefore = runsStarted;
+    const finishedBefore = runsFinished;
+    let state: ConversationRunState;
+    try {
+      state = await api.conversations.runState(conversationId);
+    } catch {
+      return; // best effort: the live events still arrive
+    }
+    // A run that started or finished meanwhile is shown by its live events.
+    if (
+      !state.active ||
+      conversationId !== opts.activeConversation() ||
+      runsStarted !== startedBefore ||
+      runsFinished !== finishedBefore
+    ) {
+      return;
+    }
+    batch(() => {
+      setAgentRunning(true);
+      setStreamingContent((cur) => mergeStreamedText(state.streamed_text ?? "", cur));
+      setPermissionRequests((prev) => mergePermissionRequests(prev, state.pending_approvals));
+    });
+    opts.scrollToBottom();
+  }
+  createEffect(
+    on(opts.activeConversation, (cid) => {
+      // Cards and text of the conversation shown before do not carry over.
+      batch(() => {
+        setPermissionRequests([]);
+        setResolvedPermissions(new Set<string>());
+        setStreamingContent("");
+      });
+      if (cid) void restoreRun(cid);
+    }),
+  );
 
   onCleanup(() => {
     cleanupRunStarted();

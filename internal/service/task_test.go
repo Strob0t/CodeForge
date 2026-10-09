@@ -14,8 +14,12 @@ type mockQueue struct {
 		subject string
 		data    []byte
 	}
-	publishErr error
+	publishErr    error
+	subscriptions []string
 }
+
+// subscribed returns the subjects subscribed to.
+func (q *mockQueue) subscribed() []string { return q.subscriptions }
 
 func (q *mockQueue) Publish(_ context.Context, subject string, data []byte) error {
 	if q.publishErr != nil {
@@ -32,7 +36,8 @@ func (q *mockQueue) PublishWithDedup(ctx context.Context, subject string, data [
 	return q.Publish(ctx, subject, data)
 }
 
-func (q *mockQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
+func (q *mockQueue) Subscribe(_ context.Context, subject string, _ messagequeue.Handler) (func(), error) {
+	q.subscriptions = append(q.subscriptions, subject)
 	return func() {}, nil
 }
 

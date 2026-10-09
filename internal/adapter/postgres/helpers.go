@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
@@ -31,6 +32,32 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// sqlStateForeignKeyViolation is PostgreSQL's foreign_key_violation.
+const sqlStateForeignKeyViolation = "23503"
+
+// accountRef is the users row a write references for the calling user: none
+// for a write without a user or by one of the synthetic identities without a
+// row (user.IsAccountless), else the user's ID. A user whose row is gone -
+// erased or deleted while its access token is still valid - then fails the
+// foreign key instead of being recorded by name only, which the GDPR erasure
+// could not find (KI-89 review); see accountGone.
+func accountRef(userID string) *string {
+	if user.IsAccountless(userID) {
+		return nil
+	}
+	return nullIfEmpty(userID)
+}
+
+// accountGone maps err to user.ErrAccountGone when it is the violation of
+// constraint, a foreign key to users that accountRef filled.
+func accountGone(err error, constraint string) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == sqlStateForeignKeyViolation && pgErr.ConstraintName == constraint {
+		return user.ErrAccountGone
+	}
+	return err
 }
 
 // nullTime converts a zero time to nil for nullable DB columns.
@@ -107,6 +134,51 @@ func unmarshalJSONField[T any](data []byte, target *T, field string) error {
 	return nil
 }
 
+// Status predicates: run, plan and team updates carry `status <> ALL(<terminal
+// states>)` in their WHERE clause, so an entity that ended is never written
+// back to an earlier state (KI-31). PostgreSQL re-evaluates the predicate
+// after waiting for a concurrent writer's row lock, which makes the terminal
+// update win the race.
+
+// statusStrings converts domain statuses into the text[] parameter of a
+// status predicate.
+func statusStrings[S ~string](statuses []S) []string {
+	out := make([]string, len(statuses))
+	for i, st := range statuses {
+		out[i] = string(st)
+	}
+	return out
+}
+
+// guardedUpdateResult interprets the result of an UPDATE guarded by a status
+// predicate. When no row changed, existsSQL (parameters: id, tenant) tells a
+// row the predicate refused - domain.ErrConflict - from a missing row or
+// another tenant's - domain.ErrNotFound.
+func (s *Store) guardedUpdateResult(ctx context.Context, tag pgconn.CommandTag, err error, existsSQL, op, id string) error {
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", op, id, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	return s.refusedUpdate(ctx, existsSQL, op, id)
+}
+
+// refusedUpdate explains a guarded UPDATE that changed no row: existsSQL
+// (parameters: id, tenant) tells a row the predicate refused -
+// domain.ErrConflict - from a missing row or another tenant's -
+// domain.ErrNotFound.
+func (s *Store) refusedUpdate(ctx context.Context, existsSQL, op, id string) error {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, existsSQL, id, tenantFromCtx(ctx)).Scan(&exists); err != nil {
+		return fmt.Errorf("%s %s: %w", op, id, err)
+	}
+	if exists {
+		return fmt.Errorf("%s %s: %w", op, id, domain.ErrConflict)
+	}
+	return fmt.Errorf("%s %s: %w", op, id, domain.ErrNotFound)
+}
+
 // execExpectOne verifies that an Exec affected exactly one row. If not
 // (and err is nil), it returns domain.ErrNotFound with the given message.
 func execExpectOne(tag pgconn.CommandTag, err error, format string, args ...any) error {
@@ -114,6 +186,18 @@ func execExpectOne(tag pgconn.CommandTag, err error, format string, args ...any)
 		return fmt.Errorf(fmt.Sprintf(format, args...)+": %w", err)
 	}
 	if tag.RowsAffected() == 0 {
+		return fmt.Errorf(fmt.Sprintf(format, args...)+": %w", domain.ErrNotFound)
+	}
+	return nil
+}
+
+// expectOneUpdated is execExpectOne for a statement that returned its count
+// of updated rows.
+func expectOneUpdated(n int64, err error, format string, args ...any) error {
+	if err != nil {
+		return fmt.Errorf(fmt.Sprintf(format, args...)+": %w", err)
+	}
+	if n == 0 {
 		return fmt.Errorf(fmt.Sprintf(format, args...)+": %w", domain.ErrNotFound)
 	}
 	return nil

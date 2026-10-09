@@ -1,12 +1,18 @@
 package gitlab
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
@@ -52,7 +58,7 @@ func TestGitLab_ListItems(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	items, err := p.ListItems(context.Background(), "mygroup/myproject")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -83,7 +89,7 @@ func TestGitLab_GetItem(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	item, err := p.GetItem(context.Background(), "mygroup/myproject", "42")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -109,7 +115,7 @@ func TestGitLab_CreateItem(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	result, err := p.CreateItem(context.Background(), "mygroup/myproject", &pmprovider.Item{
 		Title:       "New Issue",
 		Description: "Some description",
@@ -132,7 +138,7 @@ func TestUpdateItem(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	result, err := p.UpdateItem(context.Background(), "mygroup/myproject", &pmprovider.Item{
 		ID:          "5",
 		Title:       "Updated",
@@ -154,7 +160,7 @@ func TestAPIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	_, err := p.ListItems(context.Background(), "nonexistent/project")
 	if err == nil {
 		t.Fatal("expected error for 404 response")
@@ -178,4 +184,46 @@ func TestMapStatusToStateEvent(t *testing.T) {
 			t.Errorf("mapStatusToStateEvent(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
+}
+
+// KI-149: a project GitLab does not know is a reference the caller got wrong,
+// so the sync answers 404 instead of 500; other failures stay unclassified.
+func TestListItems_UnknownProjectIsNotFound(t *testing.T) {
+	for _, tc := range []struct {
+		status       int
+		wantNotFound bool
+	}{
+		{http.StatusNotFound, true},
+		{http.StatusInternalServerError, false},
+		{http.StatusUnauthorized, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, `{"message":"404 Project Not Found"}`, tc.status)
+		}))
+		logged := captureWarnings(t)
+		p := newLoopbackProvider(t, srv.URL, "test-token")
+		_, err := p.ListItems(context.Background(), "no/such-project")
+		srv.Close()
+		// The operator still sees what GitLab answered (KI-149 review).
+		if tc.wantNotFound && (!strings.Contains(logged.String(), "level=WARN") || !strings.Contains(logged.String(), strconv.Itoa(tc.status))) {
+			t.Errorf("status %d: warning log %q, want the upstream status", tc.status, logged.String())
+		}
+		if err == nil {
+			t.Fatalf("status %d: expected an error", tc.status)
+		}
+		if got := errors.Is(err, domain.ErrNotFound); got != tc.wantNotFound {
+			t.Errorf("status %d: errors.Is(err, ErrNotFound) = %v, want %v (%v)", tc.status, got, tc.wantNotFound, err)
+		}
+	}
+}
+
+// captureWarnings records what is logged at warn and above while the test
+// runs (the tests of this package do not run in parallel).
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
 }

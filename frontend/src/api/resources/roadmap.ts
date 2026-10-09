@@ -11,6 +11,8 @@ import type {
   PMImportRequest,
   Roadmap,
   RoadmapFeature,
+  RoadmapSyncRequest,
+  RoadmapSyncResult,
 } from "../types";
 
 export function createRoadmapResource(c: CoreClient) {
@@ -51,5 +53,9 @@ export function createRoadmapResource(c: CoreClient) {
 
     syncToFile: (projectId: string) =>
       c.post<{ status: string }>(url`/projects/${projectId}/roadmap/sync-to-file`),
+
+    /** Bidirectional sync with a PM tool (pull, push or both). */
+    sync: (projectId: string, data: RoadmapSyncRequest) =>
+      c.post<RoadmapSyncResult>(url`/projects/${projectId}/roadmap/sync`, data),
   };
 }

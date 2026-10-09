@@ -7,6 +7,7 @@ dedicated execute_a2a_task method on AgentExecutor.
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -20,14 +21,13 @@ from codeforge.models import A2ATaskCreatedMessage, TaskResult, TaskStatus
 class _TestMixin(A2AHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js: AsyncMock | None = AsyncMock()
-        self._processed_ids: set[str] = set()
-        self._processed_ids_max = 10_000
         self._executor = MagicMock()
 
 
 @pytest.fixture(autouse=True)
-def _fresh_state() -> None:
-    ConsumerBaseMixin._processed_ids = set()
+def _fresh_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test an empty class-level dedup cache and restore the original afterwards."""
+    monkeypatch.setattr(ConsumerBaseMixin, "_processed_ids", OrderedDict())
 
 
 def _make_msg(data: dict) -> MagicMock:

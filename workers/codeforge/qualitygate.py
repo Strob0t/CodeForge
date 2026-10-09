@@ -7,12 +7,18 @@ commands in the project workspace, and reports results back.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import shlex
+import signal
 
 import structlog
 
 from codeforge.constants import DEFAULT_QG_TIMEOUT_SECONDS
+from codeforge.history import DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncate_tool_result
 from codeforge.models import QualityGateRequest, QualityGateResult
+from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import start_tool_process
 
 logger = structlog.get_logger()
 
@@ -46,87 +52,206 @@ _ALLOWED_COMMANDS: frozenset[str] = frozenset(
 )
 
 
+def _split_command(command: str) -> list[str] | None:
+    """Split a command like a POSIX shell; None when it cannot be split."""
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return None
+
+
+# pytest's exit status when it collected no tests.
+_PYTEST_NO_TESTS = 5
+
+
+def _runs_pytest(command: str) -> bool:
+    """Whether the command runs pytest (pytest ..., python -m pytest ...)."""
+    argv = _split_command(command) or []
+    return argv[:1] in (["pytest"], ["py.test"]) or (
+        argv[:1] in (["python"], ["python3"]) and argv[1:3] == ["-m", "pytest"]
+    )
+
+
 def _is_command_allowed(command: str) -> bool:
-    """Return True if the command's base executable is on the allowlist."""
-    parts = shlex.split(command)
+    """Return True if the command splits and its executable is on the allowlist."""
+    parts = _split_command(command)
     if not parts:
         return False
     return parts[0] in _ALLOWED_COMMANDS
 
 
 class QualityGateExecutor:
-    """Executes test and lint commands and returns pass/fail results."""
+    """Executes test and lint commands and returns pass/fail results.
+
+    A check that ran reports whether it passed (the command's exit code). A
+    check that could not run or did not finish (no command, a command that
+    is invalid, not allowed or cannot start, a timeout) has no verdict: its
+    ``*_passed`` stays None and the reason goes to ``error``, which fails
+    the gate without counting as a failed check - the Go Core then neither
+    rolls the workspace back nor counts it against the agent.
+
+    A failed check's output starts with its exit code (KI-126). Each output
+    is bounded to the request's tool_output_max_chars, keeping head and
+    tail: the result must stay below the NATS max payload, or its publish
+    fails and the gate runs again.
+    """
 
     def __init__(self, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> None:
         self._timeout = timeout_seconds
 
-    async def execute(self, request: QualityGateRequest) -> QualityGateResult:
-        """Run the requested quality gate checks and return the result."""
+    async def execute(self, request: QualityGateRequest, *, no_tests_is_no_verdict: bool = False) -> QualityGateResult:
+        """Run the requested quality gate checks and return the result.
+
+        With *no_tests_is_no_verdict* a pytest run that collected no tests
+        (exit code 5) has no verdict instead of failing (the auto-agent's
+        verification, KI-152 review).
+        """
         log = logger.bind(run_id=request.run_id, project_id=request.project_id)
         log.info("quality gate execution started")
 
         result = QualityGateResult(run_id=request.run_id)
+        timeout = request.timeout_seconds or self._timeout
+        max_chars = request.tool_output_max_chars or DEFAULT_TOOL_OUTPUT_MAX_CHARS
+        errors: list[str] = []
 
-        if request.run_tests and request.test_command:
-            passed, output = await self._run_command(
+        # A requested check is never skipped: without a command it fails the
+        # gate instead of passing it (KI-29).
+        if request.run_tests:
+            result.tests_passed, result.test_output = await self._run_check(
+                "test",
                 request.test_command,
                 request.workspace_path,
                 log,
+                timeout,
+                max_chars,
+                no_tests_is_no_verdict=no_tests_is_no_verdict,
             )
-            result.tests_passed = passed
-            result.test_output = output
+            if result.tests_passed is None:
+                errors.append(f"test check could not run: {result.test_output}")
 
-        if request.run_lint and request.lint_command:
-            passed, output = await self._run_command(
-                request.lint_command,
-                request.workspace_path,
-                log,
+        if request.run_lint:
+            result.lint_passed, result.lint_output = await self._run_check(
+                "lint", request.lint_command, request.workspace_path, log, timeout, max_chars
             )
-            result.lint_passed = passed
-            result.lint_output = output
+            if result.lint_passed is None:
+                errors.append(f"lint check could not run: {result.lint_output}")
 
+        result.error = "; ".join(errors)
         log.info(
             "quality gate execution completed",
             tests_passed=result.tests_passed,
             lint_passed=result.lint_passed,
+            error=result.error,
         )
         return result
+
+    async def _run_check(
+        self,
+        check: str,
+        command: str,
+        cwd: str,
+        log: structlog.stdlib.BoundLogger,
+        timeout_seconds: int,
+        max_chars: int,
+        *,
+        no_tests_is_no_verdict: bool = False,
+    ) -> tuple[bool | None, str]:
+        """Run one requested check; a check without a command has no verdict."""
+        if not command.strip():
+            log.warning("quality gate check has no command", check=check)
+            return None, f"no command for the {check} check"
+        passed, output, returncode = await self._run_command(command, cwd, log, timeout_seconds)
+        if no_tests_is_no_verdict and returncode == _PYTEST_NO_TESTS and _runs_pytest(command):
+            return None, truncate_tool_result(
+                f"no tests ran: pytest collected no tests (exit code 5)\n{output}", max_chars
+            )
+        if passed is False:
+            output = f"exit code {returncode}\n{output}"
+        return passed, truncate_tool_result(output, max_chars)
+
+    async def run_command(
+        self,
+        command: str,
+        cwd: str,
+        log: structlog.stdlib.BoundLogger,
+        timeout_seconds: int | None = None,
+    ) -> tuple[bool | None, str]:
+        """Run an allowlisted command like a gate check (the auto-agent's workspace tests)."""
+        passed, output, _ = await self._run_command(command, cwd, log, timeout_seconds)
+        return passed, output
 
     async def _run_command(
         self,
         command: str,
         cwd: str,
         log: structlog.stdlib.BoundLogger,
-    ) -> tuple[bool, str]:
-        """Run a shell command and return (passed, output)."""
+        timeout_seconds: int | None = None,
+    ) -> tuple[bool | None, str, int | None]:
+        """Run a command and return (passed, output, exit code); passed is None without a verdict.
+
+        The command runs in a process group of its own (start_new_session):
+        on timeout, and whenever the gate stops waiting for it, the whole group
+        is killed, so neither the command nor anything it started keeps running
+        or keeps its output pipe open (KI-28).
+        """
+        timeout = timeout_seconds or self._timeout
+        argv = _split_command(command)
+        if argv is None:
+            log.warning("quality gate command rejected: invalid", command=command)
+            return None, f"invalid command: {command!r}", None
         if not _is_command_allowed(command):
             log.warning("quality gate command rejected: not on allowlist", command=command)
-            return False, f"command not allowed: {command!r}. Only approved commands may run."
-        log.debug("running gate command", command=command, cwd=cwd)
+            return None, f"command not allowed: {command!r}. Only approved commands may run.", None
+        log.debug("running gate command", command=command, cwd=cwd, timeout_seconds=timeout)
         try:
-            args = shlex.split(command)
-            proc = await asyncio.create_subprocess_exec(
-                *args,
+            proc = await start_tool_process(
+                *argv,
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                env=tool_env(),
+                start_new_session=True,
             )
-            stdout, _ = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=self._timeout,
-            )
-            output = stdout.decode(errors="replace") if stdout else ""
-            passed = proc.returncode == 0
-            log.info(
-                "gate command finished",
-                command=command,
-                passed=passed,
-                returncode=proc.returncode,
-            )
-            return passed, output
-        except TimeoutError:
-            log.warning("gate command timed out", command=command)
-            return False, f"command timed out after {self._timeout}s"
         except Exception as exc:
             log.error("gate command error", command=command, error=str(exc))
-            return False, str(exc)
+            return None, f"command could not start: {exc}", None
+
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except TimeoutError:
+            log.warning("gate command timed out, killing its process group", command=command, timeout_seconds=timeout)
+            await _kill_process_group(proc, log)
+            return None, f"command timed out after {timeout}s", None
+        except Exception as exc:
+            log.error("gate command error", command=command, error=str(exc))
+            await _kill_process_group(proc, log)
+            return None, str(exc), None
+        finally:
+            # Cancelled (worker shutdown) or failed while waiting: leave nothing behind.
+            if proc.returncode is None:
+                _signal_process_group(proc)
+
+        output = stdout.decode(errors="replace") if stdout else ""
+        passed = proc.returncode == 0
+        log.info("gate command finished", command=command, passed=passed, returncode=proc.returncode)
+        return passed, output, proc.returncode
+
+
+# How long a killed gate command may take to release its output pipe.
+_REAP_TIMEOUT_SECONDS = 5
+
+
+def _signal_process_group(proc: asyncio.subprocess.Process) -> None:
+    """Send SIGKILL to the command's process group (its pid: start_new_session)."""
+    with contextlib.suppress(ProcessLookupError):  # the whole group already exited
+        os.killpg(proc.pid, signal.SIGKILL)
+
+
+async def _kill_process_group(proc: asyncio.subprocess.Process, log: structlog.stdlib.BoundLogger) -> None:
+    """Kill the command's process group and reap the command."""
+    _signal_process_group(proc)
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=_REAP_TIMEOUT_SECONDS)
+    except TimeoutError:
+        # A process that left the group (setsid) still holds the output pipe.
+        log.warning("killed gate command still holds its output open", pid=proc.pid)

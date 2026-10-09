@@ -1,19 +1,21 @@
 package service
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // DeliveryResult holds the outcome of a delivery operation.
@@ -24,18 +26,65 @@ type DeliveryResult struct {
 	BranchName string          `json:"branch_name,omitempty"`
 	PRURL      string          `json:"pr_url,omitempty"`
 	PushError  string          `json:"push_error,omitempty"` // P2-5: propagate push failure
+	// PRError says why PR delivery opened no pull request (it then stays a
+	// branch delivery).
+	PRError string `json:"pr_error,omitempty"`
 }
 
-// DeliverService executes delivery strategies after a successful run.
+// DeliverService executes delivery strategies after a successful run. All
+// git runs through git.OpenRepo's hardened repository (KI-77): the
+// workspace is agent-writable, so its hooks, filters, drivers and transport
+// settings must not run in the Go Core. Pull requests are opened through the
+// provider's REST API (KI-117), never by a CLI in the workspace.
 type DeliverService struct {
 	store database.Store
 	cfg   *config.Runtime
 	pool  *git.Pool
+	// pushURL, when set, maps the project's repository URL to the URL
+	// branch delivery pushes to (tests point it at a local server).
+	pushURL func(repoURL string) string
+	// githubToken is the operator's GitHub token (github.token); it opens
+	// pull requests of github.com repositories in the default tenant only.
+	githubToken string
+	// pullRequests builds the git provider that opens a pull request.
+	pullRequests func(name string, cfg map[string]string) (gitprovider.PullRequestCreator, error)
+	// protection evaluates the project's branch protection rules (KI-205,
+	// deliver_protection.go); profiles tells which quality gate a run passed.
+	protection *BranchProtectionService
+	profiles   gateProfiles
 }
 
 // NewDeliverService creates a new DeliverService with a shared git pool.
 func NewDeliverService(store database.Store, cfg *config.Runtime, pool *git.Pool) *DeliverService {
-	return &DeliverService{store: store, cfg: cfg, pool: pool}
+	return &DeliverService{store: store, cfg: cfg, pool: pool, pullRequests: pullRequestProvider, protection: NewBranchProtectionService(store)}
+}
+
+// SetOperatorGitHubToken sets the operator's GitHub token (github.token).
+func (s *DeliverService) SetOperatorGitHubToken(token string) {
+	s.githubToken = token
+}
+
+// pullRequestProvider builds the registered git provider name with cfg and
+// returns it when it opens pull requests.
+func pullRequestProvider(name string, cfg map[string]string) (gitprovider.PullRequestCreator, error) {
+	provider, err := gitprovider.New(name, cfg)
+	if err != nil {
+		return nil, err
+	}
+	creator, ok := provider.(gitprovider.PullRequestCreator)
+	if !ok {
+		return nil, fmt.Errorf("git provider %q does not open pull requests", name)
+	}
+	return creator, nil
+}
+
+// deliveryIdentity is the author of delivery commits in a repository that
+// configures none (the Go Core ignores global git config).
+var deliveryIdentity = []string{
+	"GIT_AUTHOR_NAME=CodeForge",
+	"GIT_AUTHOR_EMAIL=codeforge@codeforge.invalid",
+	"GIT_COMMITTER_NAME=CodeForge",
+	"GIT_COMMITTER_EMAIL=codeforge@codeforge.invalid",
 }
 
 // Deliver executes the delivery strategy for the given run.
@@ -58,31 +107,44 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 	if len(shortID) > 8 {
 		shortID = shortID[:8]
 	}
+	if err := s.checkDeliveryPush(ctx, r, shortID); err != nil {
+		return nil, fmt.Errorf("%s delivery: %w", r.DeliverMode, err)
+	}
 
 	switch r.DeliverMode {
 	case run.DeliverModePatch:
-		return s.deliverPatch(ctx, dir, r, shortID)
+		return s.deliverPatch(ctx, dir, r)
 	case run.DeliverModeCommitLocal:
 		return s.deliverCommitLocal(ctx, dir, r, shortID, taskTitle)
 	case run.DeliverModeBranch:
-		return s.deliverBranch(ctx, dir, r, shortID, taskTitle)
+		return s.deliverBranch(ctx, proj, r, shortID, taskTitle)
 	case run.DeliverModePR:
-		return s.deliverPR(ctx, dir, r, shortID, taskTitle)
+		return s.deliverPR(ctx, proj, r, shortID, taskTitle)
 	default:
 		return nil, fmt.Errorf("unsupported deliver mode %q", r.DeliverMode)
 	}
 }
 
-func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run, shortID string) (*DeliveryResult, error) {
+// deliverPatch writes the run's change as a patch: the working tree
+// (including new files) against the run's base checkpoint, the working tree
+// before its first change, so the user's earlier uncommitted work and files
+// of earlier deliveries are not part of it. The diff is taken from a private
+// index (the user's index is not touched) before the checkpoints are cleaned
+// up, and the patch is written inside the repository's .git directory, where
+// git does not see it as a change.
+func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		diff, err := runDeliverGit(ctx, dir, "diff", "HEAD")
+		repo, err := git.OpenRepo(ctx, dir)
 		if err != nil {
-			return fmt.Errorf("git diff: %w", err)
+			return fmt.Errorf("patch delivery: %w", err)
 		}
-
-		patchFile := filepath.Join(dir, fmt.Sprintf("%s.patch", shortID))
-		if err := os.WriteFile(patchFile, []byte(diff), 0o600); err != nil {
+		diff, err := runChange(ctx, repo, r.ID)
+		if err != nil {
+			return fmt.Errorf("patch delivery: %w", err)
+		}
+		patchFile, err := writePatch(repo, r.ID, diff)
+		if err != nil {
 			return fmt.Errorf("write patch: %w", err)
 		}
 
@@ -96,60 +158,140 @@ func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Ru
 	return result, err
 }
 
+// runChange returns the run's change as a binary diff: its base checkpoint
+// against the working tree now.
+func runChange(ctx context.Context, repo *git.Repo, runID string) (string, error) {
+	if err := checkRunID(runID); err != nil {
+		return "", err
+	}
+	tip, _, err := readCheckpointRef(ctx, repo, runID)
+	if err != nil {
+		return "", err
+	}
+	if tip == "" {
+		return "", fmt.Errorf("run %s: %w: its change is unknown", runID, ErrNoCheckpoints)
+	}
+	base, err := resolveBase(ctx, repo, tip)
+	if err != nil {
+		return "", err
+	}
+	idx, err := newWorktreeIndex(ctx, repo)
+	if err != nil {
+		return "", fmt.Errorf("patch index: %w", err)
+	}
+	defer idx.remove()
+	args := append([]string{"diff", "--cached", "--binary"}, git.DiffFormatArgs...)
+	diff, err := repo.Run(ctx, idx.env, append(args, base.commit, "--")...)
+	if err != nil {
+		return "", fmt.Errorf("git diff: %w", err)
+	}
+	return diff, nil
+}
+
+// patchDir is where patches are written, relative to the .git directory.
+const patchDir = "codeforge/patches"
+
+// writePatch writes the patch to .git/codeforge/patches/<run>.patch and
+// returns its path. The directory is agent-writable: all access goes through
+// workspacefs on .git (os.Root, never blocking: a FIFO swapped in for .git
+// after git.OpenRepo looked at it would otherwise hold a slot of the shared
+// git pool), which refuses symlinks leading out of it; the directories must
+// not be symlinks at all, and an existing file (or symlink) of that name is
+// replaced, never written through.
+func writePatch(repo *git.Repo, runID, diff string) (string, error) {
+	root, err := workspacefs.Open(repo.GitDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	for _, d := range []string{"codeforge", patchDir} {
+		if err := root.Mkdir(d, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+		info, err := root.Lstat(d)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf(".git/%s is not a directory", d)
+		}
+	}
+	name := patchDir + "/" + runID + ".patch"
+	if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	if err := root.CreateExclusive(name, []byte(diff), 0o600); err != nil {
+		return "", err
+	}
+	return filepath.Join(repo.GitDir, filepath.FromSlash(name)), nil
+}
+
 func (s *DeliverService) deliverCommitLocal(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
-			return fmt.Errorf("git add: %w", err)
-		}
-
-		msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
-		if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
-			return fmt.Errorf("git commit: %w", err)
-		}
-
-		hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
+		repo, err := git.OpenRepo(ctx, dir)
 		if err != nil {
-			return fmt.Errorf("git rev-parse: %w", err)
+			return fmt.Errorf("commit-local delivery: %w", err)
 		}
-
-		slog.Info("commit-local delivered", "run_id", r.ID, "hash", strings.TrimSpace(hash))
+		rc, err := buildRunCommit(ctx, repo, r.ID, s.commitMessage(shortID, taskTitle))
+		if err != nil {
+			return fmt.Errorf("commit-local delivery: %w", err)
+		}
+		if err := s.checkCommitLocal(ctx, r, shortID, rc.headRef); err != nil {
+			return fmt.Errorf("commit-local delivery: %w", err)
+		}
+		if err := rc.advanceHead(ctx, repo); err != nil {
+			return fmt.Errorf("commit-local delivery: %w", err)
+		}
+		rc.syncIndex(ctx, repo)
+		slog.Info("commit-local delivered", "run_id", r.ID, "hash", rc.commit)
 		result = &DeliveryResult{
 			Mode:       run.DeliverModeCommitLocal,
-			CommitHash: strings.TrimSpace(hash),
+			CommitHash: rc.commit,
 		}
 		return nil
 	})
 	return result, err
 }
 
-func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
+func (s *DeliverService) commitMessage(shortID, taskTitle string) string {
+	return fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
+}
+
+// deliverBranch commits the run's change on the branch codeforge/<run> and
+// pushes it to the project's repository URL (KI-188), never to the remote
+// the agent-writable workspace config names. A project without a
+// repository URL keeps the branch local and reports why.
+func (s *DeliverService) deliverBranch(ctx context.Context, proj *project.Project, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		branchName := fmt.Sprintf("codeforge/%s", shortID)
-
-		if _, err := runDeliverGit(ctx, dir, "checkout", "-b", branchName); err != nil {
-			return fmt.Errorf("git checkout -b: %w", err)
-		}
-
-		// Commit on the new branch (add, commit, rev-parse)
-		if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
-			return fmt.Errorf("git add: %w", err)
-		}
-
-		msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
-		if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
-			return fmt.Errorf("git commit: %w", err)
-		}
-
-		hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
+		repo, err := git.OpenRepo(ctx, proj.WorkspacePath)
 		if err != nil {
-			return fmt.Errorf("git rev-parse: %w", err)
+			return fmt.Errorf("branch delivery: %w", err)
 		}
-		commitHash := strings.TrimSpace(hash)
+		branchName := deliveryBranch(shortID)
 
+		rc, err := buildRunCommit(ctx, repo, r.ID, s.commitMessage(shortID, taskTitle))
+		if err != nil {
+			return fmt.Errorf("branch delivery: %w", err)
+		}
+		if err := rc.checkoutNewBranch(ctx, repo, "refs/heads/"+branchName); err != nil {
+			return fmt.Errorf("branch delivery: %w", err)
+		}
+		rc.syncIndex(ctx, repo)
+		commitHash := rc.commit
+
+		// The transport settings come from agent-writable config: a
+		// repository that configures transports is not pushed from.
+		pushErr := errors.New("the project has no repository URL to push the branch to (set its repo_url)")
+		if url := proj.RepoURL; url != "" {
+			if s.pushURL != nil {
+				url = s.pushURL(url)
+			}
+			pushErr = repo.PushBranch(ctx, url, branchName)
+		}
 		var pushError string
-		if _, pushErr := runDeliverGit(ctx, dir, "push", "-u", "origin", branchName); pushErr != nil {
+		if pushErr != nil {
 			pushError = pushErr.Error()
 			slog.Warn("git push failed (branch delivery)", "run_id", r.ID, "error", pushErr)
 		}
@@ -166,9 +308,9 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 	return result, err
 }
 
-func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
+func (s *DeliverService) deliverPR(ctx context.Context, proj *project.Project, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	// First create branch (already uses pool internally)
-	branchResult, err := s.deliverBranch(ctx, dir, r, shortID, taskTitle)
+	branchResult, err := s.deliverBranch(ctx, proj, r, shortID, taskTitle)
 	if err != nil {
 		return nil, fmt.Errorf("branch for PR: %w", err)
 	}
@@ -179,44 +321,53 @@ func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, 
 		return branchResult, nil
 	}
 
-	// Try to create PR using gh CLI (not a git operation, no pool needed)
-	prTitle := fmt.Sprintf("%s %s", s.cfg.DeliveryCommitPrefix, taskTitle)
-	prBody := fmt.Sprintf("Automated delivery from CodeForge run %s", r.ID)
-	prURL, prErr := runDeliverCmd(ctx, dir, "gh", "pr", "create",
-		"--title", prTitle,
-		"--body", prBody,
-		"--head", branchResult.BranchName,
-	)
-	if prErr != nil {
-		slog.Warn("gh pr create failed, falling back to branch-only", "run_id", r.ID, "error", prErr)
+	prURL, err := s.openPullRequest(ctx, proj, &gitprovider.PullRequest{
+		Head:  branchResult.BranchName,
+		Title: fmt.Sprintf("%s %s", s.cfg.DeliveryCommitPrefix, taskTitle),
+		Body:  fmt.Sprintf("Automated delivery from CodeForge run %s", r.ID),
+	})
+	if err != nil {
+		slog.Warn("pull request not opened, falling back to branch-only", "run_id", r.ID, "error", err)
+		branchResult.PRError = err.Error()
 		return branchResult, nil
 	}
 
-	slog.Info("PR delivered", "run_id", r.ID, "url", strings.TrimSpace(prURL))
+	slog.Info("PR delivered", "run_id", r.ID, "url", prURL)
 	return &DeliveryResult{
 		Mode:       run.DeliverModePR,
 		BranchName: branchResult.BranchName,
 		CommitHash: branchResult.CommitHash,
-		PRURL:      strings.TrimSpace(prURL),
+		PRURL:      prURL,
 	}, nil
 }
 
-// runDeliverGit runs a git command in the given directory.
-func runDeliverGit(ctx context.Context, dir string, args ...string) (string, error) {
-	return runDeliverCmd(ctx, dir, "git", args...)
-}
-
-// runDeliverCmd runs an arbitrary command in the given directory.
-func runDeliverCmd(ctx context.Context, dir, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
+// openPullRequest opens pr in proj's repository (the project's repository
+// URL, never the agent-writable remote) through the provider's REST API:
+//   - with a github-api project's own token, at its API (base_url);
+//   - otherwise, for a github.com repository, with the operator's GitHub
+//     token (github.token), which serves only the default tenant (KI-85).
+func (s *DeliverService) openPullRequest(ctx context.Context, proj *project.Project, pr *gitprovider.PullRequest) (string, error) {
+	parsed, err := project.ParseRepoURL(proj.RepoURL)
+	if err != nil {
+		return "", fmt.Errorf("the project's repository URL names no repository to open a pull request in: %w", err)
 	}
-	return stdout.String(), nil
+	var cfg map[string]string
+	switch {
+	case proj.Provider == "github-api" && proj.Config["token"] != "":
+		cfg = gitProviderConfig(proj)
+	case !strings.EqualFold(parsed.Host, "github.com"):
+		return "", fmt.Errorf("pull requests are opened on github.com, or through a project's github-api provider with its own token; %s is neither", parsed.Host)
+	case !operatorCredentialsServe(ctx):
+		return "", errors.New("no GitHub token: set the project's github-api provider token (github.token serves only the default tenant)")
+	case s.githubToken == "":
+		return "", errors.New("no GitHub token: set github.token (CODEFORGE_GITHUB_TOKEN) or the project's github-api provider token")
+	default:
+		cfg = map[string]string{"token": s.githubToken}
+	}
+	creator, err := s.pullRequests("github-api", cfg)
+	if err != nil {
+		return "", err
+	}
+	pr.Repo = parsed.Owner + "/" + parsed.Repo
+	return creator.CreatePullRequest(ctx, pr)
 }

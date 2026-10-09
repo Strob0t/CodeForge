@@ -148,3 +148,56 @@ func TestAllPresetsValidate(t *testing.T) {
 		}
 	}
 }
+
+// TestPresets_DenyWritingGitMetadata: no preset lets the file tools edit or
+// write git's own files, whose config and hooks make git run programs in the
+// Go Core (KI-77).
+func TestPresets_DenyWritingGitMetadata(t *testing.T) {
+	workspace := t.TempDir()
+	paths := []string{".git/config", ".git", ".git/hooks/pre-commit", "vendor/lib/.git/config", ".GIT/config", "./.git/info/attributes"}
+	for _, name := range []string{"headless-safe-sandbox", "headless-permissive-sandbox", "trusted-mount-autonomous"} {
+		p, ok := PresetByName(name)
+		if !ok {
+			t.Fatalf("preset %s missing", name)
+		}
+		for _, tool := range []string{"edit_file", "write_file"} {
+			for _, path := range paths {
+				res := p.Evaluate(ToolCall{Tool: tool, Path: path}, WithWorkspace(workspace))
+				if res.Decision != DecisionDeny {
+					t.Errorf("%s: %s %s = %s, want deny", name, tool, path, res.Decision)
+				}
+			}
+			if res := p.Evaluate(ToolCall{Tool: tool, Path: ".gitignore"}, WithWorkspace(workspace)); res.Decision == DecisionDeny {
+				t.Errorf("%s: %s .gitignore denied", name, tool)
+			}
+		}
+	}
+}
+
+// TestPresets_ProposeRoadmapLikeProposeGoal: propose_roadmap only proposes
+// roadmap items the user still accepts on a card, like propose_goal, so every
+// preset decides both the same way; before KI-151 no preset allowed it and the
+// call waited for an approval until the timeout denied it.
+func TestPresets_ProposeRoadmapLikeProposeGoal(t *testing.T) {
+	workspace := t.TempDir()
+	allowed := 0
+	for _, name := range PresetNames() {
+		t.Run(name, func(t *testing.T) {
+			p, ok := PresetByName(name)
+			if !ok {
+				t.Fatalf("preset %s missing", name)
+			}
+			goal := p.Evaluate(ToolCall{Tool: "propose_goal"}, WithWorkspace(workspace))
+			roadmap := p.Evaluate(ToolCall{Tool: "propose_roadmap"}, WithWorkspace(workspace))
+			if roadmap.Decision != goal.Decision {
+				t.Errorf("propose_roadmap = %s (%s), propose_goal = %s", roadmap.Decision, roadmap.Reason, goal.Decision)
+			}
+			if goal.Decision == DecisionAllow {
+				allowed++
+			}
+		})
+	}
+	if allowed != 3 {
+		t.Errorf("propose_goal allowed in %d presets, want 3", allowed)
+	}
+}

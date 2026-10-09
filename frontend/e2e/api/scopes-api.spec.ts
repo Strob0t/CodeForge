@@ -216,7 +216,7 @@ test.describe("Scopes API", () => {
         description: "for scope attachment",
         category: "framework",
         tags: [],
-        content_path: "/tmp/e2e-scope-kb",
+        content_path: "e2e-scope-kb",
       },
     });
     const kb = await kbRes.json();

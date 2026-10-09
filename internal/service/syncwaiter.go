@@ -1,8 +1,14 @@
 package service
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // ---------------------------------------------------------------------------
@@ -10,24 +16,59 @@ import (
 // ---------------------------------------------------------------------------
 
 // syncWaiter manages a set of channel-based waiters keyed by correlation ID.
+// Results come from shared durable consumers and may reach another Go Core
+// replica than the one waiting: a waiter also serves its relay key, and a
+// result without a local waiter is relayed to the replica that waits (KI-86).
 type syncWaiter[T any] struct {
 	mu      sync.Mutex
 	waiters map[string]chan *T
-	label   string // for logging
+	stops   map[string]func() // relay keys served, by request ID
+	label   string            // for logging and the relay key
 }
 
 func newSyncWaiter[T any](label string) *syncWaiter[T] {
 	return &syncWaiter[T]{
 		waiters: make(map[string]chan *T),
+		stops:   make(map[string]func()),
 		label:   label,
 	}
 }
 
-// register creates a buffered channel for the given request ID.
-func (w *syncWaiter[T]) register(requestID string) chan *T {
+// relayKey is the relay key of a request's waiter.
+func (w *syncWaiter[T]) relayKey(requestID string) string {
+	return "result:" + w.label + ":" + requestID
+}
+
+// relayTaken is the relay answer of a waiter that took a result.
+var relayTaken = []byte("taken")
+
+// register creates a buffered channel for the given request ID and, with a
+// relay (nil: this replica only), serves its relay key until unregister.
+func (w *syncWaiter[T]) register(requestID string, relay messagequeue.Relay) chan *T {
 	ch := make(chan *T, 1)
 	w.mu.Lock()
 	w.waiters[requestID] = ch
+	w.mu.Unlock()
+	if relay == nil {
+		return ch
+	}
+	stop, err := relay.Serve(w.relayKey(requestID), func(data []byte) []byte {
+		var payload T
+		if err := json.Unmarshal(data, &payload); err != nil {
+			slog.Warn("relayed "+w.label+" result unreadable", "request_id", requestID, "error", err)
+			return nil
+		}
+		if !w.deliverLocal(requestID, &payload) {
+			return nil
+		}
+		return relayTaken
+	})
+	if err != nil {
+		slog.Warn("waiting for a "+w.label+" result on this replica only", "request_id", requestID, "error", err)
+		return ch
+	}
+	w.mu.Lock()
+	w.stops[requestID] = stop
 	w.mu.Unlock()
 	return ch
 }
@@ -36,24 +77,76 @@ func (w *syncWaiter[T]) register(requestID string) chan *T {
 func (w *syncWaiter[T]) unregister(requestID string) {
 	w.mu.Lock()
 	delete(w.waiters, requestID)
+	stop := w.stops[requestID]
+	delete(w.stops, requestID)
 	w.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
 }
 
-// deliver sends a result to the waiting channel and removes the waiter.
-// Returns false if no waiter was registered for the given ID.
-func (w *syncWaiter[T]) deliver(requestID string, payload *T) bool {
+// deliver hands a result to its waiter: on this replica, else through the
+// relay (nil: none) to the replica that waits. Returns false if no waiter
+// took it (none waits, it was taken already, or the relay failed). The
+// relay sends the result encoded again; deliverMessage sends the worker's
+// message itself.
+func (w *syncWaiter[T]) deliver(ctx context.Context, relay messagequeue.Relay, requestID string, payload *T) bool {
+	return w.deliverMessage(ctx, relay, requestID, payload, nil)
+}
+
+// deliverMessage is deliver for a result decoded from raw, the worker's
+// message: the relay sends raw as it came. A relayed result is one core
+// NATS message and must fit the payload limit as the worker's message did;
+// without raw the result is encoded without escaping HTML characters
+// (json.Marshal turns each of <, > and & into six bytes).
+func (w *syncWaiter[T]) deliverMessage(ctx context.Context, relay messagequeue.Relay, requestID string, payload *T, raw []byte) bool {
+	if w.deliverLocal(requestID, payload) {
+		return true
+	}
+	if relay != nil {
+		data := raw
+		if data == nil {
+			var err error
+			if data, err = encodeForRelay(payload); err != nil {
+				slog.Error("relay "+w.label+" result", "request_id", requestID, "error", err)
+				return false
+			}
+		}
+		answer, err := relay.Request(ctx, w.relayKey(requestID), data)
+		if err != nil {
+			slog.Warn("relay "+w.label+" result failed, its waiter times out", "request_id", requestID, "error", err)
+			return false
+		}
+		if answer != nil {
+			return true
+		}
+	}
+	slog.Warn("no waiter for "+w.label+" result", "request_id", requestID)
+	return false
+}
+
+// encodeForRelay encodes v as JSON without escaping HTML characters.
+func encodeForRelay[T any](v *T) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, fmt.Errorf("encode relayed result: %w", err)
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
+// deliverLocal hands a result to this replica's waiter and removes it.
+func (w *syncWaiter[T]) deliverLocal(requestID string, payload *T) bool {
 	w.mu.Lock()
 	ch, ok := w.waiters[requestID]
 	if ok {
 		delete(w.waiters, requestID)
 	}
 	w.mu.Unlock()
-
 	if !ok {
-		slog.Warn("no waiter for "+w.label+" result", "request_id", requestID)
 		return false
 	}
-
 	ch <- payload
 	return true
 }

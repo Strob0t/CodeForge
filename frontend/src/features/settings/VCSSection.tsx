@@ -1,4 +1,5 @@
-import { createEffect, createResource, createSignal, For, Show } from "solid-js";
+import { useSearchParams } from "@solidjs/router";
+import { createEffect, createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateVCSAccountRequest, VCSAccount, VCSProvider } from "~/api/types";
@@ -33,6 +34,32 @@ export default function VCSSection() {
   const [vcsAccounts, { refetch: refetchVCS }] = createResource<VCSAccount[]>(() =>
     api.vcsAccounts.list(),
   );
+  // The GitHub OAuth callback sends the browser back here with
+  // github_oauth=connected, or github_oauth=failed and a reason code.
+  const [params, setParams] = useSearchParams();
+  onMount(() => {
+    const result = params.github_oauth;
+    if (result === "connected") {
+      toast("success", t("settings.vcs.oauthConnected"));
+      void refetchVCS();
+    } else if (result === "failed") {
+      // Only the backend's fixed reason codes are shown (the URL is not trusted text).
+      const reasons = [
+        "denied",
+        "invalid_request",
+        "state_mismatch",
+        "invalid_state",
+        "exchange_failed",
+      ];
+      const reason =
+        typeof params.reason === "string" && reasons.includes(params.reason) ? params.reason : "";
+      toast("error", `${t("settings.vcs.oauthFailed")}${reason ? ` (${reason})` : ""}`);
+    }
+    if (result !== undefined) {
+      setParams({ github_oauth: undefined, reason: undefined }, { replace: true });
+    }
+  });
+
   const [vcsProvider, setVcsProvider] = createSignal<VCSProvider>("github");
   const [vcsLabel, setVcsLabel] = createSignal("");
   const [vcsToken, setVcsToken] = createSignal("");

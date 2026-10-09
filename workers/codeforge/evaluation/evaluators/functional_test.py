@@ -7,11 +7,11 @@ debugging and stored in the EvalDimension details.
 
 from __future__ import annotations
 
-import asyncio
-
 import structlog
 
+from codeforge.constants import MAX_OUTPUT_CHARS
 from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
+from codeforge.subprocess_utils import run_tool_shell
 
 logger = structlog.get_logger()
 
@@ -81,15 +81,13 @@ class FunctionalTestEvaluator:
             ]
 
     async def _run_command(self, command: str) -> tuple[float, str, int]:
-        """Execute a shell command and return (score, output, exit_code)."""
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=self._working_dir,
+        """Execute a shell command and return (score, output, exit_code).
+
+        A command that does not end in time raises TimeoutError; it and
+        everything it started are killed, and its output is capped (KI-194).
+        """
+        exit_code, output = await run_tool_shell(
+            command, cwd=self._working_dir, timeout=self._timeout, max_output=MAX_OUTPUT_CHARS
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self._timeout)
-        output = stdout.decode("utf-8", errors="replace") if stdout else ""
-        exit_code = proc.returncode or 0
         score = 1.0 if exit_code == 0 else 0.0
         return score, output, exit_code

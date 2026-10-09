@@ -1,7 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { CreateAgentRequest, Task } from "~/api/types";
+import type { Agent, CreateAgentRequest, Task } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { agentStatusVariant, getVariant } from "~/config/statusVariants";
@@ -9,9 +9,16 @@ import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, Card, FormField, Input, Select } from "~/ui";
 
+/**
+ * The project's agents come from the project page, which keeps them current
+ * through agent.status events; the panel asks it to refetch after its own
+ * changes.
+ */
 interface AgentPanelProps {
   projectId: string;
+  agents: Agent[];
   tasks: Task[];
+  onAgentsChanged: () => void;
   onError: (msg: string) => void;
 }
 
@@ -19,11 +26,9 @@ export default function AgentPanel(props: AgentPanelProps) {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
-  const [agents, { refetch }] = createResource(
-    () => props.projectId,
-    (id) => api.agents.list(id),
-  );
+  const refetch = () => props.onAgentsChanged();
   const [backends] = createResource(() => api.providers.agent());
+
   const [showForm, setShowForm] = createSignal(false);
   const [name, setName] = createSignal("");
   const [backend, setBackend] = createSignal("");
@@ -170,11 +175,11 @@ export default function AgentPanel(props: AgentPanelProps) {
         </Show>
 
         <Show
-          when={(agents() ?? []).length > 0}
+          when={props.agents.length > 0}
           fallback={<p class="text-sm text-cf-text-tertiary">{t("agent.empty")}</p>}
         >
           <div class="space-y-3">
-            <For each={agents() ?? []}>
+            <For each={props.agents}>
               {(agent) => (
                 <div class="rounded-cf-sm border border-cf-border-subtle p-3">
                   <div class="flex items-center justify-between">

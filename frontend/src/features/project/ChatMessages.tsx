@@ -187,6 +187,7 @@ export default function ChatMessages(props: ChatMessagesProps) {
                 <ToolCallCard
                   name={tc.name}
                   args={tc.args}
+                  argsText={tc.argsText}
                   result={tc.result}
                   status={tc.status}
                   diff={tc.diff}
@@ -270,6 +271,10 @@ export default function ChatMessages(props: ChatMessagesProps) {
                 tool={pr.tool}
                 command={pr.command}
                 path={pr.path}
+                profile={pr.profile}
+                argumentsPreview={pr.arguments_preview}
+                timeoutSeconds={pr.timeout_seconds}
+                remainingSeconds={pr.remaining_seconds}
                 onResolved={() => {
                   props.setResolvedPermissions((prev) => new Set([...prev, pr.call_id]));
                 }}

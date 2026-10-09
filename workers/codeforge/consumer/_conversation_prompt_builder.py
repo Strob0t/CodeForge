@@ -8,10 +8,24 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.tools.capability import CapabilityLevel
+
 if TYPE_CHECKING:
-    from codeforge.llm import LiteLLMClient
+    from collections.abc import Sequence
+
+    from codeforge.loop_config import ModelCapability
+    from codeforge.models import ConversationMessagePayload
 
 logger = structlog.get_logger()
+
+
+def last_user_message(messages: Sequence[ConversationMessagePayload]) -> str:
+    """Return the turn's message: the newest non-empty user message of *messages*, or "".
+
+    Go sends the whole history with the newest message last (KI-192).
+    """
+    return next((m.content for m in reversed(messages) if m.role == "user" and m.content), "")
+
 
 # Cache the step-by-step prompt content (loaded once from YAML).
 _STEP_BY_STEP_CACHE: str | None = None
@@ -50,20 +64,19 @@ _COMPACT_GUIDE_THRESHOLD = int(os.getenv("CODEFORGE_COMPACT_GUIDE_THRESHOLD", "3
 def inject_tool_guide(
     system_prompt: str,
     registry: object,
-    model: str,
+    level: CapabilityLevel,
     log: structlog.stdlib.BoundLogger,
     *,
     context_limit: int = 0,
 ) -> str:
     """Augment system prompt with adaptive tool-usage guide for weaker models.
 
-    When *context_limit* is set and falls below the compact threshold,
-    a shorter guide is emitted to conserve the context budget.
+    *level* is the model's capability (``resolve_model_capability``). When
+    *context_limit* is set and falls below the compact threshold, a shorter
+    guide is emitted to conserve the context budget.
     """
-    from codeforge.tools.capability import CapabilityLevel, classify_model
     from codeforge.tools.tool_guide import build_tool_usage_guide
 
-    level = classify_model(model)
     if level == CapabilityLevel.FULL:
         return system_prompt
 
@@ -89,23 +102,24 @@ def inject_tool_guide(
 async def inject_skills(
     system_prompt: str,
     project_id: str,
-    messages: list[object],
+    messages: Sequence[ConversationMessagePayload],
     tenant_id: str,
     log: structlog.stdlib.BoundLogger,
     db_url: str,
-    llm: LiteLLMClient,
 ) -> tuple[str, list]:
-    """Augment system prompt with LLM-selected skills (BM25 fallback).
+    """Augment system prompt with the skills relevant to the turn's message.
 
+    The skills are selected locally (BM25, ``rank_skills``): an LLM selection
+    sent the message to a model the user did not choose, uncosted (KI-192).
     Returns (augmented_prompt, all_loaded_skills).
     """
     all_skills: list = []
     try:
         import psycopg
 
+        from codeforge.skills import selector
         from codeforge.skills.models import Skill
         from codeforge.skills.registry import load_builtin_skills
-        from codeforge.skills.selector import select_skills_for_task
 
         async with await psycopg.AsyncConnection.connect(db_url) as conn, conn.cursor() as cur:
             await cur.execute(
@@ -141,11 +155,11 @@ async def inject_skills(
         if not skills:
             return system_prompt, all_skills
 
-        task_ctx = next((m.content for m in messages if m.role == "user"), "")
+        task_ctx = last_user_message(messages)
         if not task_ctx:
             return system_prompt, all_skills
 
-        selected = await select_skills_for_task(skills, task_ctx, llm)
+        selected = selector.rank_skills(skills, task_ctx)
 
         if not selected:
             return system_prompt, all_skills
@@ -174,7 +188,7 @@ async def inject_skills(
             )
             system_prompt = f"{system_prompt}\n\n{skill_section}\n\n{sandboxing}"
             log.info(
-                "skills injected via LLM selection",
+                "skills injected",
                 count=len(selected),
                 workflows=len(workflow_blocks),
                 patterns=len(pattern_blocks),
@@ -190,14 +204,13 @@ async def build_system_prompt(
     registry: object,
     log: structlog.stdlib.BoundLogger,
     db_url: str,
-    llm: LiteLLMClient,
     *,
-    context_limit: int = 0,
+    capability: ModelCapability,
 ) -> tuple[str, list]:
     """Assemble the full system prompt with microagents, skills, and tool guide.
 
-    *context_limit* is forwarded to `inject_tool_guide` so it can switch to
-    a compact guide when the model's context window is small.
+    The model's *capability* selects the tool guide; its context limit lets
+    `inject_tool_guide` switch to a compact guide for a small context window.
 
     Returns (system_prompt, loaded_skills).
     """
@@ -231,8 +244,7 @@ async def build_system_prompt(
         tenant_id,
         log,
         db_url,
-        llm,
     )
 
-    prompt = inject_tool_guide(system_prompt, registry, run_msg.model, log, context_limit=context_limit)
+    prompt = inject_tool_guide(system_prompt, registry, capability.level, log, context_limit=capability.context_limit)
     return prompt, loaded_skills

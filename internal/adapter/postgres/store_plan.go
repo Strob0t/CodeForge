@@ -106,19 +106,26 @@ func (s *Store) ListPlansByProject(ctx context.Context, projectID string) ([]pla
 	})
 }
 
+// planTerminalStatuses parameterizes the status predicate of plan updates.
+var planTerminalStatuses = statusStrings(plan.TerminalStatuses())
+
+const planExistsSQL = `SELECT EXISTS (SELECT 1 FROM execution_plans WHERE id = $1 AND tenant_id = $2)`
+
+// UpdatePlanStatus sets the status of a plan that has not ended. It returns
+// domain.ErrConflict when the plan already ended.
 func (s *Store) UpdatePlanStatus(ctx context.Context, id string, status plan.Status) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE execution_plans SET status = $2 WHERE id = $1 AND tenant_id = $3`,
-		id, string(status), tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update plan status %s", id)
+		`UPDATE execution_plans SET status = $2 WHERE id = $1 AND tenant_id = $3 AND status <> ALL($4)`,
+		id, string(status), tenantFromCtx(ctx), planTerminalStatuses)
+	return s.guardedUpdateResult(ctx, tag, err, planExistsSQL, "update plan status", id)
 }
 
 func (s *Store) CreatePlanStep(ctx context.Context, step *plan.Step) error {
 	return s.pool.QueryRow(ctx,
-		`INSERT INTO plan_steps (tenant_id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO plan_steps (tenant_id, plan_id, task_id, agent_id, policy_profile, mode_id, deliver_mode, depends_on, status, round)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING id, created_at, updated_at`,
-		tenantFromCtx(ctx), step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
+		tenantFromCtx(ctx), step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.ModeID, step.DeliverMode,
 		step.DependsOn, string(step.Status), step.Round,
 	).Scan(&step.ID, &step.CreatedAt, &step.UpdatedAt)
 }
@@ -141,6 +148,39 @@ func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status 
 		 WHERE id = $1 AND tenant_id = $5`,
 		stepID, string(status), runID, errMsg, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "update plan step status %s", stepID)
+}
+
+// ReplanStalledStep makes a step that is running runID pending again and
+// counts the re-plan, unless the step already used maxReplans (KI-94). The
+// run ID is kept: the next run of the step is told why this one stalled.
+// When the update matches nothing, the step either still runs runID (its
+// budget is used up) or no longer does: another replica took the same
+// completion and re-planned or ended the step, and the step's run ID never
+// returns to runID once it moved on.
+func (s *Store) ReplanStalledStep(ctx context.Context, stepID, runID string, maxReplans int) (plan.ReplanOutcome, error) {
+	tid := tenantFromCtx(ctx)
+	running := string(plan.StepStatusRunning)
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE plan_steps SET status = $2, error = '', stall_replans = stall_replans + 1
+		 WHERE id = $1 AND tenant_id = $3 AND status = $4 AND run_id = $5 AND stall_replans < $6`,
+		stepID, string(plan.StepStatusPending), tid, running, runID, maxReplans)
+	if err != nil {
+		return 0, fmt.Errorf("re-plan stalled step %s: %w", stepID, err)
+	}
+	if tag.RowsAffected() == 1 {
+		return plan.Replanned, nil
+	}
+	var stillRunning bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM plan_steps WHERE id = $1 AND tenant_id = $2 AND status = $3 AND run_id = $4)`,
+		stepID, tid, running, runID,
+	).Scan(&stillRunning); err != nil {
+		return 0, fmt.Errorf("re-plan stalled step %s: %w", stepID, err)
+	}
+	if stillRunning {
+		return plan.ReplanBudgetUsedUp, nil
+	}
+	return plan.ReplanStepMoved, nil
 }
 
 func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error) {

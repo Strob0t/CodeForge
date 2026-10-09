@@ -146,6 +146,7 @@ class TestDownloadHfDataset:
         }
 
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = page_response
         mock_response.raise_for_status = lambda: None
 
@@ -200,10 +201,12 @@ class TestDownloadHfDataset:
         page2_rows = [{"row": {"id": 100}}]
 
         resp1 = MagicMock()
+        resp1.status_code = 200
         resp1.json.return_value = {"rows": page1_rows}
         resp1.raise_for_status = lambda: None
 
         resp2 = MagicMock()
+        resp2.status_code = 200
         resp2.json.return_value = {"rows": page2_rows}
         resp2.raise_for_status = lambda: None
 

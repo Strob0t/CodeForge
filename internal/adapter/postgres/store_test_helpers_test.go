@@ -1,6 +1,9 @@
 package postgres_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"strings"
 	"testing"
@@ -15,6 +18,32 @@ func readStoreSource(t *testing.T, filename string) string {
 		t.Fatalf("failed to read %s: %v", filename, err)
 	}
 	return string(src)
+}
+
+// readSourceFile is readStoreSource under the name older tests use.
+func readSourceFile(t *testing.T, name string) string {
+	t.Helper()
+	return readStoreSource(t, name)
+}
+
+// methodDocComment returns the doc comment text of the *Store method with the
+// given name, parsed from the store source content. Fails the test if the
+// source does not parse or the method does not exist.
+func methodDocComment(t *testing.T, content, filename, method string) string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), filename, content, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("failed to parse %s: %v", filename, err)
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || fn.Name.Name != method {
+			continue
+		}
+		return fn.Doc.Text()
+	}
+	t.Fatalf("method %s not found in %s", method, filename)
+	return ""
 }
 
 // assertFileContainsTenantID verifies that a store source file references tenant_id

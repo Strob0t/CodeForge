@@ -52,6 +52,14 @@ tags:
     description: Knowledge base management and indexing
   - name: Policies
     description: Policy profiles for agent tool-call permissions
+  - name: Agents
+    description: Agent task dispatch
+  - name: Review
+    description: Contract-first review and refactoring pipeline
+  - name: Quarantine
+    description: Held messages (inbound A2A prompts, handoffs) awaiting an admin's review
+  - name: Webhooks
+    description: Public webhook endpoints with their own authentication
 
 paths:
   # -----------------------------------------------
@@ -221,7 +229,9 @@ paths:
       summary: Create the initial admin user
       description: |
         One-time setup endpoint that creates the first admin account.
-        Returns 409 if setup has already been completed.
+        Requires the one-time setup token the Core logs once (SETUP TOKEN) and
+        writes to auth.setup_token_file on a start without users (403 without
+        or with a wrong token). Returns 409 if setup has already been completed.
       operationId: initialSetup
       requestBody:
         required: true
@@ -229,8 +239,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, password, name]
+              required: [email, password, name, setup_token]
               properties:
+                setup_token:
+                  type: string
+                  description: One-time setup token (KI-119)
                 email:
                   type: string
                   format: email
@@ -297,6 +310,112 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /auth/github:
+    post:
+      tags: [Auth]
+      summary: Start the GitHub OAuth web flow
+      description: |
+        Stores a single-use state for the caller's tenant, sets an HttpOnly, SameSite=Lax state cookie
+        (path `/api/v1/auth/github/callback`, 10 minutes) and returns GitHub's authorization URL for the UI to
+        open. The redirect URI is the configured `github.callback_url`, never a request value. Answers 501
+        until `github.client_id`, `github.client_secret` and `github.callback_url` are set.
+      operationId: startGitHubOAuth
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url:
+                    type: string
+                    description: GitHub authorization URL
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          description: The GitHub OAuth web flow is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/github/callback:
+    get:
+      tags: [Auth]
+      summary: GitHub OAuth callback (redirect target of GitHub)
+      description: |
+        Public (GitHub's redirect carries no session). Checks the state cookie against the `state` query
+        parameter, consumes the state once, exchanges the code, creates the VCS account in the tenant that
+        started the flow and redirects (303) to the web UI: `/settings?github_oauth=connected`, or
+        `/settings?github_oauth=failed&reason=<code>` with `reason` one of `denied`, `invalid_request`,
+        `state_mismatch`, `invalid_state`, `exchange_failed`. Answers 501 while the flow is not configured.
+      operationId: githubOAuthCallback
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Redirect to the settings page with the outcome
+          headers:
+            Location:
+              schema:
+                type: string
+        "501":
+          description: The GitHub OAuth web flow is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ws/ticket:
+    post:
+      tags: [Auth]
+      summary: Issue a single-use WebSocket ticket
+      description: |
+        Issues a short-lived (30 s), single-use ticket bound to the caller's user and tenant.
+        The client opens the WebSocket with `GET /ws?ticket=<ticket>` (root path, not under /api/v1);
+        the connection receives only events of that tenant. The JWT is never sent in the WebSocket URL
+        (`?token=` is rejected with 401). Users who must change their password get 403.
+      operationId: issueWSTicket
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Ticket issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket, expires_in]
+                properties:
+                  ticket:
+                    type: string
+                    description: Opaque single-use ticket for `GET /ws?ticket=`
+                  expires_in:
+                    type: integer
+                    description: Seconds until the ticket expires
+                    example: 30
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: WebSocket tickets are not configured
+
   /auth/change-password:
     post:
       tags: [Auth]
@@ -360,6 +479,10 @@ paths:
       description: |
         Creates a project. Requires admin or editor role.
         Optionally pass local_path to auto-adopt a local workspace.
+        Config keys the backend reads: policy_preset, execution_mode (only
+        "mount"), test_command and lint_command (quality gate commands; 400
+        unless they split like a shell command line and start with an
+        executable on the worker's allowlist).
       operationId: createProject
       security:
         - bearerAuth: []
@@ -404,7 +527,7 @@ paths:
     put:
       tags: [Projects]
       summary: Update a project
-      description: Updates project metadata. Requires admin or editor role.
+      description: Updates project metadata. Requires admin or editor role. Config keys are merged (null deletes one); test_command and lint_command are validated as on create (400).
       operationId: updateProject
       security:
         - bearerAuth: []
@@ -425,8 +548,13 @@ paths:
                   type: string
                 config:
                   type: object
+                  description: |
+                    Merge patch for the project config: a key with a string value is set, a key
+                    with null is deleted, keys not in the request are kept. Missing, null or empty
+                    config leaves the stored config unchanged.
                   additionalProperties:
                     type: string
+                    nullable: true
       responses:
         "200":
           description: Project updated
@@ -443,6 +571,12 @@ paths:
     delete:
       tags: [Projects]
       summary: Delete project (admin only)
+      description: |
+        With per-tenant tool users (`workspace.tool_acls: required`, production; KI-96) the project row is
+        deleted together with a `workspace_deletions` record, and the worker removes the workspace afterwards
+        as the tenant's tool UID (asynchronously, retried until done). The request is refused with 409 while
+        the project has a run that has not ended, a conversation with an active turn, or a queued or running
+        task. With `workspace.tool_acls: off` the Go Core removes the workspace itself.
       operationId: deleteProject
       security:
         - bearerAuth: []
@@ -450,11 +584,281 @@ paths:
         - $ref: "#/components/parameters/ProjectID"
       responses:
         "204":
-          description: Project deleted
+          description: Project deleted (the workspace is removed by the worker when tool ACLs are required)
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: The project has active work (runs, conversation turns or tasks); stop it first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: The tenant has no tool UID yet and the tool UID range is exhausted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # -----------------------------------------------
+  # Project files (workspace file API) and stack detection
+  # -----------------------------------------------
+  /projects/{id}/files:
+    get:
+      tags: [Projects]
+      summary: List a workspace directory
+      description: |
+        Lists the entries of one directory of the project's workspace. Paths are workspace-relative (a leading `/` is
+        ignored). Every path is resolved inside the workspace (KI-95): a relative symlink that stays inside is followed,
+        any other symlink, `..` above the workspace and an absolute path are refused, and a special file (FIFO, socket,
+        device) is never opened.
+      operationId: listProjectFiles
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: path
+          in: query
+          description: Directory, relative to the workspace (default `.`)
+          schema:
+            type: string
+            default: "."
+      responses:
+        "200":
+          description: Directory entries (symlinks are listed, never followed into)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileEntry"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Projects]
+      summary: Delete a workspace file or directory
+      description: |
+        Requires admin or editor role. Deletes the file or directory at `path` (a symlink is deleted itself, never its
+        target). The workspace root cannot be deleted: `.` and any name that cleans to it, such as `x/..`, answer 400.
+        While a review pipeline of the project refactors (its change not measured yet), the path is recorded with
+        the user and listed in the refactoring's approval dialog (KI-94); the change is still made. A change that
+        cannot be recorded is refused (401 when the account is gone).
+      operationId: deleteProjectFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: path
+          in: query
+          required: true
+          description: File or directory, relative to the workspace
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{id}/files/tree:
+    get:
+      tags: [Projects]
+      summary: List the whole workspace tree
+      description: |
+        Lists all files and directories of the workspace recursively, without `.git`. Symlinks are listed, never
+        descended into. The walk is bounded.
+      operationId: listProjectFileTree
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: max_entries
+          in: query
+          description: Maximum number of entries (default 10000, at most 50000)
+          schema:
+            type: integer
+            default: 10000
+            maximum: 50000
+      responses:
+        "200":
+          description: Entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileEntry"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{id}/files/content:
+    get:
+      tags: [Projects]
+      summary: Read a workspace file
+      description: |
+        Reads a regular file of the workspace. A directory, FIFO, socket, device, a symlink that leaves the workspace
+        and a file larger than 10 MiB answer 400.
+      operationId: readProjectFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: path
+          in: query
+          required: true
+          description: File, relative to the workspace
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileContent"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Projects]
+      summary: Write a workspace file
+      description: |
+        Requires admin or editor role. Creates or overwrites a regular file (parent directories are created). A path
+        that leaves the workspace, or an existing special file, answers 400.
+        While a review pipeline of the project refactors (its change not measured yet), the path is recorded with
+        the user and listed in the refactoring's approval dialog (KI-94); the change is still made. A change that
+        cannot be recorded is refused (401 when the account is gone).
+      operationId: writeProjectFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, content]
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+      responses:
+        "200":
+          description: Written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{id}/files/rename:
+    patch:
+      tags: [Projects]
+      summary: Rename or move a workspace file or directory
+      description: |
+        Requires admin or editor role. A symlink is renamed itself, never its target. The workspace root can be neither
+        the source nor the target: `.` and any name that cleans to it answer 400. A rename is recorded for the old and
+        the new path.
+        While a review pipeline of the project refactors (its change not measured yet), the path is recorded with
+        the user and listed in the refactoring's approval dialog (KI-94); the change is still made. A change that
+        cannot be recorded is refused (401 when the account is gone).
+      operationId: renameProjectFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_path, new_path]
+              properties:
+                old_path:
+                  type: string
+                new_path:
+                  type: string
+      responses:
+        "200":
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /detect-stack:
+    post:
+      tags: [Projects]
+      summary: Detect the language stack of a directory
+      description: |
+        Scans a directory for languages, frameworks and tool recommendations. The path must be absolute and lie strictly
+        inside the caller's own tenant area of the workspace root (`<workspace.root>/<tenant_id>/...`, KI-106); it is
+        resolved inside that area, so no symlink leads out of it. Platform admins may also name a directory strictly
+        inside a `workspace.adopt_roots` directory outside the workspace root. Any other path answers 400: another
+        tenant's directory, the tenant directory itself, the workspace root, or a symlink that leaves the area.
+      operationId: detectStackByPath
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Absolute directory path
+      responses:
+        "200":
+          description: Detected stack
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackDetectionResult"
+        "400":
+          description: Path missing, not absolute, or outside the caller's tenant area (outside the workspace root, outside the adopt roots or the caller is no platform admin)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # -----------------------------------------------
   # Conversations
@@ -634,6 +1038,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: A run of this conversation is still in progress (one run per conversation); nothing is stored
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -646,7 +1052,10 @@ paths:
       summary: Start a new agent run
       description: |
         Creates and starts a new run for a given task and agent.
-        Requires admin or editor role.
+        Requires admin or editor role. Rejected with 400 before anything is
+        created when the project has no workspace, when `policy_profile` (or the
+        project's profile) names an unknown profile, or when the task or the
+        agent belongs to another project.
       operationId: startRun
       security:
         - bearerAuth: []
@@ -675,6 +1084,7 @@ paths:
                 exec_mode:
                   type: string
                   enum: [mount, sandbox, hybrid]
+                  description: sandbox and hybrid are rejected with 400 until tools run inside the container
                 deliver_mode:
                   type: string
                   enum: ["", patch, commit-local, branch, pr]
@@ -789,6 +1199,175 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /runs/{id}/approvals/{callId}:
+    get:
+      tags: [Runs]
+      summary: Get a pending tool-call approval
+      description: |
+        The tool call of this run that awaits a decision, for the web approval page that approval emails link
+        to (`<notification.web_ui_url>/approvals/<run>/<call>`). Requires admin or editor role; only a call
+        pending in the caller's tenant is found.
+      operationId: getPendingApproval
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+        - name: callId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pending request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingApproval"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not pending (answered, timed out, the run ended) or of another tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /feedback/{run_id}/{call_id}:
+    post:
+      tags: [Runs]
+      summary: Decide a pending tool call from the web approval page
+      description: |
+        Decides the tool call like `POST /runs/{id}/approve/{callId}`, with the decision as a query parameter
+        (the web approval page that approval emails link to). Requires admin or editor role; only a call
+        pending in the caller's tenant is decided. The feedback audit entry records the tool and the deciding user.
+      operationId: decideFeedback
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: call_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: decision
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [allow, deny]
+      responses:
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "resolved"
+                  decision:
+                    type: string
+                    enum: [allow, deny]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No pending approval for this run/call
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /runs/{id}/approve:
+    post:
+      tags: [Review]
+      summary: Keep the refactoring of a review step
+      description: |
+        Keeps the refactoring of the review plan step whose refactorer run is `{id}` (a step that waits for
+        approval is approved with it). Also possible after a failed or cancelled refactoring. Requires admin or
+        editor role. Decisions are matched on the review record, so they survive run retention.
+      operationId: approveReviewRefactoring
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+      responses:
+        "200":
+          description: Decision applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The refactoring's measurement is still being recorded, try again in a moment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Review pipeline not configured
+
+  /runs/{id}/reject:
+    post:
+      tags: [Review]
+      summary: Undo the refactoring of a review step
+      description: |
+        Undoes the refactoring of the review plan step whose refactorer run is `{id}`: only the paths it changed
+        are set back (three-way merge) and HEAD moves back only if it still points to the refactoring's commit
+        (compare-and-swap). If the undo fails nothing is decided. Requires admin or editor role.
+      operationId: rejectReviewRefactoring
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+      responses:
+        "200":
+          description: Decision applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The refactoring's measurement is still being recorded, try again in a moment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Review pipeline not configured
 
   /runs/{id}/trajectory:
     get:
@@ -931,7 +1510,7 @@ paths:
     post:
       tags: [LLM]
       summary: Add an LLM model to LiteLLM
-      description: Requires admin or editor role.
+      description: Platform admin only (an admin of the default tenant; models are shared by all tenants), audited. Others get 403.
       operationId: addLLMModel
       security:
         - bearerAuth: []
@@ -972,6 +1551,34 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalServerError"
+
+  /llm/models/{id}:
+    delete:
+      tags: [LLM]
+      summary: Delete an LLM model deployment from LiteLLM
+      description: |
+        Platform admin only (an admin of the default tenant), audited. `id` is the LiteLLM
+        deployment ID (`model_id` in the model list, taken from LiteLLM's `model_info.id`).
+        Models are shared by all tenants.
+        Replaces `POST /llm/models/delete` (405 since 2026-09-30).
+      operationId: deleteLLMModel
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Model deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          description: LiteLLM rejected the deletion
 
   /llm/health:
     get:
@@ -1392,7 +1999,10 @@ paths:
     get:
       tags: [MCP]
       summary: List registered MCP servers
-      description: Returns all MCP servers in the registry.
+      description: |
+        Returns the MCP servers of the caller's tenant. Secrets are never returned, for every role: every env and
+        header value that is set is shown as `***` (an empty value stays empty), and so are the `url`'s userinfo
+        and credential query and fragment values and the values of credential arguments (see `MCPServer`).
       operationId: listMCPServers
       security:
         - bearerAuth: []
@@ -1408,7 +2018,11 @@ paths:
     post:
       tags: [MCP]
       summary: Register a new MCP server
-      description: Adds an MCP server to the registry. Requires admin or editor role.
+      description: |
+        Adds an MCP server to the tenant's registry. Requires the admin role of the tenant (not only a platform
+        admin; editors and viewers get 403). Audited. Stdio servers run in the worker as the tool user, never in
+        the Go Core. The URL of an `sse` or `streamable_http` server is checked by the outbound policy before it is
+        saved (see 400). The response redacts secrets to `***` like every read (see `MCPServer`).
       operationId: createMCPServer
       security:
         - bearerAuth: []
@@ -1426,14 +2040,75 @@ paths:
               schema:
                 $ref: "#/components/schemas/MCPServer"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: |
+            Invalid definition (name, transport, `command` for stdio or `url` for sse and streamable_http missing;
+            an sse or streamable_http `url` that is not an http or https URL with a host). Also a `url` whose host
+            is, or resolves to, an address the outbound policy refuses (a host that does not resolve passes), for
+            example "url: docs-mcp resolves to 172.18.0.3, a private address; only the platform operator can allow
+            it (mcp.allowed_private_hosts)" for a private or loopback address (loopback needs an explicit
+            allowlist entry), or "url: 169.254.169.254 is a link-local address; MCP servers may never use it" for a
+            link-local, cloud metadata, unspecified, multicast or reserved one. Also an env value, header value, the
+            `url` or `args` carrying `***`: a new server has no stored value that could stand for it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  /mcp/servers/test:
+    post:
+      tags: [MCP]
+      summary: Test an MCP server definition before saving it
+      description: |
+        Performs a real MCP handshake (initialize and tools/list) from the Go Core against an `sse` or
+        `streamable_http` definition. Requires the admin role of the tenant. The body may carry the `id` of a
+        saved server of the tenant: env and header values, a `url` and `args` sent as `***` (the value as read,
+        as a whole) then connect with the stored values, but only while transport, url, command and args equal the
+        stored ones (otherwise 400, so a stored secret is never sent to another destination). Stdio definitions are
+        refused with 400: the Go Core never starts a stdio server, they run in the worker. The `url` is checked by
+        the outbound policy before anything connects (400, as on create); every connection of the test is checked
+        again at the address it dials, goes through no proxy unless `mcp.use_proxy` is on, and follows a redirect
+        only as the worker's MCP SDK does (same method, same origin, no userinfo in the Location, at most 20), so
+        the headers never go to another host. `error` of a failed test never quotes the url's secrets.
+      operationId: testMCPServerDefinition
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMCPServerRequest"
+      responses:
+        "200":
+          description: Test outcome (`success` is false when the connection failed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPTestResult"
+        "400":
+          description: |
+            Invalid definition (an sse or streamable_http `url` that is not an http or https URL with a host), a
+            stdio transport ("stdio servers cannot be tested from the core; they run in the worker"), a `url`
+            whose host is, or resolves to, an address the outbound policy refuses (same messages as on create:
+            "...; only the platform operator can allow it (mcp.allowed_private_hosts)" or "...; MCP servers may
+            never use it"), or `***` values that cannot be resolved (no `id`, nothing stored for the key, a `url`
+            or `args` that carry `***` but are not the value as read, or a changed transport, url, command or args).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /mcp/servers/{id}:
     get:
       tags: [MCP]
       summary: Get an MCP server by ID
+      description: Secrets are returned as `***` (see the list endpoint).
       operationId: getMCPServer
       security:
         - bearerAuth: []
@@ -1456,6 +2131,15 @@ paths:
     put:
       tags: [MCP]
       summary: Update an MCP server
+      description: |
+        Requires the admin role of the tenant. Audited. A value sent as `***` (what reads return) keeps the stored
+        one: env and header values per key; `url` and `args` only when sent exactly as read, as a whole (the stored
+        value is then used as a whole). Transport, url, command and args must then equal the stored ones. 400 when
+        `***` is sent for a key with nothing stored, when `url` or `args` carry `***` but differ from the value as
+        read, or when the transport, url, command or args changed while a value is `***` (enter the values
+        again). PUT checks the URL against the outbound policy only when the transport or the URL changed, so a
+        server saved on an address that is refused now can still be disabled, renamed or edited otherwise. The
+        response redacts secrets to `***`.
       operationId: updateMCPServer
       security:
         - bearerAuth: []
@@ -1480,12 +2164,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/MCPServer"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: |
+            Invalid definition; a changed transport or `url` the outbound policy refuses (same messages as on
+            create); or `***` values that cannot be kept (nothing stored for the key, a `url` or `args` that carry
+            `***` but are not the value as read, or a changed transport, url, command or args).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
       tags: [MCP]
       summary: Delete an MCP server
+      description: Requires the admin role of the tenant. Audited.
       operationId: deleteMCPServer
       security:
         - bearerAuth: []
@@ -1499,6 +2193,46 @@ paths:
       responses:
         "204":
           description: MCP server deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /mcp/servers/{id}/test:
+    post:
+      tags: [MCP]
+      summary: Test a saved MCP server
+      description: |
+        Re-reads the saved definition (with its stored secrets), performs a real MCP handshake from the Go Core
+        and updates the server's status (`connected` or `error`). Requires the admin role of the tenant. A stdio
+        server answers 400 and its status is left unchanged: stdio servers run in the worker. So does a server
+        whose stored `url` the outbound policy refuses now (it stays readable; the worker skips it in runs).
+      operationId: testMCPServer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Test outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPTestResult"
+        "400":
+          description: |
+            The server uses the stdio transport, or its stored `url` is refused by the outbound policy (private or
+            loopback address not allowlisted in `mcp.allowed_private_hosts`; link-local, cloud metadata,
+            unspecified, multicast or reserved address). The status is left unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -1537,6 +2271,100 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /projects/{id}/mcp-servers:
+    get:
+      tags: [MCP]
+      summary: List the MCP servers assigned to a project
+      description: Env and header values are returned as `***`.
+      operationId: listProjectMCPServers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "200":
+          description: Assigned MCP servers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MCPServer"
+    post:
+      tags: [MCP]
+      summary: Assign an MCP server to a project
+      description: |
+        Requires the admin role of the tenant. The project and the server must belong to the caller's tenant;
+        assigning across tenants answers 404. Assigning an assigned server again changes nothing.
+        The assignment is audited as action `assign` on resource `mcp_server` (resource ID: the `server_id`,
+        details: `project_id`) and the entry is written before the change: when it cannot be written the
+        request is refused with 503 and nothing changes. A request refused earlier (invalid body) is audited
+        afterwards with an empty resource ID and its HTTP status.
+      operationId: assignMCPServerToProject
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [server_id]
+              properties:
+                server_id:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: Server assigned
+        "400":
+          description: Invalid body or `server_id` missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The project or the server does not exist in the caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
+  /projects/{id}/mcp-servers/{serverId}:
+    delete:
+      tags: [MCP]
+      summary: Unassign an MCP server from a project
+      description: |
+        Requires the admin role of the tenant. Audited like the assignment (action `unassign`, written before
+        the change, 503 when it cannot be written). A link that does not exist in the caller's tenant, including
+        one of another tenant, answers 404.
+      operationId: unassignMCPServerFromProject
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Server unassigned
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
   # -----------------------------------------------
   # Channels
   # -----------------------------------------------
@@ -1544,6 +2372,10 @@ paths:
     get:
       tags: [Channels]
       summary: List real-time channels
+      description: |
+        Each channel carries `has_webhook_key` and the caller's `unread_count` (top-level messages of others
+        after the caller's read position; 0 for callers without a users row, such as auth disabled or the
+        internal service key).
       operationId: listChannels
       security:
         - bearerAuth: []
@@ -1717,6 +2549,450 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /channels/{id}/webhook-key:
+    post:
+      tags: [Channels]
+      summary: Generate the channel's webhook key
+      description: |
+        Admin only. Makes a new key and returns it once (only its SHA-256 is stored); a previous key stops
+        working. External systems post with it to `POST /webhooks/channels/{id}`.
+      operationId: regenerateChannelWebhookKey
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: The new key (shown once)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [webhook_key]
+                properties:
+                  webhook_key:
+                    type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /channels/{id}/read:
+    post:
+      tags: [Channels]
+      summary: Move the caller's read position in a channel
+      description: |
+        Moves the caller's read position to a message and broadcasts `channel.read`. Answers 204 without storing
+        anything for callers without a users row (auth disabled, internal service key).
+      operationId: markChannelRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message_id]
+              properties:
+                message_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: The new read position
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelReadState"
+        "204":
+          description: Read positions are not tracked for this caller
+        "404":
+          $ref: "#/components/responses/NotFound"
+    get:
+      tags: [Channels]
+      summary: List the members' read positions in a channel
+      operationId: listChannelReadStates
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Read positions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChannelReadState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Project webhooks (registration; authenticated, KI-85)
+  # -----------------------------------------------
+  /projects/{id}/webhooks:
+    get:
+      tags: [Projects]
+      summary: List a project's inbound webhooks
+      description: Admins and editors. IDs, URLs, kinds and providers; never secrets or API tokens.
+      operationId: listProjectWebhooks
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "200":
+          description: The project's webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhookEndpoint"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Projects]
+      summary: Register an inbound webhook for a project
+      description: |
+        Admins. One webhook per project, kind and provider. The answer carries the webhook's secret, the only
+        time it is shown: GitHub and GitLab webhooks get a random one from CodeForge; for Plane, send the secret
+        Plane generated for its webhook. Enter the `url` (on the API's origin) and the secret at the provider.
+      operationId: registerProjectWebhook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, provider]
+              properties:
+                kind:
+                  type: string
+                  enum: [vcs, pm]
+                provider:
+                  type: string
+                  enum: [github, gitlab, plane]
+                  description: For kind `vcs`, github or gitlab
+                api_token:
+                  type: string
+                  maxLength: 1024
+                  description: The PM integration's own API token (GitLab `PRIVATE-TOKEN`, GitHub `GH_TOKEN`, Plane); kind `pm` only
+                secret:
+                  type: string
+                  minLength: 16
+                  maxLength: 1024
+                  description: The signing secret Plane generated; Plane only, and required for Plane
+      responses:
+        "201":
+          description: Webhook registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookRegistered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The project already has a webhook of this kind and provider
+
+  /projects/{id}/webhooks/{webhookId}/rotate:
+    post:
+      tags: [Projects]
+      summary: Rotate a webhook's secret
+      description: |
+        Admins. The old secret stops working; the new one is shown once. The body is optional: `{secret}` is
+        required for Plane (the secret Plane regenerated) and refused for GitHub and GitLab. Audited before the
+        change: 503 when no audit entry can be written.
+      operationId: rotateProjectWebhookSecret
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                secret:
+                  type: string
+                  minLength: 16
+                  maxLength: 1024
+      responses:
+        "200":
+          description: Secret rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookRegistered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
+  /projects/{id}/webhooks/{webhookId}/api-token:
+    put:
+      tags: [Projects]
+      summary: Set or remove a PM webhook's API token
+      description: Admins. An empty `api_token` removes the token. Audited before the change (503 when it cannot be written).
+      operationId: setProjectWebhookAPIToken
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_token]
+              properties:
+                api_token:
+                  type: string
+                  maxLength: 1024
+      responses:
+        "204":
+          description: Token set or removed
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
+  /projects/{id}/webhooks/{webhookId}:
+    delete:
+      tags: [Projects]
+      summary: Delete an inbound webhook
+      description: Admins. Audited before the change (503 when it cannot be written). Deliveries to its URL get 401 afterwards.
+      operationId: deleteProjectWebhook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Webhook deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
+  # -----------------------------------------------
+  # Webhooks (public, outside the JWT middleware)
+  # -----------------------------------------------
+  /webhooks/channels/{id}:
+    post:
+      tags: [Webhooks]
+      summary: Post a message to a channel from an external system
+      description: |
+        Authenticated by the channel's webhook key in `X-Webhook-Key` (constant-time comparison). Answers 401
+        without the header and one uniform 403 for a wrong key, an unknown channel and a channel ID that is not a
+        UUID. The message is posted as a webhook sender in the channel's tenant.
+      operationId: postChannelWebhookMessage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Webhook-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                sender_name:
+                  type: string
+                  description: Display label of the sender
+      responses:
+        "201":
+          description: Message posted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /webhooks/vcs/{provider}/{webhookId}:
+    post:
+      tags: [Webhooks]
+      summary: Deliver a VCS webhook event (GitHub, GitLab)
+      description: |
+        Verified with the secret of the registered webhook (`POST /projects/{id}/webhooks`): GitHub
+        `X-Hub-Signature-256: sha256=<hex>`, GitLab `X-Gitlab-Token`. The webhook's ID names the tenant and the
+        project; `X-Tenant-ID` is not read.
+
+        Handles GitHub push and pull_request and GitLab Push Hook (the `vcs.push` and `vcs.pull_request` events
+        carry the project's `project_id`). The event must name the project's repository exactly (host and path,
+        case-insensitive); otherwise it is ignored. A delivery (its body and delivery ID) is handled once within
+        `webhook.delivery_retention`.
+
+        Unknown webhooks, the wrong kind or provider, and missing or wrong signatures all get the same 401.
+      operationId: receiveVCSWebhook
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [github, gitlab]
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Event handled, ignored or already handled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookInboundResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Request body too large
+
+  /webhooks/pm/{provider}/{webhookId}:
+    post:
+      tags: [Webhooks]
+      summary: Deliver a PM webhook event (roadmap sync)
+      description: |
+        Verified with the secret of the registered webhook: GitHub `X-Hub-Signature-256`, GitLab
+        `X-Gitlab-Token`, Plane `X-Plane-Signature` (HMAC hex). The webhook's ID names the tenant and the project;
+        `X-Tenant-ID` is not read.
+
+        Handles GitHub issues, GitLab Issue Hook and every Plane event. The event must match the project's
+        repository or `plane_project_id`; otherwise it is ignored. A delivery (its body and delivery ID) is handled
+        once within `webhook.delivery_retention`.
+
+        The sync uses the webhook's `api_token`. Without one, only the default tenant uses the operator's
+        credentials (Plane token, the Core's gh login), and GitLab syncs anonymously. A GitLab sync reaches only
+        public hosts and those in `pm.allowed_private_hosts`; a refused host ends in a failed `pm.sync` event that
+        names the refusal.
+
+        Answers 202 when the pull sync started (its outcome is announced as a `pm.sync` WebSocket event with
+        `status` `completed` or `failed` and an `error`). Unknown webhooks, the wrong kind or provider, and
+        missing or wrong signatures all get the same 401.
+      operationId: receivePMWebhook
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [github, gitlab, plane]
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "202":
+          description: Sync started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookInboundResult"
+        "200":
+          description: Event ignored or already handled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookInboundResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Request body too large
+
   # -----------------------------------------------
   # Policies
   # -----------------------------------------------
@@ -1778,6 +3054,94 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The name is a built-in preset or a policy file for it already exists
+
+  /policies/allow-always:
+    post:
+      tags: [Policies]
+      summary: Persist an "Allow Always" rule for a project
+      description: |
+        Admin only. Adds an allow rule for the tool (Bash: `command_allow` with every executable of the
+        approved command) to the per-project clone `{profile}-custom-{project_id}` of the profile that
+        decided the call. The clone replaces that profile only for this project; the project's profile
+        selection is not changed. The rule never overrides a deny list. Persisted to `policy.custom_dir`.
+      operationId: allowAlwaysPolicy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, tool]
+              properties:
+                project_id:
+                  type: string
+                profile:
+                  type: string
+                  description: Profile named by the agui.permission_request event (optional; default is the project's effective profile)
+                tool:
+                  type: string
+                  description: Tool name as sent by the worker (canonicalized server-side)
+                command:
+                  type: string
+                  description: The approved bash command (Bash only)
+      responses:
+        "200":
+          description: The updated profile clone
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Unknown project or profile
+        "409":
+          description: No policy directory configured (policy.custom_dir is empty)
+
+  /policies/{name}/evaluate:
+    post:
+      tags: [Policies]
+      summary: Evaluate a tool call against a policy profile (policy tester)
+      description: |
+        Evaluates the call like a run would, in a synthetic workspace `/workspace` (the tester has no
+        project): relative paths and Bash redirection targets are placed under it, an absolute path only when
+        it is under `/workspace`.
+      operationId: evaluatePolicy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tool]
+              properties:
+                tool:
+                  type: string
+                command:
+                  type: string
+                path:
+                  type: string
+      responses:
+        "200":
+          description: The decision and its reason
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # -----------------------------------------------
   # Benchmarks (dev-mode only)
@@ -1850,7 +3214,11 @@ paths:
     post:
       tags: [Benchmarks]
       summary: Start a benchmark run
-      description: Creates and starts a benchmark run for the given suite. Requires APP_ENV=development.
+      description: |
+        Creates and starts a benchmark run for the given dataset or suite. Requires APP_ENV=development. A dataset is a
+        name or a path inside the benchmark datasets directory (`benchmark.datasets_dir`, KI-107) and is stored
+        relative to it; an absolute path outside the directory answers 400 before the run is stored, and a dataset
+        that leads out of the directory through a symlink, or is not found, fails the run with 400.
       operationId: createBenchmarkRun
       security:
         - bearerAuth: []
@@ -1860,8 +3228,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [suite_id]
+              required: [model]
+              description: One of `dataset` or `suite_id` is required.
               properties:
+                dataset:
+                  type: string
+                  description: Dataset name (`.yaml` is added; `.yml` names resolve too) or a path inside the benchmark datasets directory
                 suite_id:
                   type: string
                   format: uuid
@@ -1911,6 +3283,396 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /benchmarks/runs/{id}/results:
+    get:
+      tags: [Benchmarks]
+      summary: List the results of a benchmark run
+      description: |
+        Requires APP_ENV=development. A dimension an evaluator could not score is never a 0.0 score: it is
+        missing from `scores` and named in `evaluation_errors` (dimension -> error).
+      operationId: listBenchmarkResults
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BenchmarkResult"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /benchmarks/runs/{id}/export/rlvr:
+    get:
+      tags: [Benchmarks]
+      summary: Export RLVR rewards of a benchmark run
+      description: |
+        Requires APP_ENV=development. JSONL by default, a JSON array with `format=json`. Results with
+        evaluation errors and no valid score are left out; a partial result uses its valid dimensions. The
+        training-pair export (`/export/training`) follows the same rule.
+      operationId: exportBenchmarkRLVR
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json]
+      responses:
+        "200":
+          description: RLVR entries
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Agents
+  # -----------------------------------------------
+  /agents/{id}/dispatch:
+    post:
+      tags: [Agents]
+      summary: Dispatch a task to an agent's backend
+      description: Requires admin or editor role. A task that is already queued or running is not dispatched again.
+      operationId: dispatchAgentTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_id]
+              properties:
+                task_id:
+                  type: string
+      responses:
+        "200":
+          description: Dispatched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "dispatched"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The task is queued or running (dispatching it again would start a second run)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # -----------------------------------------------
+  # Review (contract-first review and refactoring)
+  # -----------------------------------------------
+  /projects/{id}/review-refactor:
+    post:
+      tags: [Review]
+      summary: Start the review-refactor pipeline
+      description: |
+        Requires admin or editor role. Starts a review plan (boundary analysis, contract review, review,
+        refactoring) and answers 202 with its plan ID. 400 for a workspace that is not a git repository, a
+        project without agents or a workspace; 409 when the project already has an active review pipeline or the
+        agent belongs to another plan; 503 when the review pipeline is not configured.
+      operationId: triggerReviewRefactor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                commit_sha:
+                  type: string
+      responses:
+        "202":
+          description: Plan started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewTriggerResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Another review pipeline or plan holds the project or the agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Review pipeline not configured
+
+  /projects/{id}/boundaries/analyze:
+    post:
+      tags: [Review]
+      summary: Start a boundary analysis
+      description: Requires admin or editor role. Same answers as `POST /projects/{id}/review-refactor`.
+      operationId: triggerBoundaryAnalysis
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "202":
+          description: Plan started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewTriggerResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another review pipeline or plan holds the project or the agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Review pipeline not configured
+
+  /projects/{id}/review/pending:
+    get:
+      tags: [Review]
+      summary: List the refactorings that wait for a keep or undo decision
+      description: Oldest first. They wait until decided; there is no timeout.
+      operationId: listPendingReviewDecisions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "200":
+          description: Pending decisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingReviewDecision"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Review pipeline not configured
+
+  # -----------------------------------------------
+  # Quarantine (admin only)
+  # -----------------------------------------------
+  /quarantine:
+    get:
+      tags: [Quarantine]
+      summary: List quarantined messages
+      description: |
+        Admin only. Without `project_id` it lists the messages without a project (inbound A2A prompts).
+        Messages are only held while `quarantine.enabled` is true.
+      operationId: listQuarantinedMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected, expired]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuarantineMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: Quarantine service not configured
+
+  /quarantine/stats:
+    get:
+      tags: [Quarantine]
+      summary: Count quarantined messages by status
+      description: Admin only. Without `project_id` it counts the messages without a project (inbound A2A prompts).
+      operationId: quarantineStats
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: integer
+                  approved:
+                    type: integer
+                  rejected:
+                    type: integer
+                  expired:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: Quarantine service not configured
+
+  /quarantine/{id}/approve:
+    post:
+      tags: [Quarantine]
+      summary: Approve a quarantined message
+      description: |
+        Admin only. Replays the held message to its subject. The reviewer is the logged-in user (`reviewed_by_id`
+        is recorded when the user has an account row; a name in the body is ignored). The held prompt of an
+        inbound A2A task is replayed only while its task still waits for it (state `submitted`): otherwise the
+        message is rejected instead and the call answers 409.
+      operationId: approveQuarantinedMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+      responses:
+        "200":
+          description: Approved and replayed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "approved"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The held A2A task no longer waits for the message (the message is rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /quarantine/{id}/reject:
+    post:
+      tags: [Quarantine]
+      summary: Reject a quarantined message
+      description: |
+        Admin only. Blocks the message for good; the inbound A2A task whose prompt it held is rejected with it.
+        The reviewer is the logged-in user.
+      operationId: rejectQuarantinedMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "rejected"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # -----------------------------------------------
   # Knowledge Bases
   # -----------------------------------------------
@@ -1932,7 +3694,12 @@ paths:
                   $ref: "#/components/schemas/KnowledgeBase"
     post:
       tags: [Knowledge Bases]
-      summary: Create a knowledge base
+      summary: Create a knowledge base (admin only)
+      description: |
+        Requires the admin role (403 otherwise). Knowledge-base content lives in per-tenant areas
+        `<knowledge.content_root>/<tenant_id>/` (KI-105). `content_path` is relative to the caller's tenant area (`.` is the
+        whole area); an absolute path is accepted only inside it and is stored relative. A path outside the area answers
+        one and the same 400, whatever the reason, so no tenant can probe other paths.
       operationId: createKnowledgeBase
       security:
         - bearerAuth: []
@@ -1942,17 +3709,22 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name]
+              required: [name, category, content_path]
               properties:
                 name:
                   type: string
                 description:
                   type: string
-                source_type:
+                category:
                   type: string
-                  description: Source type (url, directory, document)
-                source_uri:
+                  enum: [framework, paradigm, language, security, custom]
+                tags:
+                  type: array
+                  items:
+                    type: string
+                content_path:
                   type: string
+                  description: Directory or file below the caller's tenant area of the knowledge content root
       responses:
         "201":
           description: Knowledge base created
@@ -1961,7 +3733,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/KnowledgeBase"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/KnowledgeContentRefused"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /knowledge-bases/{id}:
     get:
@@ -1986,9 +3760,53 @@ paths:
                 $ref: "#/components/schemas/KnowledgeBase"
         "404":
           $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Knowledge Bases]
+      summary: Update a knowledge base (admin only)
+      description: Requires the admin role (403 otherwise). `content_path` cannot be changed; create a new knowledge base instead.
+      operationId: updateKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                tags:
+                  type: array
+                  description: Replaces the tags when present
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Knowledge base updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Knowledge Bases]
-      summary: Delete a knowledge base
+      summary: Delete a knowledge base (admin only)
+      description: Requires the admin role (403 otherwise).
       operationId: deleteKnowledgeBase
       security:
         - bearerAuth: []
@@ -2002,14 +3820,20 @@ paths:
       responses:
         "204":
           description: Knowledge base deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
   /knowledge-bases/{id}/index:
     post:
       tags: [Knowledge Bases]
-      summary: Trigger indexing of a knowledge base
-      description: Starts or refreshes the retrieval index for this knowledge base.
+      summary: Trigger indexing of a knowledge base (admin only)
+      description: |
+        Requires the admin role (403 otherwise). Starts or refreshes the retrieval index for this knowledge base. The
+        worker indexes the stored `content_path` below the caller's tenant area of its own knowledge content root. A
+        stored path that is outside the area, missing, leads out of it or is neither a directory nor a regular file
+        answers the same 400 as on create.
       operationId: indexKnowledgeBase
       security:
         - bearerAuth: []
@@ -2031,8 +3855,111 @@ paths:
                   status:
                     type: string
                     example: "indexing"
+        "400":
+          $ref: "#/components/responses/KnowledgeContentRefused"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /scopes/{id}/knowledge-bases:
+    get:
+      tags: [Knowledge Bases]
+      summary: List the knowledge bases attached to a scope
+      description: Lists only knowledge bases of the caller's tenant.
+      operationId: listScopeKnowledgeBases
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Retrieval scope ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Knowledge bases of the scope
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeBase"
+    post:
+      tags: [Knowledge Bases]
+      summary: Attach a knowledge base to a scope
+      description: |
+        The scope and the knowledge base must both belong to the caller's tenant; otherwise 404 (KI-105). The link
+        carries the tenant. Attaching an attached knowledge base changes nothing. Any authenticated user of the tenant
+        may attach (no role check).
+      operationId: attachScopeKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Retrieval scope ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [knowledge_base_id]
+              properties:
+                knowledge_base_id:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: Attached
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The scope or the knowledge base does not exist or belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /scopes/{id}/knowledge-bases/{kbid}:
+    delete:
+      tags: [Knowledge Bases]
+      summary: Detach a knowledge base from a scope
+      description: The scope must belong to the caller's tenant; otherwise 404. Any authenticated user of the tenant may detach (no role check).
+      operationId: detachScopeKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Retrieval scope ID
+          schema:
+            type: string
+            format: uuid
+        - name: kbid
+          in: path
+          required: true
+          description: Knowledge base ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Detached
+        "404":
+          description: The knowledge base is not attached to the scope, or the scope belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # -----------------------------------------------
   # Search
@@ -2168,6 +4095,28 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
 
+    WorkspacePathRefused:
+      description: |
+        The path is refused (KI-95): it leaves the workspace (`..` above it, an absolute symlink or a symlink that
+        leaves it), names a special file (FIFO, socket, device) or a directory where a regular file is needed, or the
+        file is larger than 10 MiB. Deleting or renaming the workspace root (`.`, or a name that cleans to it such as
+        `x/..`) is refused too. The message names only the workspace-relative path.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    KnowledgeContentRefused:
+      description: |
+        Invalid request, or `content_path` is not available in the caller's tenant area of the knowledge content root
+        (KI-105): "content_path is not available in this tenant's knowledge area (knowledge.content_root/<tenant>)".
+        It is the one answer for every such refusal (outside the area, missing, leads out, not a file or directory), so
+        no tenant can probe paths.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
     Unauthorized:
       description: Authentication required or invalid credentials
       content:
@@ -2268,7 +4217,7 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: Project-level configuration (autonomy_level, policy_preset, etc.)
+          description: Project-level configuration (policy_preset, execution_mode, detected_languages, expansion_prompt, ...)
         workspace_path:
           type: string
           description: Absolute path to the local workspace (if adopted/cloned)
@@ -2298,8 +4247,9 @@ components:
           additionalProperties:
             type: string
           description: |
-            Project config map. Common keys:
-            autonomy_level (1-5), policy_preset, execution_mode (mount/sandbox)
+            Project config map. Keys the backend reads: policy_preset, execution_mode (default exec
+            mode for runs and agentic conversations; only mount is accepted until sandbox isolation
+            exists), expansion_prompt. Autonomy comes from the selected mode.
 
     Conversation:
       type: object
@@ -2566,58 +4516,119 @@ components:
           type: string
         description:
           type: string
+        transport:
+          type: string
+          enum: [stdio, sse, streamable_http]
         command:
           type: string
-          description: Command to start the MCP server
+          description: Command the worker starts as the tool user (stdio transport)
         args:
           type: array
           items:
             type: string
+          description: |
+            Command arguments. The value of a credential argument is returned as `***` (`--token=***`,
+            `-name=***`, `name=***`, or the argument after `--api-key`; the flag stays; names per the credential
+            name list: token, api-key, password, secret, ...). Other shapes (`--header=Authorization: Bearer x`, a
+            URL with userinfo as an argument) are not recognised: keep secrets in env or headers.
+        url:
+          type: string
+          description: |
+            Endpoint of an sse or streamable_http server, redacted as one URL value: the userinfo (all of it, a
+            token-only user too) and the values of credential query and fragment parameters are returned as `***`
+            (`https://***@host/sse?api_key=***`). The host shown is the host the server connects to: an `@` in the
+            path or query never changes it.
         env:
           type: object
           additionalProperties:
             type: string
-        transport:
-          type: string
-          enum: [stdio, http]
-        url:
-          type: string
-          description: HTTP URL (for http transport)
+          description: Environment variables of a stdio server. Every set value is returned as `***`.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: HTTP headers of an sse or streamable_http server. Every set value is returned as `***`.
         enabled:
           type: boolean
-        created_at:
+        status:
           type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
+          enum: [registered, connected, disconnected, error]
 
     CreateMCPServerRequest:
       type: object
-      required: [name]
+      required: [name, transport]
       properties:
+        id:
+          type: string
+          format: uuid
+          description: |
+            Only for `POST /mcp/servers/test`: the saved server whose stored env, header, url and args values
+            stand for values sent as `***`.
         name:
           type: string
         description:
           type: string
+        transport:
+          type: string
+          enum: [stdio, sse, streamable_http]
         command:
           type: string
+          description: Required for stdio
         args:
           type: array
           items:
             type: string
+          description: |
+            Command arguments. An argument list that carries `***` keeps the stored list only when it equals the
+            list as read (`MCPServer.args`), as a whole; any other list with `***` is 400 (and always on create).
+            Transport, url, command and args must then equal the stored ones.
+        url:
+          type: string
+          description: |
+            Required for sse and streamable_http: an http or https URL with a host, which the outbound policy
+            allows (see the 400 of create). A url that carries `***` keeps the stored url only when it equals the
+            url as read (`MCPServer.url`), as a whole; any other url with `***` is 400 (and always on create).
         env:
           type: object
           additionalProperties:
             type: string
-        transport:
-          type: string
-          enum: [stdio, http]
-        url:
-          type: string
+          description: |
+            Values are stored and never returned. `***` keeps the stored value of an update (400 on create or
+            for a key with nothing stored). Names that make the loader or an interpreter load code (`LD_*`,
+            `PYTHON*`, `NODE_OPTIONS`, ...) and the worker's own credentials are dropped by the worker.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Like env.
         enabled:
           type: boolean
           default: true
+
+    MCPTestResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        server_name:
+          type: string
+        server_version:
+          type: string
+        tools:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+        error:
+          type: string
+          description: |
+            Why the test failed, starting with `failed to create client:`, `connect failed:` (the transport could
+            not start or connect), `initialize failed:` or `tools/list failed:` (the handshake worked, `success`
+            stays true). Never quotes the url's secrets or header values.
 
     Channel:
       type: object
@@ -2635,9 +4646,273 @@ components:
           format: uuid
         member_count:
           type: integer
+        has_webhook_key:
+          type: boolean
+          description: A webhook key was generated (the key itself is never returned again)
+        unread_count:
+          type: integer
+          description: Top-level messages of others after the caller's read position
         created_at:
           type: string
           format: date-time
+
+    ChannelReadState:
+      type: object
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        last_read_message_id:
+          type: string
+          format: uuid
+        last_read_at:
+          type: string
+          format: date-time
+
+    PendingApproval:
+      type: object
+      description: A tool call awaiting a human decision (the agui.permission_request payload)
+      properties:
+        run_id:
+          type: string
+        call_id:
+          type: string
+        tool:
+          type: string
+        command:
+          type: string
+        path:
+          type: string
+        profile:
+          type: string
+          description: The policy profile that asked
+        arguments_preview:
+          type: string
+          description: Display-only preview of the call's arguments
+
+    WebhookEndpoint:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [vcs, pm]
+        provider:
+          type: string
+          enum: [github, gitlab, plane]
+        url:
+          type: string
+          description: Delivery path on the API origin, `/api/v1/webhooks/{kind}/{provider}/{id}`
+        has_api_token:
+          type: boolean
+          description: A PM webhook's sync has its own API token (the token itself is never returned)
+        created_at:
+          type: string
+          format: date-time
+        secret_rotated_at:
+          type: string
+          format: date-time
+
+    WebhookRegistered:
+      description: A webhook with its secret, which appears only in this answer.
+      allOf:
+        - $ref: "#/components/schemas/WebhookEndpoint"
+        - type: object
+          properties:
+            secret:
+              type: string
+
+    WebhookInboundResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [processed, accepted, ignored, duplicate]
+          description: processed = VCS event handled; accepted = PM sync started; ignored = event type or repository not handled; duplicate = delivery handled before
+        event:
+          type: string
+        reason:
+          type: string
+
+    ReviewTriggerResponse:
+      type: object
+      properties:
+        triggered:
+          type: boolean
+          example: true
+        plan_id:
+          type: string
+
+    ReviewDecisionRequest:
+      type: object
+      required: [plan_id, step_id]
+      properties:
+        plan_id:
+          type: string
+        step_id:
+          type: string
+
+    ReviewDecision:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+          description: approved = refactoring kept, rejected = undone
+        head_restored:
+          type: boolean
+          description: The refactoring had moved HEAD and HEAD was moved back
+        message:
+          type: string
+          description: What the undo could not do, for example why HEAD was left
+        restored_paths:
+          type: array
+          items:
+            type: string
+
+    PendingReviewDecision:
+      type: object
+      properties:
+        run_id:
+          type: string
+        plan_id:
+          type: string
+        step_id:
+          type: string
+        project_id:
+          type: string
+        impact_level:
+          type: string
+        files_changed:
+          type: integer
+        lines_added:
+          type: integer
+        lines_removed:
+          type: integer
+        cross_layer:
+          type: boolean
+        structural:
+          type: boolean
+        reason:
+          type: string
+          description: Why approval is needed when the change could not be measured
+        step_status:
+          type: string
+          description: waiting_approval, or failed / cancelled
+        plan_status:
+          type: string
+        since:
+          type: string
+          format: date-time
+        user_edits:
+          type: array
+          description: >
+            The paths users changed through the editor or the file API while the refactoring ran (KI-94).
+            They count as the refactoring's change, and an undo sets them back too. At most 100, by path.
+          items:
+            $ref: "#/components/schemas/ReviewUserEdit"
+        user_edits_total:
+          type: integer
+          description: How many paths users changed in all (user_edits is capped)
+
+    ReviewUserEdit:
+      type: object
+      required: [path, operation, edited_at]
+      properties:
+        path:
+          type: string
+          description: Workspace-relative path
+        operation:
+          type: string
+          enum: [write, delete, rename]
+          description: A rename lists the old and the new path
+        user_id:
+          type: string
+          description: Omitted without an account (authentication disabled) and once the account is deleted
+        user_name:
+          type: string
+          description: The user's current name; omitted when user_id is
+        edited_at:
+          type: string
+          format: date-time
+          description: The latest change of the path
+
+    QuarantineMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+        subject:
+          type: string
+        trust_origin:
+          type: string
+        trust_level:
+          type: string
+        risk_score:
+          type: number
+          format: double
+        risk_factors:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected, expired]
+        reviewed_by_id:
+          type: string
+          description: The reviewing user (empty without an account row or after the reviewer's erasure)
+        reviewed_by:
+          type: string
+          description: The reviewer's name at the time ("Deleted user" after erasure)
+        review_note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    BenchmarkResult:
+      type: object
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        task_id:
+          type: string
+        task_name:
+          type: string
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+          description: Valid scores only; a dimension that could not be evaluated is not here
+        evaluation_errors:
+          type: object
+          additionalProperties:
+            type: string
+          description: Dimension -> error for the dimensions an evaluator could not score
+        cost_usd:
+          type: number
+          format: double
+        duration_ms:
+          type: integer
 
     PolicyProfile:
       type: object
@@ -2709,6 +4984,83 @@ components:
           type: string
           format: date-time
 
+    StatusOK:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "ok"
+
+    FileEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+          description: Path relative to the workspace, with forward slashes
+        is_dir:
+          type: boolean
+        size:
+          type: integer
+          format: int64
+        mod_time:
+          type: string
+          format: date-time
+
+    FileContent:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        size:
+          type: integer
+          format: int64
+        mod_time:
+          type: string
+          format: date-time
+        language:
+          type: string
+          description: Language identifier derived from the file name (`plaintext` when unknown)
+
+    StackDetectionResult:
+      type: object
+      properties:
+        languages:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              confidence:
+                type: number
+              manifests:
+                type: array
+                items:
+                  type: string
+              frameworks:
+                type: array
+                items:
+                  type: string
+        recommendations:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+              id:
+                type: string
+              name:
+                type: string
+              reason:
+                type: string
+        scanned_path:
+          type: string
+
     KnowledgeBase:
       type: object
       properties:
@@ -2719,13 +5071,21 @@ components:
           type: string
         description:
           type: string
-        source_type:
+        category:
           type: string
-        source_uri:
+          enum: [framework, paradigm, language, security, custom]
+        tags:
+          type: array
+          items:
+            type: string
+        content_path:
           type: string
-        index_status:
+          description: Path relative to the tenant's area of the knowledge content root (`.` is the whole area)
+        status:
           type: string
-          enum: [none, indexing, indexed, error]
+          enum: [pending, indexed, error]
+        chunk_count:
+          type: integer
         created_at:
           type: string
           format: date-time

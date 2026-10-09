@@ -1,6 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 
-import { getAccessToken } from "~/api/client";
+import { api, getAccessToken } from "~/api/client";
 import { logError } from "~/lib/errorUtils";
 
 export interface WSMessage {
@@ -35,14 +35,6 @@ export function parseWSMessage(data: unknown): WSMessage | null {
     logError("ws.parseWSMessage", err);
   }
   return null;
-}
-
-/**
- * Validate that a WSMessage payload matches a specific AG-UI event type.
- * Checks for the presence of the required `run_id` field shared by all AG-UI events.
- */
-function isAGUIPayload(payload: Record<string, unknown>): boolean {
-  return typeof payload.run_id === "string";
 }
 
 // AG-UI event types following the CopilotKit AG-UI specification.
@@ -134,6 +126,19 @@ export interface AGUIPermissionRequest {
   tool: string;
   command?: string;
   path?: string;
+  /** Policy profile that asked; Allow-Always extends the project's copy of it. */
+  profile?: string;
+  /** Truncated JSON of the tool arguments, for the approver (display only). */
+  arguments_preview?: string;
+  /** The Core's approval timeout. */
+  timeout_seconds?: number;
+  /** When the Core denies the call unanswered (RFC 3339, the Core's clock). */
+  expires_at?: string;
+  /**
+   * Seconds left until then, counted on the Core's clock; only in
+   * GET /conversations/{id}/run (KI-148). The card counts down from it.
+   */
+  remaining_seconds?: number;
 }
 export interface AGUIActionSuggestion {
   run_id: string;
@@ -171,16 +176,34 @@ export interface AGUIEventMap {
   "agui.roadmap_proposal": AGUIRoadmapProposal;
 }
 
-function buildWSURL(): string {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const token = getAccessToken();
-  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
-  return `${proto}//${location.host}/ws${qs}`;
+/**
+ * Narrow a WSMessage to a specific AG-UI event type.
+ * Checks the type discriminator and the required `run_id` field shared by all AG-UI events.
+ */
+function isAGUIEvent<T extends AGUIEventType>(
+  msg: WSMessage,
+  type: T,
+): msg is WSMessage & { type: T; payload: AGUIEventMap[T] } {
+  return msg.type === type && typeof msg.payload.run_id === "string";
+}
+
+/** The parts of `window.location` a WebSocket URL is built from. */
+export type WSLocation = Pick<Location, "protocol" | "host">;
+
+/**
+ * Builds the WebSocket URL for a single-use ticket from `POST /api/v1/ws/ticket`.
+ * The access token never goes into the URL, where it would leak into server,
+ * proxy and browser logs; a ticket is worthless once used or expired.
+ */
+export function buildWSURL(ticket: string, loc: WSLocation = location): string {
+  const proto = loc.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${loc.host}/ws?ticket=${encodeURIComponent(ticket)}`;
 }
 
 /**
- * Creates a reconnecting WebSocket that rebuilds the URL (with a fresh token)
- * on every reconnection attempt. This ensures the auth token is always current.
+ * Creates a reconnecting WebSocket. Every connection attempt fetches a fresh
+ * single-use ticket with the current access token, so reconnects after a
+ * token refresh authenticate as the current session.
  *
  * NOTE: Do not call this directly from components — use `useWebSocket()` from
  * `~/components/WebSocketProvider` to share a single connection app-wide.
@@ -191,49 +214,81 @@ export function createCodeForgeWS() {
 
   let ws: WebSocket | null = null;
   let disposed = false;
-  let manualReconnect = false;
+  // Set by disconnect() (logout): no connection attempts until reconnect().
+  let paused = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Incremented per connection attempt: a ticket that arrives after the
+  // attempt was superseded (reconnect or cleanup) is discarded.
+  let attempt = 0;
   const listeners: ((ev: MessageEvent) => void)[] = [];
 
-  function connect(): void {
-    if (disposed) return;
+  function scheduleReconnect(): void {
+    if (disposed || paused) return;
+    reconnectTimer = setTimeout(() => void connect(), RECONNECT_DELAY);
+  }
 
-    const token = getAccessToken();
-    if (!token) {
-      // No token yet — retry after delay.
-      reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
+  async function connect(): Promise<void> {
+    if (disposed || paused) return;
+    const current = ++attempt;
+
+    if (!getAccessToken()) {
+      // Not logged in yet — retry after delay.
+      scheduleReconnect();
       return;
     }
 
-    const url = buildWSURL();
-    ws = new WebSocket(url);
+    let ticket: string;
+    try {
+      ({ ticket } = await api.auth.wsTicket());
+    } catch (err) {
+      logError("ws.ticket", err);
+      if (current === attempt) scheduleReconnect();
+      return;
+    }
+    if (disposed || paused || current !== attempt) return;
 
-    ws.addEventListener("open", () => setConnected(true));
+    const socket = new WebSocket(buildWSURL(ticket));
+    ws = socket;
 
-    ws.addEventListener("close", () => {
-      setConnected(false);
-      if (!disposed && !manualReconnect) {
-        reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
-      }
+    socket.addEventListener("open", () => {
+      if (ws === socket) setConnected(true);
     });
 
-    ws.addEventListener("error", () => {
+    socket.addEventListener("close", () => {
+      // A socket replaced by reconnect() or closed on cleanup stays closed.
+      if (ws !== socket) return;
+      ws = null;
+      setConnected(false);
+      scheduleReconnect();
+    });
+
+    socket.addEventListener("error", () => {
       // error is always followed by close, which triggers reconnect
     });
 
-    ws.addEventListener("message", (ev) => {
+    socket.addEventListener("message", (ev) => {
       for (const listener of listeners) {
         listener(ev);
       }
     });
   }
 
-  connect();
+  function closeCurrent(): void {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    const socket = ws;
+    ws = null;
+    socket?.close();
+    setConnected(false);
+  }
+
+  void connect();
 
   onCleanup(() => {
     disposed = true;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    ws?.close();
+    closeCurrent();
   });
 
   function onMessage(handler: (msg: WSMessage) => void): () => void {
@@ -259,26 +314,30 @@ export function createCodeForgeWS() {
     handler: (payload: AGUIEventMap[T]) => void,
   ): () => void {
     return onMessage((msg) => {
-      if (msg.type === type && isAGUIPayload(msg.payload)) {
-        // Safe cast: type discriminator + run_id validation ensures correct shape.
-        handler(msg.payload as AGUIEventMap[T]);
+      if (isAGUIEvent(msg, type)) {
+        handler(msg.payload);
       }
     });
   }
 
-  /** Force-close and reconnect (e.g. after token refresh). */
+  /** Force-close and reconnect (e.g. after a login or a user change). */
   function reconnect(): void {
     if (disposed) return;
-    // Prevent the close handler from scheduling a competing reconnect.
-    manualReconnect = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    ws?.close();
-    manualReconnect = false;
-    connect();
+    paused = false;
+    closeCurrent();
+    void connect();
   }
 
-  return { connected, onMessage, onAGUIEvent, reconnect } as const;
+  /**
+   * Close the socket and stop reconnecting until reconnect() (logout). A
+   * ticket-bound connection outlives the token it was issued for, so it must be
+   * closed explicitly.
+   */
+  function disconnect(): void {
+    paused = true;
+    attempt++;
+    closeCurrent();
+  }
+
+  return { connected, onMessage, onAGUIEvent, reconnect, disconnect } as const;
 }

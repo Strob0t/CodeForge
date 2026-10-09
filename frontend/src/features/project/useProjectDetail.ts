@@ -1,12 +1,14 @@
-import { createResource, createSignal, onCleanup } from "solid-js";
+import { createEffect, createResource, createSignal, onCleanup } from "solid-js";
 
 import { api } from "~/api/client";
-import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
+import type { AutoAgentStatus, BudgetAlertEvent, GitStatus } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
+import { coalesce } from "~/lib/coalesce";
 import { extractErrorMessage } from "~/lib/errorUtils";
 
+import { createProjectTaskIndex, parseTaskOutput } from "./liveEvents";
 import type { OutputLine } from "./LiveOutput";
 import type { AgentTerminal } from "./MultiTerminal";
 
@@ -19,6 +21,9 @@ function isBudgetAlertEvent(p: unknown): p is BudgetAlertEvent {
 function isAutoAgentStatus(p: unknown): p is AutoAgentStatus {
   return typeof p === "object" && p !== null && "id" in p && "project_id" in p && "status" in p;
 }
+
+/** The run statuses after which the run no longer changes the workspace. */
+const RUN_ENDED = new Set(["completed", "failed", "cancelled", "timeout"]);
 
 export interface RunCostState {
   costUsd: number;
@@ -44,18 +49,33 @@ export function useProjectDetail(projectId: () => string) {
   const [project, { refetch: refetchProject }] = createResource(projectId, (id) =>
     api.projects.get(id),
   );
+  // Reading a resource that failed throws; outside JSX (event handlers,
+  // resource sources) and for the branch badge, a failure reads as "none".
+  const loadedProject = () => (project.error ? undefined : project());
   const [tasks, { refetch: refetchTasks }] = createResource(projectId, (id) => api.tasks.list(id));
-  const [gitStatus, { refetch: refetchGitStatus }] = createResource(
-    () => (project()?.workspace_path ? projectId() : undefined),
+  const [gitStatusResource, { refetch: refetchGitStatus }] = createResource(
+    () => (loadedProject()?.workspace_path ? projectId() : undefined),
     (id: string) => api.projects.gitStatus(id),
   );
+  // The badge reads the status; a failed refresh hides the badge instead of
+  // throwing to the page's error boundary.
+  const gitStatus = (): GitStatus | undefined =>
+    gitStatusResource.error ? undefined : gitStatusResource();
   const [, { refetch: refetchBranches }] = createResource(
-    () => (project()?.workspace_path ? projectId() : undefined),
+    () => (loadedProject()?.workspace_path ? projectId() : undefined),
     (id: string) => api.projects.branches(id),
   );
   const [agents, { refetch: refetchAgents }] = createResource(projectId, (id) =>
     api.agents.list(id),
   );
+
+  // What agents do in the workspace (a run ends or delivers, a chat tool
+  // call) refreshes the branch badge (KI-129): one git status request at a
+  // time, and one more after it when activity came in meanwhile.
+  const refetchGitStatusCoalesced = coalesce(refetchGitStatus);
+  const refreshGitStatus = (): void => {
+    if (loadedProject()?.workspace_path) refetchGitStatusCoalesced();
+  };
 
   // Onboarding data
   const [onboardGoals] = createResource(projectId, (pid) => api.goals.list(pid).catch(() => []));
@@ -84,9 +104,21 @@ export function useProjectDetail(projectId: () => string) {
 
   // ---- WS event handling ----
 
+  // task.output names only its task: attribute it through the project's tasks.
+  let taskIndex = createProjectTaskIndex(projectId());
+  createEffect(() => {
+    const id = projectId();
+    if (taskIndex.projectId !== id) taskIndex = createProjectTaskIndex(id);
+    if (!tasks.error) taskIndex.addTasks(tasks() ?? []);
+  });
+  const agentName = (agentId: string): string =>
+    (agents.error ? undefined : agents())?.find((a) => a.id === agentId)?.name ?? agentId;
+
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
   const cleanup = onMessage((msg) => {
     const payload = msg.payload;
     const pid = projectId();
+    taskIndex.observe(msg);
 
     switch (msg.type) {
       case "task.status": {
@@ -98,11 +130,14 @@ export function useProjectDetail(projectId: () => string) {
         break;
       }
       case "run.status": {
+        // The run's task and agent announce their own status (task.status,
+        // agent.status), so the lists are not refetched here.
         if ((payload.project_id as string) === pid) {
           const status = payload.status as string;
           if (status === "completed") toast("info", t("detail.toast.runCompleted"));
           else if (status === "failed") toast("error", t("detail.toast.runFailed"));
           else if (status === "cancelled") toast("info", t("detail.toast.runCancelled"));
+          if (RUN_ENDED.has(status)) refreshGitStatus();
 
           const costUsd = payload.cost_usd as number | undefined;
           if (costUsd !== undefined) {
@@ -110,7 +145,7 @@ export function useProjectDetail(projectId: () => string) {
               costUsd,
               tokensIn: (payload.tokens_in as number) ?? 0,
               tokensOut: (payload.tokens_out as number) ?? 0,
-              steps: (payload.steps as number) ?? 0,
+              steps: (payload.step_count as number) ?? 0,
               model: payload.model as string | undefined,
             });
           }
@@ -119,8 +154,14 @@ export function useProjectDetail(projectId: () => string) {
       }
       case "run.toolcall":
         break;
+      case "run.delivery": {
+        // A delivery commits, and may create and check out a branch.
+        if ((payload.project_id as string) === pid && payload.status === "completed") {
+          refreshGitStatus();
+        }
+        break;
+      }
       case "run.qualitygate":
-      case "run.delivery":
       case "plan.step.status":
       case "repomap.status":
       case "retrieval.status":
@@ -142,38 +183,35 @@ export function useProjectDetail(projectId: () => string) {
         break;
       }
       case "task.output": {
-        if ((payload.project_id as string) === pid) {
-          const taskId = (payload.task_id as string) ?? null;
-          const line = payload.line as string;
-          const stream = (payload.stream as "stdout" | "stderr") ?? "stdout";
-          const agentId = payload.agent_id as string | undefined;
-          const agentName = payload.agent_name as string | undefined;
+        const output = parseTaskOutput(msg);
+        if (!output || !taskIndex.owns(output.taskId)) break;
+        const { taskId, line, stream } = output;
+        const agentId = taskIndex.agentOf(taskId);
 
-          setLiveOutputTaskId(taskId);
-          setLiveOutputLines((prev) => [...prev, { line, stream, timestamp: Date.now() }]);
+        setLiveOutputTaskId(taskId);
+        setLiveOutputLines((prev) => [...prev, { line, stream, timestamp: Date.now() }]);
 
-          if (agentId) {
-            setAgentTerminals((prev) => {
-              const idx = prev.findIndex((at) => at.agentId === agentId);
-              const entry: AgentTerminal =
-                idx >= 0
-                  ? {
-                      ...prev[idx],
-                      lines: [...prev[idx].lines, { line, stream, timestamp: Date.now() }],
-                    }
-                  : {
-                      agentId,
-                      agentName: agentName ?? agentId,
-                      lines: [{ line, stream, timestamp: Date.now() }],
-                    };
-              if (idx >= 0) {
-                const next = [...prev];
-                next[idx] = entry;
-                return next;
-              }
-              return [...prev, entry];
-            });
-          }
+        if (agentId) {
+          setAgentTerminals((prev) => {
+            const idx = prev.findIndex((at) => at.agentId === agentId);
+            const entry: AgentTerminal =
+              idx >= 0
+                ? {
+                    ...prev[idx],
+                    lines: [...prev[idx].lines, { line, stream, timestamp: Date.now() }],
+                  }
+                : {
+                    agentId,
+                    agentName: agentName(agentId),
+                    lines: [{ line, stream, timestamp: Date.now() }],
+                  };
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = entry;
+              return next;
+            }
+            return [...prev, entry];
+          });
         }
         break;
       }
@@ -233,7 +271,9 @@ export function useProjectDetail(projectId: () => string) {
     tasks,
     refetchTasks,
     gitStatus,
+    refreshGitStatus,
     agents,
+    refetchAgents,
     onboardGoals,
     onboardRoadmap,
     onboardSessions,

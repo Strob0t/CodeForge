@@ -52,6 +52,10 @@ class TestGraphHandlerMixinErrorHandling:
         assert "_handle_request" in search_source, "_handle_graph_search must delegate to _handle_request"
 
     def test_publishes_error_result_on_search_failure(self) -> None:
-        """Graph search should publish error result so Go waiter is unblocked."""
+        """Graph search returns an error result on failure, so the Go waiter is unblocked.
+
+        _handle_request publishes it and acks the request instead of retrying.
+        """
         source = inspect.getsource(GraphHandlerMixin._do_graph_search)
-        assert "_publish_error" in source, "_do_graph_search should publish error result on exception"
+        assert 'error="internal worker error"' in source, "_do_graph_search should return an error result"
+        assert "raise" not in source, "a failed search must not be retried after its error result"

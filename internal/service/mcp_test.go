@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -204,7 +208,7 @@ func TestResolveForRun(t *testing.T) {
 		}
 	}
 
-	resolved := svc.ResolveForRun("proj-1", "coder")
+	resolved := svc.ResolveForRun(context.Background(), "proj-1", "coder")
 	if len(resolved) != 2 {
 		t.Fatalf("expected 2 enabled servers, got %d", len(resolved))
 	}
@@ -273,20 +277,44 @@ func TestMCP_LoadFromDirectoryMissing(t *testing.T) {
 	}
 }
 
-func TestLoadFromDirectoryInvalidYAML(t *testing.T) {
+// TestLoadFromDirectorySkipsInvalidFiles (KI-100 review): an invalid file
+// used to stop the loading, so the definitions after it were missing. Each
+// invalid file is now logged with its name and reason and skipped.
+func TestLoadFromDirectorySkipsInvalidFiles(t *testing.T) {
 	dir := t.TempDir()
-
-	// Write invalid YAML that will fail validation (missing required fields).
-	invalid := `name: ""
-transport: stdio
-`
-	if err := os.WriteFile(filepath.Join(dir, "bad.yaml"), []byte(invalid), 0o644); err != nil {
-		t.Fatal(err)
+	files := map[string]string{
+		"a-bad-syntax.yaml":  "name: [unclosed\n",
+		"b-invalid.yaml":     "name: \"\"\ntransport: stdio\n",
+		"c-good.yaml":        "id: good\nname: good\ntransport: stdio\ncommand: mcp-good\nenabled: true\n",
+		"d-duplicate.yaml":   "id: good\nname: again\ntransport: stdio\ncommand: mcp-again\n",
+		"e-bad-url.yml":      "name: remote\ntransport: sse\nurl: ftp://mcp.example/\n",
+		"f-also-good.yml":    "id: also-good\nname: also\ntransport: sse\nurl: http://127.0.0.1:6280/sse\n",
+		"g-not-a-server.txt": "ignored",
 	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
-	err := svc.LoadFromDirectory(dir)
-	if err == nil {
-		t.Fatal("expected error for invalid server definition")
+	if err := svc.LoadFromDirectory(dir); err != nil {
+		t.Fatalf("LoadFromDirectory = %v, want the invalid files skipped", err)
+	}
+
+	if got := svc.List(); len(got) != 2 || got[0].ID != "also-good" || got[1].ID != "good" || got[1].Command != "mcp-good" {
+		t.Fatalf("servers = %+v, want good and also-good", got)
+	}
+	for _, name := range []string{"a-bad-syntax.yaml", "b-invalid.yaml", "d-duplicate.yaml", "e-bad-url.yml"} {
+		if !strings.Contains(logs.String(), name) {
+			t.Errorf("the log does not name the skipped file %s:\n%s", name, logs.String())
+		}
+	}
+	if !strings.Contains(logs.String(), "level=ERROR") || !strings.Contains(logs.String(), "url must be an http or https URL") {
+		t.Errorf("the log does not give the reason at error level:\n%s", logs.String())
 	}
 }

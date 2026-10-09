@@ -6,14 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // fileMarkers maps spec format names to their file/directory indicators.
@@ -57,6 +59,16 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 		coveredFormats[prov.Name()] = true
 	}
 
+	// Phases 2 and 3 read the workspace through workspacefs (KI-95).
+	ws, err := workspacefs.Open(proj.WorkspacePath)
+	if err != nil {
+		slog.Warn("roadmap detection: cannot open workspace", "project_id", projectID, "error", err)
+		result.Platforms = detectPlatforms(proj)
+		result.Found = result.Found || len(result.Platforms) > 0
+		return result, nil
+	}
+	defer func() { _ = ws.Close() }()
+
 	// Phase 2: Fallback to hardcoded fileMarkers for formats without a provider.
 	seen := map[string]bool{}
 	for format, markers := range fileMarkers {
@@ -65,7 +77,7 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 		}
 		for _, marker := range markers {
 			fullPath := filepath.Join(proj.WorkspacePath, marker)
-			info, err := os.Stat(fullPath)
+			info, err := ws.Stat(marker)
 			if err != nil {
 				continue
 			}
@@ -87,13 +99,10 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 	}
 
 	// Phase 3: Shallow scan of root and docs/ for .md files with relevant keywords.
-	for _, found := range scanMarkdownKeywords(proj.WorkspacePath) {
+	for _, rel := range scanMarkdownKeywords(ws) {
+		found := filepath.Join(proj.WorkspacePath, rel)
 		if seen[found] {
 			continue
-		}
-		rel, err := filepath.Rel(proj.WorkspacePath, found)
-		if err != nil {
-			rel = found
 		}
 		result.Found = true
 		result.FileMarkers = append(result.FileMarkers, rel)
@@ -134,13 +143,16 @@ var keywordScanDirs = []string{"", "docs"}
 var keywordScanTerms = []string{"roadmap", "todo", "spec", "feature", "milestone"}
 
 // scanMarkdownKeywords performs a shallow scan of root and docs/ for .md files
-// containing relevant keywords. Returns absolute paths of matching files.
-func scanMarkdownKeywords(workspacePath string) []string {
+// containing relevant keywords. Returns the workspace-relative paths of matching files.
+func scanMarkdownKeywords(ws *workspacefs.Root) []string {
 	var matches []string
 
 	for _, dir := range keywordScanDirs {
-		scanDir := filepath.Join(workspacePath, dir)
-		entries, err := os.ReadDir(scanDir)
+		scanDir := dir
+		if scanDir == "" {
+			scanDir = "."
+		}
+		entries, err := ws.ReadDir(scanDir)
 		if err != nil {
 			continue
 		}
@@ -148,9 +160,9 @@ func scanMarkdownKeywords(workspacePath string) []string {
 			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
 				continue
 			}
-			fullPath := filepath.Join(scanDir, entry.Name())
-			if containsKeyword(fullPath) {
-				matches = append(matches, fullPath)
+			rel := path.Join(dir, entry.Name())
+			if containsKeyword(ws, rel) {
+				matches = append(matches, rel)
 			}
 		}
 	}
@@ -158,11 +170,11 @@ func scanMarkdownKeywords(workspacePath string) []string {
 	return matches
 }
 
-// containsKeyword reads a file line by line and returns true if any line
+// containsKeyword reads a workspace file line by line and returns true if any line
 // contains one of the keywordScanTerms (case-insensitive). Stops at 200 lines
-// to keep the scan shallow.
-func containsKeyword(path string) bool {
-	f, err := os.Open(path) //nolint:gosec // path is constructed from workspace root + known subdirs
+// to keep the scan shallow; a symlink that leaves the workspace or a FIFO is not read.
+func containsKeyword(ws *workspacefs.Root, name string) bool {
+	f, _, err := ws.OpenFile(name)
 	if err != nil {
 		return false
 	}
@@ -252,7 +264,7 @@ func (s *RoadmapService) ImportSpecs(ctx context.Context, projectID string) (*ro
 
 		for _, spec := range specs {
 			if hasItemParser {
-				s.importSpecItems(ctx, itemParser, proj.WorkspacePath, spec, ms, prov.Name(), result)
+				s.importSpecItems(ctx, prov, itemParser, proj.WorkspacePath, spec, ms, result)
 				continue
 			}
 
@@ -264,27 +276,120 @@ func (s *RoadmapService) ImportSpecs(ctx context.Context, projectID string) (*ro
 	return result, nil
 }
 
-// importSpecItems parses individual items from a spec file and creates/updates
-// one feature per item. The spec_ref format is "specPath#Lline".
+// importSpecItems imports the checkbox items of a spec file as features
+// (KI-203): headings, plain and numbered list items and code are not
+// features. The spec_ref of an item's feature is "specPath#Lline".
+//
+// An item takes a roadmap feature of the same file as pairSpecItems says,
+// wherever the feature's milestone is, so inserted lines move references
+// instead of duplicating features; a new item becomes a feature of ms. The checkbox
+// sets the status as importedStatus says. A feature of the file that no
+// item takes keeps the file but loses its line, so "Sync to file" never
+// writes to a line that holds something else now. The file's content hash
+// and the state of each item's box are recorded once all of this is
+// stored.
 func (s *RoadmapService) importSpecItems(
 	ctx context.Context,
+	prov specprovider.Provider,
 	parser specprovider.ItemParser,
 	workspacePath string,
 	spec specprovider.Spec,
 	ms *roadmap.Milestone,
-	provName string,
 	result *roadmap.ImportResult,
 ) {
-	items, err := parser.ParseItems(ctx, workspacePath, spec.Path)
+	fail := func(format string, args ...any) {
+		result.Errors = append(result.Errors, fmt.Sprintf(format, args...))
+	}
+	content, err := prov.ReadSpec(ctx, workspacePath, spec.Path)
 	if err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("parse items from %s: %v", spec.Path, err))
+		fail("read %s: %v", spec.Path, err)
 		return
 	}
-
-	for _, item := range items {
-		specRef := fmt.Sprintf("%s#L%d", spec.Path, item.SourceLine)
-		s.upsertFeature(ctx, ms.ID, item.Title, specRef, provName, result)
+	items, err := parser.ParseItems(content)
+	if err != nil {
+		fail("parse items from %s: %v", spec.Path, err)
+		return
 	}
+	sum := contentSHA256(content)
+	state, lastChecked, err := s.specFileState(ctx, ms.RoadmapID, spec.Path, sum)
+	if err != nil {
+		fail("spec file record of %s: %v", spec.Path, err)
+		return
+	}
+	features, err := s.store.ListFeaturesByRoadmap(ctx, ms.RoadmapID)
+	if err != nil {
+		fail("list features: %v", err)
+		return
+	}
+	pairs, rest := pairSpecItems(items, features, spec.Path, state == specFileUnchanged)
+
+	record := roadmap.SpecFile{RoadmapID: ms.RoadmapID, Path: spec.Path, ContentSHA256: sum, Checked: map[string]bool{}}
+	stored := true
+	save := func(f *roadmap.Feature) {
+		if err := s.store.UpdateFeature(ctx, f); err != nil {
+			fail("update feature %q: %v", f.Title, err)
+			stored = false
+			return
+		}
+		result.FeaturesUpdated++
+	}
+	for _, pair := range pairs {
+		item := pair.item
+		ref := fmt.Sprintf("%s#L%d", spec.Path, item.SourceLine)
+		checked := item.Status == specItemDone
+		if f := pair.feature; f != nil {
+			last, seen := lastChecked[f.ID]
+			status, changed := importedStatus(f.Status, checked, last, seen)
+			if f.SpecRef != ref || changed {
+				f.SpecRef, f.Status = ref, status
+				save(f)
+			}
+			record.Checked[f.ID] = checked
+			continue
+		}
+		id, ok := s.createSpecFeature(ctx, ms.ID, item.Title, ref, prov.Name(), checked, result)
+		if !ok {
+			stored = false
+			continue
+		}
+		record.Checked[id] = checked
+	}
+	for _, f := range rest {
+		if f.SpecRef != spec.Path {
+			f.SpecRef = spec.Path
+			save(f)
+		}
+	}
+	if stored {
+		if err := s.store.SetSpecFile(ctx, &record); err != nil {
+			fail("record spec file %s: %v", spec.Path, err)
+		}
+	}
+}
+
+// createSpecFeature creates the feature of a new checkbox item (done when
+// it is checked) and returns its ID and whether it was stored.
+func (s *RoadmapService) createSpecFeature(ctx context.Context, milestoneID, title, ref, provName string, checked bool, result *roadmap.ImportResult) (string, bool) {
+	f, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
+		MilestoneID: milestoneID,
+		Title:       title,
+		SpecRef:     ref,
+		Labels:      []string{provName},
+	})
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("create feature %q: %v", title, err))
+		return "", false
+	}
+	result.FeaturesCreated++
+	if !checked {
+		return f.ID, true
+	}
+	f.Status = roadmap.FeatureDone
+	if err := s.store.UpdateFeature(ctx, f); err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("mark feature %q done: %v", title, err))
+		return f.ID, false
+	}
+	return f.ID, true
 }
 
 // upsertFeature finds an existing feature by spec_ref and updates it, or creates
@@ -341,7 +446,12 @@ func (s *RoadmapService) ImportPMItems(ctx context.Context, projectID, providerN
 		}
 	}
 	if prov == nil {
-		return nil, fmt.Errorf("unknown PM provider: %s", providerName)
+		return nil, fmt.Errorf("%w: unknown PM provider %q", domain.ErrValidation, providerName)
+	}
+	// The providers built at startup carry the operator's credentials.
+	if credential, ok := operatorPMCredentials[providerName]; ok && !operatorCredentialsServe(ctx) {
+		return nil, fmt.Errorf("a %s import uses %s, which serves only the default tenant - sync with your own token instead (POST /projects/{id}/roadmap/sync): %w",
+			providerName, credential, domain.ErrValidation)
 	}
 
 	result := &roadmap.ImportResult{Source: providerName}
@@ -357,20 +467,43 @@ func (s *RoadmapService) ImportPMItems(ctx context.Context, projectID, providerN
 		return nil, fmt.Errorf("get/create roadmap: %w", err)
 	}
 
-	// Create a milestone for this import.
-	ms, err := s.store.CreateMilestone(ctx, roadmap.CreateMilestoneRequest{
-		RoadmapID:   rm.ID,
-		Title:       fmt.Sprintf("Imported from %s", providerName),
-		Description: fmt.Sprintf("Work items imported from %s (%s)", providerName, projectRef),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create milestone: %w", err)
+	// One milestone per provider, reused by later imports (KI-203, R4-12).
+	msTitle := fmt.Sprintf("Imported from %s", providerName)
+	ms, err := s.store.FindMilestoneByTitle(ctx, rm.ID, msTitle)
+	if errors.Is(err, domain.ErrNotFound) {
+		ms, err = s.store.CreateMilestone(ctx, roadmap.CreateMilestoneRequest{
+			RoadmapID:   rm.ID,
+			Title:       msTitle,
+			Description: fmt.Sprintf("Work items imported from %s (%s)", providerName, projectRef),
+		})
+		if err == nil {
+			result.MilestonesCreated++
+		}
 	}
-	result.MilestonesCreated++
+	if err != nil {
+		return nil, fmt.Errorf("milestone: %w", err)
+	}
+
+	// Items imported before are matched by their external ID, wherever
+	// their feature is now, and updated instead of created again.
+	features, err := s.store.ListFeaturesByRoadmap(ctx, rm.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list features: %w", err)
+	}
+	imported := make(map[string]*roadmap.Feature)
+	for i := range features {
+		if id := features[i].ExternalIDs[providerName]; id != "" {
+			imported[id] = &features[i]
+		}
+	}
 
 	for i := range items {
 		item := &items[i]
-		_, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
+		if f := imported[item.ExternalID]; item.ExternalID != "" && f != nil {
+			s.updatePMFeature(ctx, f, item, result)
+			continue
+		}
+		f, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
 			MilestoneID: ms.ID,
 			Title:       item.Title,
 			Description: item.Description,
@@ -382,9 +515,28 @@ func (s *RoadmapService) ImportPMItems(ctx context.Context, projectID, providerN
 			continue
 		}
 		result.FeaturesCreated++
+		// A later item of this batch with the same ID updates this feature.
+		if item.ExternalID != "" {
+			imported[item.ExternalID] = f
+		}
 	}
 
 	return result, nil
+}
+
+// updatePMFeature takes a re-imported item's title, description and labels
+// into its feature when they changed; status and milestone stay as the
+// roadmap has them.
+func (s *RoadmapService) updatePMFeature(ctx context.Context, f *roadmap.Feature, item *pmprovider.Item, result *roadmap.ImportResult) {
+	if f.Title == item.Title && f.Description == item.Description && slices.Equal(f.Labels, item.Labels) {
+		return
+	}
+	f.Title, f.Description, f.Labels = item.Title, item.Description, item.Labels
+	if err := s.store.UpdateFeature(ctx, f); err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("update feature %q: %v", item.Title, err))
+		return
+	}
+	result.FeaturesUpdated++
 }
 
 // getOrCreateRoadmap returns the existing roadmap for a project or creates one.

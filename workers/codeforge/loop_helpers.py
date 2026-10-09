@@ -6,7 +6,9 @@ model switching, and schema resolution.
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from codeforge.models import (
@@ -31,7 +33,9 @@ class ToolErrorTracker:
 
     When a tool produces the same error twice (after normalization), it is
     marked as NON-RETRYABLE and the agent receives a block message telling
-    it to stop retrying and move on.
+    it to stop retrying and move on. A failed command's output is part of
+    its error: every failing command reports "exit code N", and only the
+    output tells two failures apart (KI-126).
     """
 
     __slots__ = ("_counts", "_max_identical")
@@ -40,9 +44,11 @@ class ToolErrorTracker:
         self._counts: dict[tuple[str, str], int] = {}  # (tool, error_sig) -> count
         self._max_identical = max_identical
 
-    def record_error(self, tool_name: str, error: str) -> bool:
+    def record_error(self, tool_name: str, error: str, output: str = "") -> bool:
         """Record an error. Returns True if this is NON-RETRYABLE (exceeded max)."""
         sig = self._normalize_error(error)
+        if output:
+            sig += "|" + hashlib.sha256(self._normalize(output).encode()).hexdigest()
         key = (tool_name, sig)
         self._counts[key] = self._counts.get(key, 0) + 1
         return self._counts[key] >= self._max_identical
@@ -56,14 +62,16 @@ class ToolErrorTracker:
         )
 
     @staticmethod
-    def _normalize_error(error: str) -> str:
-        """Strip variable parts (line numbers, paths, UUIDs) for comparison."""
-        import re
-
+    def _normalize(text: str) -> str:
+        """Strip variable parts (line numbers, timings, UUIDs) for comparison."""
         # Strip UUIDs before numbers so hex digits are caught.
-        s = re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}", "UUID", error)
-        s = re.sub(r"\d+", "N", s)
-        return s[:200]
+        s = re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}", "UUID", text)
+        return re.sub(r"\d+", "N", s)
+
+    @classmethod
+    def _normalize_error(cls, error: str) -> str:
+        """The comparable signature of an error message."""
+        return cls._normalize(error)[:200]
 
 
 def build_tool_result_text(
@@ -71,16 +79,30 @@ def build_tool_result_text(
     tool_name: str,
     error_tracker: ToolErrorTracker | None,
 ) -> str:
-    """Build the result text for a tool call, including correction hints and error tracking."""
+    """Build the result text for a tool call, including correction hints and error tracking.
+
+    A failed tool keeps its output (KI-126): the text is the error line, the
+    output (a failed command's stdout and stderr) and a correction hint. The
+    loop bounds it to agent.tool_output_max_chars keeping head and tail, so
+    the end of a traceback survives like the end of successful output.
+    """
     if result.success:
         return result.output
-    if not result.error:
-        return "Tool returned an error"
-    correction = build_correction_hint(tool_name, result.error)
-    text = f"Error: {result.error}\n\n{correction}" if correction else f"Error: {result.error}"
-    # Track repeated errors and block if NON-RETRYABLE (M5).
-    if error_tracker is not None and error_tracker.record_error(tool_name, result.error):
-        text = error_tracker.get_block_message(tool_name)
+    parts = [f"Error: {result.error}" if result.error else "Tool returned an error"]
+    if result.output:
+        parts.append(result.output)
+    if result.error and (correction := build_correction_hint(tool_name, result.error)):
+        parts.append(correction)
+    text = "\n\n".join(parts)
+    # Track repeated errors and block if NON-RETRYABLE (M5); a repeated
+    # failure keeps its output and gets the block message after it.
+    if (
+        error_tracker is not None
+        and result.error
+        and error_tracker.record_error(tool_name, result.error, result.output)
+    ):
+        block = error_tracker.get_block_message(tool_name)
+        text = f"{text}\n\n{block}" if result.output else block
     return text
 
 

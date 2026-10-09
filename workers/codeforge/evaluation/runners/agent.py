@@ -6,9 +6,7 @@ runs test commands, and feeds results into the evaluation pipeline.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
-import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -16,10 +14,16 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.constants import MAX_OUTPUT_CHARS, MAX_WORKSPACE_FILE_BYTES
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
 from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
+from codeforge.subprocess_utils import run_tool_shell
+from codeforge.tool_process import tool_workspace
+from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
     from codeforge.evaluation.pipeline import EvaluationPipeline
 
@@ -27,15 +31,27 @@ logger = structlog.get_logger(__name__)
 
 
 def _snapshot_files(workspace: Path) -> dict[str, str]:
-    """Capture file contents in workspace for diff comparison."""
+    """Capture file contents in workspace for diff comparison.
+
+    The agent wrote the workspace: files are read through the workspace helper
+    (KI-95), so symlinks that leave it, FIFOs and files over the size cap are
+    left out, and hidden entries and symlinked directories are not walked.
+    """
     snapshot: dict[str, str] = {}
-    if not workspace.exists():
+    try:
+        root = WorkspaceRoot(str(workspace))
+    except OSError:
         return snapshot
-    for fpath in workspace.rglob("*"):
-        if fpath.is_file() and not any(p.startswith(".") for p in fpath.relative_to(workspace).parts):
-            rel = str(fpath.relative_to(workspace))
-            with contextlib.suppress(OSError):
-                snapshot[rel] = fpath.read_text(encoding="utf-8", errors="replace")
+    with root:
+        for dirpath, dirnames, filenames, dir_fd in root.walk():
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for name in filenames:
+                if name.startswith("."):
+                    continue
+                rel = name if dirpath == "." else f"{dirpath}/{name}"
+                with contextlib.suppress(OSError):
+                    data = root.read_entry(dir_fd, name, rel, max_bytes=MAX_WORKSPACE_FILE_BYTES)
+                    snapshot[rel] = data.decode("utf-8", errors="replace")
     return snapshot
 
 
@@ -54,27 +70,31 @@ def _compute_files_changed(before: dict[str, str], after: dict[str, str]) -> lis
 
 
 def _setup_workspace(task: TaskSpec, base_dir: str | None = None) -> Path:
-    """Create a temporary workspace and write initial files from task spec."""
+    """Create a temporary workspace and write initial files from task spec (no tool identity)."""
     workspace = Path(tempfile.mkdtemp(prefix="bench_agent_", dir=base_dir))
-    for rel_path, content in task.initial_files.items():
-        fpath = workspace / rel_path
-        fpath.parent.mkdir(parents=True, exist_ok=True)
-        fpath.write_text(content, encoding="utf-8")
+    _write_initial_files(task, workspace)
     return workspace
 
 
+def _write_initial_files(task: TaskSpec, workspace: Path) -> None:
+    # Task files stay inside the workspace (a dataset path with ".." or an
+    # absolute path is refused).
+    with WorkspaceRoot(str(workspace)) as root:
+        for rel_path, content in task.initial_files.items():
+            root.write_text(rel_path, content, make_parents=True)
+
+
 async def _run_test_command(test_command: str, workspace: Path, timeout: int = 60) -> tuple[str, int]:
-    """Run a test command in the workspace and return (output, exit_code)."""
+    """Run a test command in the workspace and return (output, exit_code).
+
+    On a timeout the command and everything it started are killed before
+    the workspace is removed, and its output is capped (KI-194).
+    """
     try:
-        proc = await asyncio.create_subprocess_shell(
-            test_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(workspace),
+        exit_code, output = await run_tool_shell(
+            test_command, cwd=str(workspace), timeout=timeout, max_output=MAX_OUTPUT_CHARS
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        output = stdout.decode("utf-8", errors="replace") if stdout else ""
-        return output, proc.returncode or 0
+        return output, exit_code
     except TimeoutError:
         return f"Test command timed out after {timeout}s", 124
     except OSError as exc:
@@ -86,15 +106,20 @@ def _prepare_test_files(task: TaskSpec, workspace: Path, solution: str) -> None:
 
     - HumanEval/MBPP: metadata["test_harness"] with {SOLUTION} placeholder → solution.py
     - SWE-bench: metadata["test_patch"] → test_patch.diff
-    """
-    test_harness = task.metadata.get("test_harness", "")
-    if test_harness and "{SOLUTION}" in test_harness:
-        harness_content = test_harness.replace("{SOLUTION}", solution)
-        (workspace / "solution.py").write_text(harness_content, encoding="utf-8")
 
-    test_patch = task.metadata.get("test_patch", "")
-    if test_patch:
-        (workspace / "test_patch.diff").write_text(test_patch, encoding="utf-8")
+    The agent ran in the workspace first: the files are put in place as new
+    files (replace_bytes), whatever the agent left at those names (a symlink
+    out of the workspace, a FIFO), so nothing is written through them (KI-95).
+    """
+    with WorkspaceRoot(str(workspace)) as root:
+        test_harness = task.metadata.get("test_harness", "")
+        if test_harness and "{SOLUTION}" in test_harness:
+            harness_content = test_harness.replace("{SOLUTION}", solution)
+            root.replace_bytes("solution.py", harness_content.encode())
+
+        test_patch = task.metadata.get("test_patch", "")
+        if test_patch:
+            root.replace_bytes("test_patch.diff", test_patch.encode())
 
 
 class AgentBenchmarkRunner(BaseBenchmarkRunner):
@@ -110,12 +135,15 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
 
     def __init__(
         self,
-        executor: AgentLoopExecutor,
+        executor_factory: Callable[[str], AgentLoopExecutor],
         pipeline: EvaluationPipeline,
         loop_config: LoopConfig | None = None,
         workspace_base: str | None = None,
     ) -> None:
-        self._executor = executor
+        # A fresh executor (and so a fresh tool executor) per task, built for the
+        # task's workspace: overriding a shared executor's workspace never reached
+        # its tools, which ran in the worker's temporary directory (KI-96 S7).
+        self._executor_factory = executor_factory
         self._pipeline = pipeline
         self._loop_config = loop_config
         self._workspace_base = workspace_base
@@ -125,16 +153,15 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
         log = logger.bind(task_id=task.id, task_name=task.name)
         log.info("running agent benchmark task")
 
-        workspace = _setup_workspace(task, self._workspace_base)
-        log.debug("workspace created", path=str(workspace))
-
         start = time.monotonic()
-        try:
+        # The task's workspace: with tool isolation the benchmark tenant's
+        # identity works there; leaving it shares and removes it (KI-71 review).
+        async with tool_workspace("cf-bench-", self._workspace_base) as path:
+            workspace = Path(path)
+            _write_initial_files(task, workspace)
+            log.debug("workspace created", path=path)
             result = await self._run_agent(task, workspace, log)
-        finally:
-            # Clean up workspace
-            shutil.rmtree(workspace, ignore_errors=True)
-            log.debug("workspace cleaned up")
+        log.debug("workspace cleaned up")
 
         duration_ms = int((time.monotonic() - start) * 1000)
         log.info(
@@ -157,13 +184,9 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
         # Build loop config with task-specific overrides
         config = self._build_config(task)
 
-        # Store original workspace on executor if it supports it
-        original_workspace = getattr(self._executor, "_workspace_path", None)
-        if hasattr(self._executor, "_workspace_path"):
-            self._executor._workspace_path = str(workspace)
-
+        executor = self._executor_factory(str(workspace))
         try:
-            agent_result = await self._executor.run(messages=messages, config=config)
+            agent_result = await executor.run(messages=messages, config=config)
         except Exception as exc:
             log.error("agent loop failed", error=str(exc))
             execution = ExecutionResult(
@@ -172,10 +195,6 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
             )
             eval_score = await self._pipeline.evaluate(task, execution)
             return RunResult(task=task, execution=execution, eval_score=eval_score)
-        finally:
-            # Restore original workspace
-            if original_workspace is not None and hasattr(self._executor, "_workspace_path"):
-                self._executor._workspace_path = original_workspace
 
         # Snapshot after and compute diff
         after = _snapshot_files(workspace)

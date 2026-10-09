@@ -54,7 +54,7 @@ func (r *CreateRuleRequest) Validate() error {
 	if r.BranchPattern == "" {
 		return fmt.Errorf("branch_pattern is required")
 	}
-	return nil
+	return validatePattern(r.BranchPattern)
 }
 
 // Apply merges the non-nil fields from an UpdateRuleRequest into a ProtectionRule.

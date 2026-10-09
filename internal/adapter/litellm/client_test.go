@@ -94,7 +94,7 @@ func TestDeleteModel(t *testing.T) {
 
 func TestHealth(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health" {
+		if r.URL.Path != "/health/readiness" { // not /health: no live model calls (KI-213)
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
@@ -476,6 +476,21 @@ func TestSelectStrongestModel(t *testing.T) {
 			},
 			want: "groq/llama-4-maverick",
 		},
+		{
+			// A wildcard route (KI-125) names no model a request can use.
+			name: "route patterns are never chosen",
+			models: []litellm.DiscoveredModel{
+				{ModelName: "openai/*"},
+				{ModelName: "ollama/qwen3:4b-instruct"},
+				{ModelName: "anthropic/*", OutputCostPer: 7.5e-5},
+			},
+			want: "ollama/qwen3:4b-instruct",
+		},
+		{
+			name:   "only route patterns",
+			models: []litellm.DiscoveredModel{{ModelName: "groq/*"}, {ModelName: "lm_studio/*"}},
+			want:   "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -536,5 +551,30 @@ func TestChatCompletionNoTools(t *testing.T) {
 	}
 	if resp.TokensOut != 3 {
 		t.Errorf("expected 3 tokens_out, got %d", resp.TokensOut)
+	}
+}
+
+// LiteLLM's /model/info reports a deployment's ID only as model_info.id; the
+// model list must carry it as model_id so it can be deleted (KI-40 review).
+func TestListModels_ModelIDFromModelInfo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"model_name":"gpt-4o","litellm_params":{"model":"openai/gpt-4o"},"model_info":{"id":"dep-123"}},
+			{"model_name":"explicit","model_id":"dep-explicit","model_info":{"id":"ignored"}},
+			{"model_name":"no-id","model_info":{}}
+		]}`))
+	}))
+	defer srv.Close()
+
+	models, err := litellm.NewClient(srv.URL, "test-key").ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	want := map[string]string{"gpt-4o": "dep-123", "explicit": "dep-explicit", "no-id": ""}
+	for _, m := range models {
+		if m.ModelID != want[m.ModelName] {
+			t.Errorf("%s: model_id = %q, want %q", m.ModelName, m.ModelID, want[m.ModelName])
+		}
 	}
 }

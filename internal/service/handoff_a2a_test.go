@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
@@ -61,12 +62,14 @@ func TestHandoff_NormalTarget_NoA2A(t *testing.T) {
 		StepID:        "step-1",
 		Context:       "normal handoff",
 	}
+	// A local target is not routed to A2A: it needs the run starter, which
+	// this service has not (KI-15: the Go Core starts the target's run).
 	err := svc.CreateHandoff(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "handoff runs are not configured") {
+		t.Fatalf("CreateHandoff = %v, want the missing run starter", err)
 	}
-	if q.publishCount != 1 {
-		t.Errorf("expected 1 NATS publish, got %d", q.publishCount)
+	if q.publishCount != 0 {
+		t.Errorf("expected no NATS publish, got %d", q.publishCount)
 	}
 }
 

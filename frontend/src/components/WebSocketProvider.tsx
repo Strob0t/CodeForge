@@ -1,6 +1,5 @@
 import { createContext, createEffect, type JSX, on, useContext } from "solid-js";
 
-import { getAccessToken } from "~/api/client";
 import type { AGUIEventMap, AGUIEventType, WSMessage } from "~/api/websocket";
 import { createCodeForgeWS } from "~/api/websocket";
 
@@ -19,20 +18,27 @@ const WebSocketContext = createContext<WebSocketContextValue>();
  * Singleton WebSocket provider — creates exactly ONE connection for the
  * entire application. All components share it via `useWebSocket()`.
  *
- * Must be rendered inside `<AuthProvider>` so the auth token is available.
+ * The socket is authenticated by a single-use ticket and bound to the user and
+ * tenant it was issued for, so an access-token refresh does not affect it. It
+ * follows the session instead: `sessionUserID` is the ID of the user the socket
+ * is for, or null when there must be no socket (logged out, or the password
+ * must be changed, which the ticket endpoint refuses). The socket is closed on
+ * null and reopened when the ID changes.
  */
-export function WebSocketProvider(props: { children: JSX.Element }): JSX.Element {
+export function WebSocketProvider(props: {
+  sessionUserID: () => string | null;
+  children: JSX.Element;
+}): JSX.Element {
   const ws = createCodeForgeWS();
 
-  // When the auth token changes (refresh), close + reconnect with the new token.
-  // The `reconnect` method on createCodeForgeWS handles this — we trigger it
-  // by watching the token signal.
   createEffect(
     on(
-      () => getAccessToken(),
-      (token, prevToken) => {
-        // Skip the initial run and only react to actual changes.
-        if (prevToken !== undefined && token !== prevToken && token) {
+      () => props.sessionUserID(),
+      (id, prevID) => {
+        if (id === prevID) return;
+        if (id === null) {
+          ws.disconnect();
+        } else if (prevID !== undefined) {
           ws.reconnect();
         }
       },

@@ -1,9 +1,11 @@
 package http
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -75,6 +77,9 @@ type globalSearchResponse struct {
 	Query   string                       `json:"query"`
 	Total   int                          `json:"total"`
 	Results []service.GlobalSearchResult `json:"results"`
+	// Indexes are the searched projects' indexes that are building, failed
+	// or BM25-only (KI-150).
+	Indexes []service.RetrievalIndexInfo `json:"indexes"`
 }
 
 // GlobalSearch handles POST /api/v1/search.
@@ -99,6 +104,10 @@ func (h *Handlers) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results, err := h.Retrieval.GlobalSearch(r.Context(), req.Query, req.ProjectIDs, limit)
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
 	if err != nil {
 		slog.Error("global search failed", "query", req.Query, "error", err)
 		writeError(w, http.StatusInternalServerError, "search failed")
@@ -107,7 +116,8 @@ func (h *Handlers) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, globalSearchResponse{
 		Query:   req.Query,
-		Total:   len(results),
-		Results: results,
+		Total:   len(results.Hits),
+		Results: results.Hits,
+		Indexes: results.Indexes,
 	})
 }

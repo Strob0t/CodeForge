@@ -108,6 +108,21 @@ async def test_unavailable_backend_returns_explicit_error() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("workspace", ["", "   "])
+async def test_task_without_workspace_fails_without_running(workspace: str) -> None:
+    """A backend edits the project workspace; without one it would work in the worker's own directory (KI-23)."""
+    router = BackendRouter()
+    executor = FakeExecutor(name="aider")
+    router.register(executor)
+
+    result = await router.execute("aider", "t1", "prompt", workspace)
+
+    assert result.status == "failed"
+    assert "workspace" in result.error
+    assert executor.execute_calls == []
+
+
+@pytest.mark.asyncio
 async def test_cancel_routes_to_correct_backend() -> None:
     """Cancel dispatches to the executor that is running the task."""
     router = BackendRouter()

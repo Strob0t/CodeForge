@@ -31,4 +31,12 @@ type RoadmapStore interface {
 	ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error)
 	UpdateFeature(ctx context.Context, f *roadmap.Feature) error
 	DeleteFeature(ctx context.Context, id string) error
+
+	// Spec files (KI-203): what the roadmap last saw of a workspace spec
+	// file when it imported it or wrote it back. GetSpecFile returns
+	// domain.ErrNotFound when none is recorded; SetSpecFile replaces the
+	// record and returns domain.ErrNotFound when the roadmap is not the
+	// tenant's.
+	GetSpecFile(ctx context.Context, roadmapID, path string) (*roadmap.SpecFile, error)
+	SetSpecFile(ctx context.Context, f *roadmap.SpecFile) error
 }

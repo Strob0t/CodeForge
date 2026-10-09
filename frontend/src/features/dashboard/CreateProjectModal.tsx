@@ -8,21 +8,12 @@ import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
 import { Button, ErrorBanner, FormField, Input, Modal, Select, Tabs, Textarea } from "~/ui";
 
-const AUTONOMY_LEVELS = [
-  { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
-  { value: "2", labelKey: "dashboard.form.autonomy.2" as const },
-  { value: "3", labelKey: "dashboard.form.autonomy.3" as const },
-  { value: "4", labelKey: "dashboard.form.autonomy.4" as const },
-  { value: "5", labelKey: "dashboard.form.autonomy.5" as const },
-];
-
 const formDefaults = {
   name: "",
   description: "",
   repo_url: "",
   provider: "",
   localPath: "",
-  selectedAutonomy: "",
   selectedBranch: "",
   formMode: "remote" as "remote" | "local" | "empty",
 };
@@ -39,7 +30,6 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
   const [providers] = createResource(() => api.providers.git().then((r) => r.providers));
   const [error, setError] = createSignal("");
   const [parsingUrl, setParsingUrl] = createSignal(false);
-  const [showAdvanced, setShowAdvanced] = createSignal(false);
   const [branches, setBranches] = createSignal<string[]>([]);
 
   const form = useFormState(formDefaults);
@@ -62,7 +52,6 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
     batch(() => {
       form.reset();
       setError("");
-      setShowAdvanced(false);
       setBranches([]);
     });
   }
@@ -70,13 +59,6 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
   function handleClose() {
     resetFormState();
     props.onClose();
-  }
-
-  function buildAdvancedConfig(): Record<string, string> {
-    const config: Record<string, string> = {};
-    const autonomy = form.state.selectedAutonomy;
-    if (autonomy) config["autonomy_level"] = autonomy;
-    return config;
   }
 
   async function handleSubmit(e: SubmitEvent) {
@@ -98,7 +80,7 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
           description: data.description,
           repo_url: "",
           provider: "",
-          config: buildAdvancedConfig(),
+          config: {},
         });
         toast("success", t("dashboard.toast.created"));
         // best-effort: workspace init runs in background, failure notified via toast
@@ -130,7 +112,7 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
           description: data.description,
           repo_url: "",
           provider: "",
-          config: buildAdvancedConfig(),
+          config: {},
         });
         toast("success", t("dashboard.toast.created"));
         await api.projects.adopt(created.id, { path });
@@ -159,7 +141,7 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
         repo_url: data.repo_url,
         provider: data.provider,
         branch,
-        config: buildAdvancedConfig(),
+        config: {},
       });
       toast("success", t("dashboard.toast.created"));
 
@@ -351,43 +333,6 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
               placeholder={t("dashboard.form.descriptionPlaceholder")}
             />
           </FormField>
-        </div>
-
-        {/* Advanced Settings Toggle */}
-        <div class="mt-4 border-t border-cf-border pt-3">
-          <Button
-            variant="link"
-            size="sm"
-            class="flex items-center gap-1"
-            onClick={() => setShowAdvanced(!showAdvanced())}
-            aria-expanded={showAdvanced()}
-          >
-            <span
-              class="inline-block transition-transform"
-              classList={{ "rotate-90": showAdvanced() }}
-            >
-              &#9654;
-            </span>
-            {t("dashboard.form.advanced")}
-          </Button>
-
-          <Show when={showAdvanced()}>
-            <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {/* Autonomy level */}
-              <FormField label={t("dashboard.form.autonomyLevel")} id="create_adv_autonomy">
-                <Select
-                  id="create_adv_autonomy"
-                  value={form.state.selectedAutonomy}
-                  onChange={(e) => form.setState("selectedAutonomy", e.currentTarget.value)}
-                >
-                  <option value="">{t("dashboard.form.autonomyPlaceholder")}</option>
-                  <For each={AUTONOMY_LEVELS}>
-                    {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
-                  </For>
-                </Select>
-              </FormField>
-            </div>
-          </Show>
         </div>
 
         <div class="mt-4 flex justify-end gap-2">

@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -17,7 +20,9 @@ import (
 	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // MCPService manages MCP server definitions with thread-safe access.
@@ -29,15 +34,39 @@ type MCPService struct {
 	serversDir string
 	db         database.Store
 	limits     *config.Limits
+
+	// outbound decides which addresses sse and streamable_http servers may
+	// use (KI-100); allowedPrivateHosts is its allowlist, as configured.
+	outbound            *netutil.OutboundPolicy
+	allowedPrivateHosts []string
+	// useProxy (mcp.use_proxy) sends their connections through proxy.
+	useProxy bool
+	proxy    func(*http.Request) (*url.URL, error)
 }
 
 // NewMCPService creates an MCPService. If cfg.ServersDir is set, definitions
 // are loaded from that directory on creation.
 func NewMCPService(cfg *config.MCP, limits *config.Limits) *MCPService {
+	allowed := slices.Clone(cfg.AllowedPrivateHosts)
+	outbound, err := netutil.NewOutboundPolicy(allowed)
+	if err != nil {
+		// config.Load refuses such a list; without it, no private address is allowed.
+		slog.Error("invalid mcp.allowed_private_hosts: every private address is refused", "error", err)
+		allowed = nil
+		outbound, _ = netutil.NewOutboundPolicy(nil)
+	}
 	s := &MCPService{
-		servers:    make(map[string]mcp.ServerDef),
-		serversDir: cfg.ServersDir,
-		limits:     limits,
+		servers:             make(map[string]mcp.ServerDef),
+		serversDir:          cfg.ServersDir,
+		limits:              limits,
+		outbound:            outbound,
+		allowedPrivateHosts: allowed,
+		useProxy:            cfg.UseProxy,
+		proxy:               http.ProxyFromEnvironment,
+	}
+	if cfg.UseProxy {
+		slog.Warn("mcp.use_proxy is on: sse and streamable_http MCP connections go through the proxy of the environment; " +
+			"their host is checked before connecting, but the address cannot be pinned, so DNS rebinding is left to the proxy's egress policy")
 	}
 
 	if cfg.ServersDir != "" {
@@ -117,47 +146,101 @@ func (s *MCPService) Remove(id string) error {
 
 // ResolveForRun returns MCP server definitions available for a run.
 // It merges globally-enabled YAML servers with DB-assigned project servers.
-// If projectID is non-empty and the DB is configured, project-specific
-// servers are included. The modeID parameter is reserved for future filtering.
-func (s *MCPService) ResolveForRun(projectID, _ string) []mcp.ServerDef {
+// If projectID is non-empty and the DB is configured, the project's servers
+// of the run's tenant (the tenant in ctx) are included. The modeID
+// parameter is reserved for future filtering.
+func (s *MCPService) ResolveForRun(ctx context.Context, projectID, _ string) []mcp.ServerDef {
+	resolved := s.resolveForRun(ctx, projectID)
+	defs := make([]mcp.ServerDef, len(resolved))
+	for i := range resolved {
+		defs[i] = resolved[i].def
+	}
+	return defs
+}
+
+// runServer is a server of a run and whether the operator defined it
+// (servers_dir) rather than a tenant (the database).
+type runServer struct {
+	def      mcp.ServerDef
+	operator bool
+}
+
+// resolveForRun is ResolveForRun with the origin of each server. An operator
+// server wins over a stored one with the same ID.
+func (s *MCPService) resolveForRun(ctx context.Context, projectID string) []runServer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	seen := make(map[string]bool)
-	var defs []mcp.ServerDef
+	var servers []runServer
 
 	// Include globally-enabled YAML-loaded servers.
 	for _, d := range s.servers { //nolint:gocritic // rangeValCopy: map iteration requires value copy
 		if d.Enabled {
-			defs = append(defs, d)
+			servers = append(servers, runServer{def: d, operator: true})
 			seen[d.ID] = true
 		}
 	}
 
 	// Include DB-assigned project servers (if DB is configured and projectID given).
 	if projectID != "" && s.db != nil {
-		dbDefs, err := s.db.ListMCPServersByProject(context.Background(), projectID)
+		dbDefs, err := s.db.ListMCPServersByProject(ctx, projectID)
 		if err != nil {
-			slog.Warn("resolve mcp servers for project", "project_id", projectID, "error", err)
+			slog.WarnContext(ctx, "resolve mcp servers for project", "project_id", projectID, "error", err)
 		} else {
 			for i := range dbDefs {
 				if dbDefs[i].Enabled && !seen[dbDefs[i].ID] {
-					defs = append(defs, dbDefs[i])
+					servers = append(servers, runServer{def: dbDefs[i]})
 					seen[dbDefs[i].ID] = true
 				}
 			}
 		}
 	}
 
-	sort.Slice(defs, func(i, j int) bool {
-		return defs[i].ID < defs[j].ID
+	sort.Slice(servers, func(i, j int) bool {
+		return servers[i].def.ID < servers[j].def.ID
 	})
-	return defs
+	return servers
+}
+
+// RunServerPayloads returns the NATS payloads of the servers ResolveForRun
+// returns, for runs and conversations alike. sse and streamable_http
+// servers carry mcp.allowed_private_hosts: the worker applies the outbound
+// rules of the Go Core to every connection it opens (KI-100). Operator
+// servers (servers_dir) are marked trusted: the worker lets them use private
+// and loopback addresses; a tenant's server never is.
+func (s *MCPService) RunServerPayloads(ctx context.Context, projectID, _ string) []messagequeue.MCPServerDefPayload {
+	servers := s.resolveForRun(ctx, projectID)
+	payloads := make([]messagequeue.MCPServerDefPayload, 0, len(servers))
+	for i := range servers {
+		d := &servers[i].def
+		p := messagequeue.MCPServerDefPayload{
+			ID:          d.ID,
+			Name:        d.Name,
+			Description: d.Description,
+			Transport:   string(d.Transport),
+			Command:     d.Command,
+			Args:        d.Args,
+			URL:         d.URL,
+			Env:         d.Env,
+			Headers:     d.Headers,
+			Enabled:     d.Enabled,
+		}
+		if d.Transport == mcp.TransportSSE || d.Transport == mcp.TransportStreamableHTTP {
+			p.AllowedPrivateHosts = s.allowedPrivateHosts
+			p.Trusted = servers[i].operator
+			p.UseProxy = s.useProxy
+		}
+		payloads = append(payloads, p)
+	}
+	return payloads
 }
 
 // LoadFromDirectory reads all .yaml/.yml files from a directory and registers
-// each as a server definition. A missing directory returns nil (not an error),
-// matching the pattern in policy/loader.go.
+// each as a server definition. A file that cannot be read, parsed or
+// registered is logged at error level with its name and reason and skipped;
+// the others still load. A missing directory returns nil (not an error),
+// matching the pattern in policy/loader.go; an unreadable one is an error.
 func (s *MCPService) LoadFromDirectory(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -177,20 +260,26 @@ func (s *MCPService) LoadFromDirectory(dir string) error {
 		}
 
 		path := filepath.Join(dir, entry.Name())
-		data, readErr := os.ReadFile(path) //nolint:gosec // G304: path built from trusted dir
-		if readErr != nil {
-			return fmt.Errorf("read mcp server file %s: %w", path, readErr)
-		}
-
-		var def mcp.ServerDef
-		if unmarshalErr := yaml.Unmarshal(data, &def); unmarshalErr != nil {
-			return fmt.Errorf("parse mcp server file %s: %w", path, unmarshalErr)
-		}
-
-		if regErr := s.Register(def); regErr != nil {
-			return fmt.Errorf("register mcp server from %s: %w", path, regErr)
+		if err := s.loadFile(path); err != nil {
+			slog.Error("skipping mcp server definition", "file", path, "error", err)
 		}
 	}
 
+	return nil
+}
+
+// loadFile registers the server definition of one YAML file.
+func (s *MCPService) loadFile(path string) error {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path built from the operator's servers_dir
+	if err != nil {
+		return fmt.Errorf("read: %w", err)
+	}
+	var def mcp.ServerDef
+	if err := yaml.Unmarshal(data, &def); err != nil {
+		return fmt.Errorf("parse: %w", err)
+	}
+	if err := s.Register(def); err != nil {
+		return fmt.Errorf("register: %w", err)
+	}
 	return nil
 }

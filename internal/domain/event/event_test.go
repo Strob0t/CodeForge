@@ -3,8 +3,10 @@ package event_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 )
 
 func TestAgentEvent_SequenceNumberJSON(t *testing.T) {
@@ -66,4 +68,67 @@ func TestAgentEvent_SequenceNumberJSON(t *testing.T) {
 			t.Errorf("default SequenceNumber = %d, want 0", ev.SequenceNumber)
 		}
 	})
+}
+
+// KI-17: the refactoring impact event carries what the frontend's
+// ReviewImpactEvent (frontend/src/api/types.ts) and RefactorApproval read.
+func TestReviewImpactEvent_JSONFields(t *testing.T) {
+	data, err := json.Marshal(event.ReviewImpactEvent{RunID: "r", Reason: "why"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, key := range []string{
+		"run_id", "plan_id", "step_id", "project_id", "impact_level",
+		"files_changed", "lines_added", "lines_removed", "cross_layer", "structural", "reason",
+	} {
+		if _, ok := fields[key]; !ok {
+			t.Errorf("ReviewImpactEvent JSON has no %q: %s", key, data)
+		}
+	}
+	if len(fields) != 11 {
+		t.Errorf("ReviewImpactEvent JSON has %d fields, want 11: %s", len(fields), data)
+	}
+}
+
+// KI-94: an approval request lists the files users changed while the
+// refactoring ran, as the frontend's ReviewUserEdit reads them.
+func TestReviewImpactEvent_UserEditsJSON(t *testing.T) {
+	data, err := json.Marshal(event.ReviewImpactEvent{RunID: "r", UserEditsTotal: 1, UserEdits: []review.UserEdit{{
+		Path: "a.go", Operation: review.UserEditWrite, UserID: "u1", UserName: "Ada",
+		EditedAt: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC),
+	}}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got struct {
+		Total int                          `json:"user_edits_total"`
+		Edits []map[string]json.RawMessage `json:"user_edits"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Total != 1 || len(got.Edits) != 1 {
+		t.Fatalf("ReviewImpactEvent JSON = %s, want one user edit", data)
+	}
+	for _, key := range []string{"path", "operation", "user_id", "user_name", "edited_at"} {
+		if _, ok := got.Edits[0][key]; !ok {
+			t.Errorf("user edit JSON has no %q: %s", key, data)
+		}
+	}
+
+	// Review F2: a request whose user edits could not be read says so.
+	data, err = json.Marshal(event.ReviewImpactEvent{RunID: "r", UserEditsUnavailable: true})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var flag struct {
+		Unavailable bool `json:"user_edits_unavailable"`
+	}
+	if err := json.Unmarshal(data, &flag); err != nil || !flag.Unavailable {
+		t.Fatalf("ReviewImpactEvent JSON = %s, want user_edits_unavailable", data)
+	}
 }

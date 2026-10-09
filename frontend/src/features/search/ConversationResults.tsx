@@ -19,6 +19,8 @@ export interface ConversationResult {
 
 export interface ConversationResultsProps {
   results: ConversationResult[];
+  /** Opens the hit's conversation (the result names no project, see SearchPage). */
+  onOpen: (result: ConversationResult) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,11 @@ export default function ConversationResults(props: ConversationResultsProps) {
     <div class="mt-2 space-y-2">
       <For each={props.results}>
         {(result) => (
-          <a href={`/chat?conversation=${result.conversation_id}`} class="block">
+          <button
+            type="button"
+            class="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring"
+            onClick={() => props.onOpen(result)}
+          >
             <Card class="transition-shadow hover:shadow-md">
               <Card.Body>
                 <div class="flex flex-wrap items-center gap-2">
@@ -73,7 +79,7 @@ export default function ConversationResults(props: ConversationResultsProps) {
                 </p>
               </Card.Body>
             </Card>
-          </a>
+          </button>
         )}
       </For>
     </div>

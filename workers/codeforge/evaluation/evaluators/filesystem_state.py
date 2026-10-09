@@ -9,11 +9,12 @@ Score: percentage of checks that pass (0.0 to 1.0).
 from __future__ import annotations
 
 import json
-import os
 
 import structlog
 
+from codeforge.constants import MAX_WORKSPACE_FILE_BYTES
 from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
+from codeforge.workspace_fs import WorkspaceRoot
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +60,11 @@ class FilesystemStateEvaluator:
                 )
             ]
 
-        if not os.path.isdir(working_dir):
+        # The agent wrote the working directory: files are read through the
+        # workspace helper (KI-95), never through a symlink that leaves it.
+        try:
+            root = WorkspaceRoot(working_dir)
+        except OSError:
             return [
                 EvalDimension(
                     name="filesystem_state",
@@ -68,38 +73,9 @@ class FilesystemStateEvaluator:
                 )
             ]
 
-        passed = 0
+        with root:
+            passed, failures = _check_files(root, expected_files, expected_missing)
         total = len(expected_files) + len(expected_missing)
-        failures: list[str] = []
-
-        # Check expected files: existence and content
-        for rel_path, expected_content in expected_files.items():
-            abs_path = os.path.join(working_dir, rel_path)
-            if not os.path.isfile(abs_path):
-                failures.append(f"missing: {rel_path}")
-                continue
-            # Empty expected content means only check existence
-            if not expected_content:
-                passed += 1
-                continue
-            try:
-                with open(abs_path, encoding="utf-8") as f:
-                    actual_content = f.read()
-            except Exception as exc:
-                failures.append(f"read error {rel_path}: {exc}")
-                continue
-            if actual_content == expected_content:
-                passed += 1
-            else:
-                failures.append(f"content mismatch: {rel_path}")
-
-        # Check expected missing files: should NOT exist
-        for rel_path in expected_missing:
-            abs_path = os.path.join(working_dir, rel_path)
-            if os.path.exists(abs_path):
-                failures.append(f"should not exist: {rel_path}")
-            else:
-                passed += 1
 
         score = passed / total if total > 0 else 1.0
 
@@ -117,3 +93,45 @@ class FilesystemStateEvaluator:
                 details=details,
             )
         ]
+
+
+def _check_files(
+    root: WorkspaceRoot, expected_files: dict[str, str], expected_missing: list[str]
+) -> tuple[int, list[str]]:
+    """How many expectations hold, and the failures."""
+    passed = 0
+    failures: list[str] = []
+
+    # Check expected files: existence and content
+    for rel_path, expected_content in expected_files.items():
+        if not root.is_file(rel_path):
+            failures.append(f"missing: {rel_path}")
+            continue
+        # Empty expected content means only check existence
+        if not expected_content:
+            passed += 1
+            continue
+        try:
+            actual_content = root.read_text(rel_path, max_bytes=MAX_WORKSPACE_FILE_BYTES)
+        except Exception as exc:
+            failures.append(f"read error {rel_path}: {exc}")
+            continue
+        # Universal newlines, as the file was read before KI-95.
+        if actual_content.replace("\r\n", "\n").replace("\r", "\n") == expected_content:
+            passed += 1
+        else:
+            failures.append(f"content mismatch: {rel_path}")
+
+    # Check expected missing files: should NOT exist (a symlink that leaves
+    # the workspace exists as an entry)
+    for rel_path in expected_missing:
+        try:
+            root.stat(rel_path)
+        except FileNotFoundError:
+            passed += 1
+            continue
+        except OSError:
+            pass
+        failures.append(f"should not exist: {rel_path}")
+
+    return passed, failures

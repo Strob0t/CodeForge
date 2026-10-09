@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import re
 from typing import Any
 
 from codeforge.constants import MAX_OUTPUT_CHARS
+from codeforge.subprocess_env import tool_env
+from codeforge.subprocess_utils import communicate_in_group
+from codeforge.tool_process import start_tool_process
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -14,9 +19,27 @@ logger = logging.getLogger(__name__)
 MAX_OUTPUT = MAX_OUTPUT_CHARS
 HALF_OUTPUT = MAX_OUTPUT // 2
 
+DEFAULT_TIMEOUT_SECONDS = 120
+# A conversation run's default wall clock (CODEFORGE_CONVERSATION_TIMEOUT):
+# a longer command would outlive its run anyway.
+MAX_TIMEOUT_SECONDS = 3600
+
+# "rm -rf" targeting the root itself ("/", "/*", "//", "/.", ...) or a top-level
+# system directory ("/etc", "/usr/", "/home/*", ...), ended by whitespace, a shell
+# separator, a quote or the end of the command. Deeper paths such as
+# "rm -rf /tmp/build" stay allowed (a plain substring match blocked them too).
+_SYSTEM_DIRS = "bin|boot|dev|etc|home|lib|lib32|lib64|opt|proc|root|sbin|srv|sys|usr|var"
+_RM_ROOT_RE = re.compile(rf"rm -(?:rf|fr) /(?:[/.*]*|(?:{_SYSTEM_DIRS})/?\*?)(?=$|[\s;&|<>)'\"`])")
+
 DEFINITION = ToolDefinition(
     name="bash",
-    description="Execute a bash command and return stdout and stderr. Runs in the workspace directory.",
+    description=(
+        "Execute a bash command and return stdout and stderr. Runs in the workspace directory. "
+        "On isolated deployments the command is sandboxed: it can write only the workspace and its HOME "
+        "(TMPDIR is below HOME, /tmp is not usable) and cannot see other processes, so ps, pgrep, pkill, top, "
+        "df and ss do not work; stop your own background jobs with kill <pid> or kill %1. Do not rely on "
+        "background processes outliving the current task: they may be stopped when it ends."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -26,7 +49,7 @@ DEFINITION = ToolDefinition(
             },
             "timeout": {
                 "type": "integer",
-                "description": "Timeout in seconds (default 120).",
+                "description": f"Timeout in seconds (default {DEFAULT_TIMEOUT_SECONDS}, at most {MAX_TIMEOUT_SECONDS}).",
             },
         },
         "required": ["command"],
@@ -41,6 +64,7 @@ DEFINITION = ToolDefinition(
         "Running interactive commands that wait for input (use non-interactive flags)",
         "Forgetting timeout for long-running commands — set timeout explicitly",
         "Using bash for file reading/searching when read_file or search_files would be better",
+        "Writing to /tmp or calling ps/pkill on an isolated deployment (use $TMPDIR and kill <pid>)",
     ],
     examples=[
         ToolExample(
@@ -55,6 +79,23 @@ DEFINITION = ToolDefinition(
         ),
     ],
 )
+
+
+def timeout_seconds(value: object) -> int:
+    """The command's timeout from the model's ``timeout`` argument (KI-194).
+
+    Models send numbers, numeric strings ("60") or null: a number is
+    truncated to whole seconds and clamped to 1..MAX_TIMEOUT_SECONDS;
+    anything else (null, a word, a bool, inf, NaN) gets the default.
+    """
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            return DEFAULT_TIMEOUT_SECONDS
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return DEFAULT_TIMEOUT_SECONDS
+    return min(max(int(value), 1), MAX_TIMEOUT_SECONDS)
 
 
 def _truncate(text: str) -> str:
@@ -78,12 +119,11 @@ def _check_dangerous_command(command: str) -> str | None:
     # Normalize for matching: strip leading whitespace, lowercase.
     normalized = command.strip().lower()
 
+    if match := _RM_ROOT_RE.search(normalized):
+        return f"blocked by safety filter: recursive deletion of root or a system directory ({match.group(0)!r})"
+
     # Patterns that are dangerous regardless of context.
     blocked_patterns: list[tuple[str, str]] = [
-        ("rm -rf /", "recursive deletion of root filesystem"),
-        ("rm -rf /*", "recursive deletion of root filesystem"),
-        ("rm -fr /", "recursive deletion of root filesystem"),
-        ("rm -fr /*", "recursive deletion of root filesystem"),
         ("mkfs.", "filesystem formatting"),
         ("dd if=", "raw disk write"),
         (":(){:|:&};:", "fork bomb"),
@@ -108,33 +148,34 @@ class BashTool(ToolExecutor):
 
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         command = arguments.get("command", "")
-        timeout = arguments.get("timeout", 120)
+        timeout = timeout_seconds(arguments.get("timeout"))
 
         # Defense-in-depth: block catastrophic commands before execution.
         if block_reason := _check_dangerous_command(command):
             return ToolResult(output="", error=block_reason, success=False)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await start_tool_process(
                 "bash",
                 "-c",
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace_path,
+                env=tool_env(),
+                # Its own process group: a timeout or a cancel stops everything it started.
+                start_new_session=True,
             )
         except OSError as exc:
             return ToolResult(output="", error=str(exc), success=False)
 
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout_bytes, stderr_bytes = await communicate_in_group(proc, timeout)
         except TimeoutError:
-            proc.kill()
-            await proc.wait()
             return ToolResult(output="", error=f"command timed out after {timeout}s", success=False)
 
-        stdout = _truncate(stdout_bytes.decode("utf-8", errors="replace"))
-        stderr = _truncate(stderr_bytes.decode("utf-8", errors="replace"))
+        stdout = _truncate((stdout_bytes or b"").decode("utf-8", errors="replace"))
+        stderr = _truncate((stderr_bytes or b"").decode("utf-8", errors="replace"))
 
         success = proc.returncode == 0
         output = stdout

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 )
 
@@ -325,6 +326,58 @@ func TestAuthService_RefreshTokens_DisabledAccount(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "disabled") {
 		t.Errorf("error = %q, want to contain 'disabled'", err.Error())
+	}
+}
+
+// S10-A review: a disabled tenant's users get no tokens. The login is
+// refused with tenant.ErrDisabled once the credentials are right (a wrong
+// password stays "invalid credentials", so the tenant's state is told to
+// its own users only), and no refresh token is created.
+func TestAuthService_Login_DisabledTenant(t *testing.T) {
+	store := &mockStore{}
+	svc := newTestAuthService(store)
+	ctx := context.Background()
+	if _, err := svc.Register(ctx, &user.CreateRequest{
+		Email: "dt@test.com", Name: "T", Password: "Password123", Role: user.RoleEditor, TenantID: testTenantID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.disabledTenants = map[string]bool{testTenantID: true}
+
+	_, _, err := svc.Login(ctx, user.LoginRequest{Email: "dt@test.com", Password: "Password123"}, testTenantID)
+	if !errors.Is(err, tenant.ErrDisabled) {
+		t.Fatalf("login: err = %v, want tenant.ErrDisabled", err)
+	}
+	if len(store.refreshTokens) != 0 {
+		t.Fatalf("%d refresh tokens stored for a disabled tenant", len(store.refreshTokens))
+	}
+	_, _, err = svc.Login(ctx, user.LoginRequest{Email: "dt@test.com", Password: "Wrongpass123"}, testTenantID)
+	if err == nil || errors.Is(err, tenant.ErrDisabled) {
+		t.Fatalf("wrong password: err = %v, want invalid credentials", err)
+	}
+
+	store.disabledTenants = nil
+	if _, _, err := svc.Login(ctx, user.LoginRequest{Email: "dt@test.com", Password: "Password123"}, testTenantID); err != nil {
+		t.Fatalf("login after re-enabling: %v", err)
+	}
+}
+
+// A refresh for a disabled tenant is refused with tenant.ErrDisabled and
+// does not rotate the token: it works again once the tenant is enabled.
+func TestAuthService_RefreshTokens_DisabledTenant(t *testing.T) {
+	store := &mockStore{}
+	svc := newTestAuthService(store)
+	ctx := context.Background()
+	_, _, rawRefresh := registerAndLogin(t, svc, "dtr@test.com", "Password123")
+
+	store.disabledTenants = map[string]bool{testTenantID: true}
+	if _, _, err := svc.RefreshTokens(ctx, rawRefresh); !errors.Is(err, tenant.ErrDisabled) {
+		t.Fatalf("refresh: err = %v, want tenant.ErrDisabled", err)
+	}
+
+	store.disabledTenants = nil
+	if _, _, err := svc.RefreshTokens(ctx, rawRefresh); err != nil {
+		t.Fatalf("refresh after re-enabling: %v (the token must not have been rotated)", err)
 	}
 }
 
@@ -685,9 +738,12 @@ func TestAuthService_ConfirmPasswordReset(t *testing.T) {
 	}
 
 	// Confirm the reset
-	err = svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345")
+	reset, err := svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345")
 	if err != nil {
 		t.Fatalf("confirm reset: %v", err)
+	}
+	if reset == nil || reset.ID != u.ID {
+		t.Fatalf("confirm reset returned %+v, want user %s", reset, u.ID)
 	}
 
 	// Token should be marked as used
@@ -728,12 +784,12 @@ func TestAuthService_ConfirmPasswordReset_UsedToken(t *testing.T) {
 	}
 
 	// Use the token once
-	if err := svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345"); err != nil {
+	if _, err := svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345"); err != nil {
 		t.Fatalf("first confirm: %v", err)
 	}
 
 	// Second use should fail
-	err = svc.ConfirmPasswordReset(ctx, rawToken, "AnotherPass123")
+	_, err = svc.ConfirmPasswordReset(ctx, rawToken, "AnotherPass123")
 	if err == nil {
 		t.Fatal("expected error for already-used token")
 	}
@@ -761,7 +817,7 @@ func TestAuthService_ConfirmPasswordReset_ExpiredToken(t *testing.T) {
 		store.passwordResetTokens[i].ExpiresAt = time.Now().Add(-1 * time.Hour)
 	}
 
-	err = svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345")
+	_, err = svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345")
 	if err == nil {
 		t.Fatal("expected error for expired reset token")
 	}
@@ -774,7 +830,7 @@ func TestAuthService_ConfirmPasswordReset_InvalidToken(t *testing.T) {
 	store := &mockStore{}
 	svc := newTestAuthService(store)
 
-	err := svc.ConfirmPasswordReset(context.Background(), "nonexistent-token", "NewReset12345")
+	_, err := svc.ConfirmPasswordReset(context.Background(), "nonexistent-token", "NewReset12345")
 	if err == nil {
 		t.Fatal("expected error for unknown reset token")
 	}
@@ -1121,5 +1177,35 @@ func TestAuthService_ChangePassword_WeakNew(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for weak new password")
+	}
+}
+
+// A disabled user's API keys stop working with the account (S9-A review).
+func TestAuthService_ValidateAPIKey_DisabledUser(t *testing.T) {
+	store := &mockStore{}
+	svc := newTestAuthService(store)
+	ctx := context.Background()
+
+	u, _, _ := registerAndLogin(t, svc, "disabledkey@test.com", "Password123")
+	resp, err := svc.CreateAPIKey(ctx, u.ID, user.CreateAPIKeyRequest{Name: "key"})
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+	if _, _, err := svc.ValidateAPIKey(ctx, resp.PlainKey); err != nil {
+		t.Fatalf("key of an enabled user: %v", err)
+	}
+
+	if _, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Enabled: ptrTo(false)}); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if _, _, err := svc.ValidateAPIKey(ctx, resp.PlainKey); err == nil {
+		t.Fatal("the key of a disabled user must be refused")
+	}
+
+	if _, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Enabled: ptrTo(true)}); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if _, _, err := svc.ValidateAPIKey(ctx, resp.PlainKey); err != nil {
+		t.Fatalf("the key works again once the user is enabled: %v", err)
 	}
 }

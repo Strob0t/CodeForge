@@ -30,6 +30,7 @@ export {
   createSessionsResource,
   createTrajectoryResource,
 } from "./misc";
+export { createPrivacyResource } from "./privacy";
 export { createBatchResource, createProjectsResource } from "./projects";
 export { createPromptEvolutionResource } from "./promptEvolution";
 export { createQuarantineResource } from "./quarantine";
@@ -45,3 +46,4 @@ export {
   createSettingsResource,
   createUsersResource,
 } from "./settings";
+export { createWebhooksResource } from "./webhooks";

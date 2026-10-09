@@ -10,7 +10,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from codeforge.evaluation.datasets import BenchmarkDataset, TaskResult, load_dataset, save_results
+from codeforge.evaluation.datasets import BenchmarkDataset, DatasetPathError, TaskResult, load_dataset, save_results
 
 
 @pytest.fixture
@@ -38,6 +38,7 @@ tasks:
     return p
 
 
+@pytest.mark.usefixtures("datasets_in_tmp")
 def test_load_dataset(sample_dataset_file: Path) -> None:
     ds = load_dataset(sample_dataset_file)
     assert isinstance(ds, BenchmarkDataset)
@@ -49,8 +50,14 @@ def test_load_dataset(sample_dataset_file: Path) -> None:
     assert ds.tasks[1].expected_tools == [{"name": "write_file", "args": "main.py"}]
 
 
+@pytest.mark.usefixtures("datasets_in_tmp")
 def test_load_dataset_not_found() -> None:
     with pytest.raises(FileNotFoundError):
+        load_dataset("nonexistent-dataset-ki107.yaml")
+
+
+def test_load_dataset_outside_the_datasets_directory(datasets_in_tmp: str) -> None:
+    with pytest.raises(DatasetPathError):
         load_dataset("/nonexistent/path.yaml")
 
 

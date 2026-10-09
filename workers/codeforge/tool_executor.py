@@ -6,6 +6,7 @@ OTEL tracing, and trajectory event publishing.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 
+from codeforge.history import truncate_tool_result
 from codeforge.json_utils import safe_json_loads
 from codeforge.loop_helpers import (
     ToolErrorTracker,
@@ -21,9 +23,14 @@ from codeforge.loop_helpers import (
     build_tool_result_message,
     build_tool_result_text,
 )
+from codeforge.policy_args import policy_request_args
+from codeforge.runtime import arguments_preview
+from codeforge.tools._base import ToolResult
 from codeforge.tracing import metrics as otel_metrics
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from codeforge.agent_loop import _LoopState
     from codeforge.llm import ToolCallPart
     from codeforge.models import ConversationMessagePayload
@@ -32,6 +39,10 @@ if TYPE_CHECKING:
     from codeforge.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+# How often a running tool checks whether its run was cancelled (KI-194).
+_CANCEL_POLL_SECONDS = 0.25
+_INTERRUPTED = "cancelled: the run was stopped while the tool ran"
 
 
 def _payload_to_dict(msg: ConversationMessagePayload) -> dict[str, object]:
@@ -72,8 +83,10 @@ class ToolExecutor:
     ) -> None:
         """Execute a single tool call with policy check and error handling."""
         arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
+        policy_args = arguments if isinstance(arguments, dict) else {}
+        command, path = policy_request_args(tc.name, policy_args, self._workspace)
         decision = await self._runtime.request_tool_call(
-            tool=tc.name, command=tc.arguments[:200] if tc.arguments else ""
+            tool=tc.name, command=command, path=path, arguments_preview=arguments_preview(policy_args)
         )
 
         if decision.decision != "allow":
@@ -89,7 +102,7 @@ class ToolExecutor:
         tool_start = time.monotonic()
         with tracer.start_as_current_span(f"tool.execute:{tc.name}", attributes={"tool.name": tc.name}) as tool_span:
             try:
-                result = await self._registry.execute(tc.name, arguments, self._workspace)
+                result = await self._until_run_cancelled(self._registry.execute(tc.name, arguments, self._workspace))
             except Exception as exc:
                 tool_span.set_status(StatusCode.ERROR, str(exc))
                 tool_span.record_exception(exc)
@@ -140,6 +153,29 @@ class ToolExecutor:
                     )
                 except (ConnectionError, TimeoutError, OSError) as exc:
                     logger.debug("failed to publish action_suggestion event: %s", exc)
+
+    async def _until_run_cancelled(self, call: Coroutine[object, object, ToolResult]) -> ToolResult:
+        """Await the tool *call*; a cancel of the run (Stop, tasks.cancel) interrupts it (KI-194).
+
+        The runtime only flags a cancel, so it is polled while the tool
+        runs. An interrupted tool is cancelled, which stops its processes
+        (bash kills its process group), and its result says so. When the
+        caller itself is cancelled (the run's wall clock, a worker abort),
+        the tool is cancelled with it.
+        """
+        task = asyncio.ensure_future(call)
+        try:
+            while not task.done():
+                await asyncio.wait({task}, timeout=_CANCEL_POLL_SECONDS)
+                if not task.done() and self._runtime.is_cancelled:
+                    task.cancel()
+                    await asyncio.wait({task})
+                    if task.cancelled():
+                        return ToolResult(output="", error=_INTERRUPTED, success=False)
+            return task.result()
+        finally:
+            if not task.done():
+                task.cancel()
 
     def _enrich_result(
         self,
@@ -201,8 +237,12 @@ class ToolExecutor:
         messages: list[dict[str, object]],
         state: _LoopState,
     ) -> None:
-        """Build and append a tool result message to state and messages."""
-        msg = build_tool_result_message(tc, content)
+        """Build and append a tool result message to state and messages.
+
+        The result is truncated to the run's tool_output_max_chars (head and
+        tail kept), like the tool results of earlier turns in the history.
+        """
+        msg = build_tool_result_message(tc, truncate_tool_result(content, state.tool_output_max_chars))
         state.tool_messages.append(msg)
         messages.append(_payload_to_dict(msg))
 

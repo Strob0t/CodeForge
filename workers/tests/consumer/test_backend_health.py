@@ -4,7 +4,7 @@ Verifies:
 - Mixin class exists and has expected methods
 - Message handling calls msg.ack() on success
 - Error handling uses `except Exception as exc:` (not bare)
-- Error path calls msg.nak()
+- Error path retries the message (NAK) or dead-letters it on the last attempt
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from codeforge.consumer._backend_health import BackendHealthHandlerMixin
+from codeforge.consumer._base import ConsumerBaseMixin
 
 
 class _FakeBackendRouter:
@@ -28,7 +29,7 @@ class _FakeBackendRouter:
         return [{"name": "aider", "config_fields": []}]
 
 
-class _FakeHandler(BackendHealthHandlerMixin):
+class _FakeHandler(BackendHealthHandlerMixin, ConsumerBaseMixin):
     """Minimal concrete class for testing the mixin."""
 
     def __init__(self, js: AsyncMock) -> None:
@@ -73,10 +74,10 @@ class TestBackendHealthErrorHandling:
         source = inspect.getsource(BackendHealthHandlerMixin._handle_backend_health)
         assert "msg.ack()" in source
 
-    def test_naks_on_error(self) -> None:
-        """Source must contain msg.nak() call on the error path."""
+    def test_retries_on_error(self) -> None:
+        """The error path must retry (NAK) or dead-letter on the last attempt, never ack."""
         source = inspect.getsource(BackendHealthHandlerMixin._handle_backend_health)
-        assert "msg.nak()" in source
+        assert "self._retry_or_dead_letter(msg)" in source
 
 
 class TestBackendHealthHappyPath:

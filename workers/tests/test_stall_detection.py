@@ -4,8 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, MagicMock
 
-from codeforge.agent_loop import StallDetector
+from codeforge.agent_loop import AgentLoopExecutor, LoopConfig, StallDetector
+from codeforge.llm import ChatCompletionResponse, ToolCallPart
+from codeforge.models import ToolCallDecision
+from codeforge.tools import ToolRegistry
+from codeforge.tools._base import ToolDefinition, ToolResult
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 ESCAPE_PROMPT = (
     "<SYSTEM: You are repeating the same action without progress. "
@@ -104,8 +113,8 @@ class TestSameToolSameArgs:
         detector.record("Search", args)
         assert detector.is_stalled() is True
 
-    def test_three_of_five_identical_stalled(self) -> None:
-        """3 of last 5 entries identical should trigger stall."""
+    def test_three_of_five_identical_with_calls_between_is_no_stall(self) -> None:
+        """Only consecutive identical calls count (KI-191): other calls in between are progress."""
         detector = StallDetector()
         args = {"file": "main.py"}
         detector.record("Read", args)
@@ -113,7 +122,7 @@ class TestSameToolSameArgs:
         detector.record("Read", args)
         detector.record("Edit", {"file": "x.py"})
         detector.record("Read", args)
-        assert detector.is_stalled() is True
+        assert detector.is_stalled() is False
 
 
 # ---- Test 7: After stall detected, escape prompt should be injectable ----
@@ -153,20 +162,27 @@ class TestEscapePromptInjection:
 
 
 class TestDoubleStallAbort:
-    def test_double_stall_aborts(self) -> None:
+    def test_third_stall_after_two_escapes_aborts(self) -> None:
         detector = StallDetector()
-        # First stall
         args = {"file": "main.py"}
-        detector.record("Read", args)
-        detector.record("Read", args)
-        detector.record("Read", args)
-        assert detector.is_stalled() is True
-        detector.record_escape()
-        assert detector.should_abort() is False
+        for _ in range(2):
+            for _ in range(3):
+                detector.record("Read", args)
+            assert detector.is_stalled() is True
+            assert detector.should_abort() is False
+            detector.record_escape()
+            assert detector.is_stalled() is False, "the escape clears the window"
 
-        # Second stall
-        detector.record_escape()
+        for _ in range(3):
+            detector.record("Read", args)
         assert detector.should_abort() is True
+
+    def test_no_abort_when_the_agent_recovers_after_two_escapes(self) -> None:
+        detector = StallDetector()
+        detector.record_escape()
+        detector.record_escape()
+        detector.record("Edit", {"file": "a.py"})
+        assert detector.should_abort() is False
 
     def test_single_escape_no_abort(self) -> None:
         detector = StallDetector()
@@ -181,11 +197,11 @@ class TestAbortErrorPayload:
     def test_abort_error_payload(self) -> None:
         detector = StallDetector()
         args = {"file": "main.py"}
-        detector.record("Read", args)
-        detector.record("Read", args)
-        detector.record("Read", args)
         detector.record_escape()
         detector.record_escape()
+        detector.record("Read", args)
+        detector.record("Read", args)
+        detector.record("Read", args)
         assert detector.should_abort() is True
 
         payload = detector.get_abort_info()
@@ -247,7 +263,18 @@ class TestStallDetectorEdgeCases:
         assert detector.is_stalled() is True
 
     def test_exactly_at_threshold(self) -> None:
-        """Exactly threshold matches should trigger stall."""
+        """Exactly threshold consecutive identical calls trigger a stall."""
+        detector = StallDetector(window_size=5, stall_threshold=3)
+        args = {"file": "x.py"}
+        detector.record("Write", {"a": 1})
+        detector.record("Read", args)
+        detector.record("Read", args)
+        assert detector.is_stalled() is False
+        detector.record("Read", args)
+        assert detector.is_stalled() is True
+
+    def test_interleaved_identical_calls_are_no_stall(self) -> None:
+        """3 of 5 identical with other calls in between is progress, not a loop (KI-191)."""
         detector = StallDetector(window_size=5, stall_threshold=3)
         args = {"file": "x.py"}
         detector.record("Read", args)
@@ -255,8 +282,7 @@ class TestStallDetectorEdgeCases:
         detector.record("Read", args)
         detector.record("Write", {"b": 2})
         detector.record("Read", args)
-        # 3 of 5 are identical Read(x.py) -> stalled
-        assert detector.is_stalled() is True
+        assert detector.is_stalled() is False
 
     def test_below_threshold(self) -> None:
         """Just below threshold should not trigger."""
@@ -279,3 +305,189 @@ class TestStallDetectorEdgeCases:
         detector.record("Write", args)
         detector.record("Write", args)
         assert detector.is_stalled() is True
+
+
+# ---- KI-191: the agent loop's use of the detector ----
+
+
+def _drive(calls: list[tuple[str, dict[str, object]]]) -> tuple[int, int, str | None]:
+    """Feed calls the way the agent loop does: check (abort / escape), then record.
+
+    Returns (escapes, abort_iteration or -1, abort error).
+    """
+    from codeforge.stall_detection import stall_error
+
+    detector = StallDetector()
+    escapes = 0
+    for iteration, (name, args) in enumerate(calls):
+        if detector.should_abort():
+            info = detector.get_abort_info()
+            return escapes, iteration, stall_error(info["repeated_action"], info["escape_count"])
+        if detector.is_stalled():
+            detector.record_escape()
+            escapes += 1
+        detector.record(name, args)
+    return escapes, -1, None
+
+
+class TestAgentLoopPatterns:
+    def test_edit_test_loop_never_stalls(self) -> None:
+        """edit (new args each time) / pytest (same command) is the loop's own verify pattern."""
+        calls: list[tuple[str, dict[str, object]]] = []
+        for i in range(20):
+            calls.append(("edit_file", {"file_path": "a.py", "old_text": f"v{i}", "new_text": f"v{i + 1}"}))
+            calls.append(("bash", {"command": "python -m pytest -q"}))
+        escapes, aborted_at, error = _drive(calls)
+        assert escapes == 0
+        assert aborted_at == -1, error
+
+    def test_repeat_loop_escapes_twice_then_aborts(self) -> None:
+        same = ("bash", {"command": "python -m pytest -q"})
+        escapes, aborted_at, error = _drive([same] * 30)
+        assert escapes == 2
+        assert aborted_at == 9, "3 calls per stall, 2 escapes, abort on the third stall"
+        assert error == "stall detected: repeated bash after 2 escape attempts"
+
+    def test_recovery_after_an_escape_is_not_aborted(self) -> None:
+        same = ("read_file", {"file_path": "a.py"})
+        calls = [same] * 3 + [("edit_file", {"file_path": "a.py", "n": i}) for i in range(10)]
+        escapes, aborted_at, _ = _drive(calls)
+        assert escapes == 1
+        assert aborted_at == -1
+
+    def test_escape_clears_the_window(self) -> None:
+        detector = StallDetector()
+        for _ in range(3):
+            detector.record("read_file", {"file_path": "a.py"})
+        assert detector.get_recent_tool_names() == ["read_file"] * 3
+        detector.record_escape()
+        assert detector.is_stalled() is False
+        assert detector.get_recent_tool_names() == []
+        detector.record("read_file", {"file_path": "a.py"})
+        detector.record("read_file", {"file_path": "a.py"})
+        assert detector.is_stalled() is False, "two repeats after the escape are below the threshold"
+
+
+# ---- KI-191 through the agent loop ----
+
+
+class _OkTool:
+    async def execute(self, arguments: dict[str, object], workspace_path: str) -> ToolResult:
+        return ToolResult(output="ok")
+
+
+class _ScriptedNativeLLM:
+    """Returns one native tool call per request, then a final answer."""
+
+    def __init__(self, calls: list[tuple[str, dict[str, object]]]) -> None:
+        self._calls = list(calls)
+        self.requests = 0
+
+    async def chat_completion_stream(self, **kwargs: object) -> ChatCompletionResponse:
+        self.requests += 1
+        if not self._calls:
+            return ChatCompletionResponse(
+                content="Done.", tool_calls=[], finish_reason="stop", model="m", tokens_in=1, tokens_out=1
+            )
+        name, args = self._calls.pop(0)
+        part = ToolCallPart(id=f"call-{self.requests}", name=name, arguments=json.dumps(args))
+        return ChatCompletionResponse(
+            content="", tool_calls=[part], finish_reason="tool_calls", model="m", tokens_in=1, tokens_out=1
+        )
+
+
+async def _run_loop(
+    calls: list[tuple[str, dict[str, object]]], workspace: str
+) -> tuple[object, list[dict[str, object]]]:
+    registry = ToolRegistry()
+    for name in ("edit_file", "bash", "read_file"):
+        registry.register(ToolDefinition(name=name, description=name, parameters={"type": "object"}), _OkTool())
+    runtime = MagicMock()
+    runtime.run_id = "run-1"
+    runtime.project_id = "proj-1"
+    runtime.is_cancelled = False
+    runtime.send_output = AsyncMock()
+    runtime.report_tool_result = AsyncMock()
+    runtime.publish_trajectory_event = AsyncMock()
+    runtime.request_tool_call = AsyncMock(return_value=ToolCallDecision(call_id="c", decision="allow"))
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": "You are a coder."},
+        {"role": "user", "content": "Fix the bug"},
+    ]
+    executor = AgentLoopExecutor(
+        llm=_ScriptedNativeLLM(calls),  # type: ignore[arg-type]
+        tool_registry=registry,
+        runtime=runtime,
+        workspace_path=workspace,
+    )
+    result = await executor.run(messages, LoopConfig(model="m", max_iterations=60))
+    return result, messages
+
+
+async def test_loop_edit_test_cycle_completes(tmp_path: Path) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+    for i in range(12):
+        calls.append(("edit_file", {"file_path": "a.py", "old_text": f"v{i}", "new_text": f"v{i + 1}"}))
+        calls.append(("bash", {"command": "python -m pytest -q"}))
+    result, messages = await _run_loop(calls, str(tmp_path))
+    assert not result.error  # type: ignore[attr-defined]
+    assert result.final_content == "Done."  # type: ignore[attr-defined]
+    assert not any("without progress" in str(m.get("content")) for m in messages)
+
+
+async def test_loop_repeat_cycle_aborts_with_the_repeated_tool(tmp_path: Path) -> None:
+    same = ("bash", {"command": "python -m pytest -q"})
+    result, _ = await _run_loop([same] * 30, str(tmp_path))
+    assert result.error == "stall detected: repeated bash after 2 escape attempts"  # type: ignore[attr-defined]
+
+
+# ---- A cycle of two calls (KI-191 review) ----
+
+
+class TestTwoCallCycle:
+    EDIT = ("edit_file", {"path": "a.py", "old": "x", "new": "y"})
+    TEST = ("bash", {"command": "pytest"})
+
+    def test_an_identical_edit_and_test_repeated_stalls(self) -> None:
+        detector = StallDetector()
+        for _ in range(3):
+            detector.record(*self.EDIT)
+            assert detector.is_stalled() is False
+            detector.record(*self.TEST)
+        assert detector.is_stalled() is True
+        assert detector.get_repeated_action() == "edit_file, bash"
+
+    def test_two_cycles_are_no_stall(self) -> None:
+        detector = StallDetector()
+        for _ in range(2):
+            detector.record(*self.EDIT)
+            detector.record(*self.TEST)
+        assert detector.is_stalled() is False
+
+    def test_changing_edits_with_the_same_test_are_progress(self) -> None:
+        detector = StallDetector()
+        for i in range(10):
+            detector.record("edit_file", {"path": "a.py", "old": f"x{i}", "new": f"y{i}"})
+            detector.record(*self.TEST)
+        assert detector.is_stalled() is False
+
+    def test_an_escape_clears_the_cycle(self) -> None:
+        detector = StallDetector()
+        for _ in range(3):
+            detector.record(*self.EDIT)
+            detector.record(*self.TEST)
+        detector.record_escape()
+        detector.record(*self.EDIT)
+        detector.record(*self.TEST)
+        assert detector.is_stalled() is False
+
+    def test_a_cycle_stalls_again_after_the_escapes_and_aborts(self) -> None:
+        detector = StallDetector(max_escapes=1)
+        for _ in range(3):
+            detector.record(*self.EDIT)
+            detector.record(*self.TEST)
+        detector.record_escape()
+        for _ in range(3):
+            detector.record(*self.EDIT)
+            detector.record(*self.TEST)
+        assert detector.should_abort() is True

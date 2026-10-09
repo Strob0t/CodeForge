@@ -51,7 +51,7 @@ func (h *Handlers) HandleCreateRoutingOutcome(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := h.Routing.RecordOutcome(r.Context(), &o); err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "record routing outcome failed")
 		return
 	}
 

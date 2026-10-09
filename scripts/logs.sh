@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CodeForge log helper — filters Docker Compose JSON logs.
+# CodeForge log helper - filters Docker Compose JSON logs.
 # Usage:
 #   ./scripts/logs.sh tail [N]           - Follow last N lines (default 50)
 #   ./scripts/logs.sh errors             - Show only ERROR/error level entries
@@ -24,7 +24,9 @@ case "$CMD" in
   service)
     if [ -z "$ARG" ]; then
       echo "Usage: $0 service <name>"
-      echo "Available: postgres, nats, litellm, docs-mcp-server, playwright-mcp"
+      echo "Available (from the compose file):"
+      docker compose --profile dev config --services 2>/dev/null | sed 's/^/  /' \
+        || echo "  (docker compose config failed)"
       exit 1
     fi
     docker compose logs --tail 100 -f "$ARG" 2>/dev/null \

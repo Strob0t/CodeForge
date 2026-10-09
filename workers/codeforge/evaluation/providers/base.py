@@ -80,6 +80,15 @@ class EvalDimension(BaseModel):
     score: float
     details: dict[str, str] = {}
     cost_usd: float = 0.0
+    # Set when the evaluator failed: the dimension marks the error and its
+    # score is not a result (averages leave it out).
+    error: str = ""
+
+
+def average_of_scores(dimensions: list[EvalDimension]) -> float:
+    """Mean score of the dimensions that are results (errors left out); 0.0 if there are none."""
+    scored = [d.score for d in dimensions if not d.error]
+    return sum(scored) / len(scored) if scored else 0.0
 
 
 class EvalScore(BaseModel):
@@ -91,10 +100,25 @@ class EvalScore(BaseModel):
     token_efficiency: float = 0.0
 
     def average_score(self) -> float:
-        """Compute mean score across all dimensions."""
-        if not self.dimensions:
-            return 0.0
-        return sum(d.score for d in self.dimensions) / len(self.dimensions)
+        """Compute mean score across the dimensions that are results (errors left out)."""
+        return average_of_scores(self.dimensions)
+
+    @property
+    def fully_evaluated(self) -> bool:
+        """No evaluator failed: every dimension is a result."""
+        return not any(d.error for d in self.dimensions)
+
+
+def rank_key(score: EvalScore | None) -> tuple[bool, float]:
+    """Sort key for competing results: fully evaluated first, then by average score.
+
+    An errored dimension is left out of the average, so a result whose
+    evaluator failed would otherwise be ranked on its remaining dimensions
+    alone and could outrank fully evaluated results. No score ranks last.
+    """
+    if score is None:
+        return False, -1.0
+    return score.fully_evaluated, score.average_score()
 
 
 class Capabilities(BaseModel):

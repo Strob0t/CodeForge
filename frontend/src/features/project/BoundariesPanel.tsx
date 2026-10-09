@@ -1,8 +1,11 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { BoundaryConfig } from "~/api/types";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { Button } from "~/ui";
+
+const PLAN_ENDED = new Set(["completed", "failed", "cancelled"]);
 
 const TYPE_COLORS: Record<string, string> = {
   api: "bg-cf-info-bg text-cf-info-fg",
@@ -12,7 +15,12 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export default function BoundariesPanel(props: { projectId: string }) {
-  const [analyzing, setAnalyzing] = createSignal(false);
+  const [starting, setStarting] = createSignal(false);
+  // The plan of the running boundary analysis; its end reloads the boundaries.
+  const [analysisPlan, setAnalysisPlan] = createSignal("");
+  const [error, setError] = createSignal("");
+  const analyzing = () => starting() || analysisPlan() !== "";
+  const { onMessage } = useWebSocket();
 
   const fetchBoundaries = async (id: string): Promise<BoundaryConfig | null> => {
     try {
@@ -24,14 +32,27 @@ export default function BoundariesPanel(props: { projectId: string }) {
 
   const [config, { refetch }] = createResource(() => props.projectId, fetchBoundaries);
 
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const cleanup = onMessage((msg) => {
+    if (msg.type !== "plan.status") return;
+    const { plan_id: planID, status } = msg.payload as { plan_id?: string; status?: string };
+    if (planID && planID === analysisPlan() && status && PLAN_ENDED.has(status)) {
+      setAnalysisPlan("");
+      void refetch();
+    }
+  });
+  onCleanup(cleanup);
+
   const triggerAnalysis = async () => {
-    setAnalyzing(true);
+    setStarting(true);
+    setError("");
     try {
-      await api.projects.triggerBoundaryAnalysis(props.projectId);
-      // Refetch after a short delay to allow analysis to complete
-      setTimeout(() => refetch(), 3000);
+      const res = await api.projects.triggerBoundaryAnalysis(props.projectId);
+      setAnalysisPlan(res.plan_id ?? "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setAnalyzing(false);
+      setStarting(false);
     }
   };
 
@@ -49,6 +70,12 @@ export default function BoundariesPanel(props: { projectId: string }) {
           {analyzing() ? "Analyzing..." : "Re-analyze"}
         </Button>
       </div>
+
+      <Show when={error()}>
+        <p class="text-sm text-cf-danger-fg" role="alert">
+          {error()}
+        </p>
+      </Show>
 
       <Show
         when={!config.loading && config()}

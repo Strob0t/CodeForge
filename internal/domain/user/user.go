@@ -2,11 +2,14 @@
 package user
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/mail"
 	"time"
 	"unicode"
+
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Role represents the authorization level of a user.
@@ -33,6 +36,36 @@ const MaxFailedAttempts = 5
 // MaxFailedAttempts.
 const LockoutDuration = 15 * time.Minute
 
+// The synthetic identities without a row in users: every request acts as
+// AuthDisabledUserID while authentication is disabled, the internal service
+// key (CODEFORGE_INTERNAL_KEY) acts as InternalServiceUserID, and an audit
+// entry whose request resolved no user (a failed login, a password reset
+// request) names AnonymousActorUserID as its actor. They are distinct, so
+// an audit trail written with authentication disabled still tells the
+// operator's actions from failed logins.
+const (
+	AuthDisabledUserID    = "00000000-0000-0000-0000-000000000000"
+	InternalServiceUserID = "00000000-0000-0000-0000-000000000001"
+	AnonymousActorUserID  = "00000000-0000-0000-0000-000000000002"
+)
+
+// IsAccountless reports whether id is one of the synthetic identities that
+// have no users row; any other user ID names an account, which may have been
+// deleted or erased since its access token was issued.
+func IsAccountless(id string) bool {
+	return id == AuthDisabledUserID || id == InternalServiceUserID || id == AnonymousActorUserID
+}
+
+// ErrAccountGone reports that a request's user has no account (any more):
+// the row was deleted or erased while an access token issued for it is still
+// valid. Nothing is recorded under the user's ID or name (GDPR erasure finds
+// a user's records by ID).
+var ErrAccountGone = errors.New("the user account does not exist")
+
+// ErrInvalidSetupToken reports a first-admin setup without the one-time
+// setup token the Core created on its first start (KI-119).
+var ErrInvalidSetupToken = errors.New("a valid setup token is required")
+
 // User represents a registered user within a tenant.
 type User struct {
 	ID                 string    `json:"id"`
@@ -45,8 +78,31 @@ type User struct {
 	MustChangePassword bool      `json:"must_change_password"`
 	FailedAttempts     int       `json:"-"` // consecutive failed login attempts
 	LockedUntil        time.Time `json:"-"` // account locked until this time
+	TokenEpoch         int64     `json:"-"` // raised to invalidate the user's access tokens (KI-143)
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// IsPlatformAdmin reports whether u administers the platform: an admin of
+// the default (bootstrap) tenant. Platform admins manage what all tenants
+// share, such as the LiteLLM models and the provider credentials.
+func (u *User) IsPlatformAdmin() bool {
+	return u.Role == RoleAdmin && u.TenantID == tenantctx.DefaultTenantID
+}
+
+// userFields has the fields of User without its methods, so that
+// MarshalJSON does not call itself.
+type userFields User
+
+// MarshalJSON adds the derived is_platform_admin flag, which the frontend
+// uses to show platform-wide actions only to those who may use them.
+//
+//nolint:gocritic // hugeParam: a value receiver also marshals User fields held by value (LoginResponse.User)
+func (u User) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		userFields
+		IsPlatformAdmin bool `json:"is_platform_admin"`
+	}{userFields(u), u.IsPlatformAdmin()})
 }
 
 // IsLocked returns true if the account is currently locked due to
@@ -131,6 +187,10 @@ type TokenClaims struct {
 	IssuedAt           int64  `json:"iat"`
 	Expiry             int64  `json:"exp"`
 	MustChangePassword bool   `json:"mcp,omitempty"`
+	// TokenEpoch is the user's token epoch when the token was issued; a token
+	// whose epoch is not the user's current one is refused, and so is a token
+	// without it (issued before KI-143).
+	TokenEpoch *int64 `json:"epoch,omitempty"`
 }
 
 // ChangePasswordRequest is the input for changing a user's password.

@@ -11,6 +11,7 @@ import type {
   KnowledgeBase,
   Mode,
   PolicyProfile,
+  PolicyProfileList,
   PolicyToolCall,
   PromptPreviewRequest,
   PromptPreviewResponse,
@@ -49,15 +50,16 @@ export function createModesResource(c: CoreClient) {
 
 export function createPoliciesResource(c: CoreClient) {
   return {
-    list: () => c.get<{ profiles: string[] }>("/policies"),
+    list: () => c.get<PolicyProfileList>("/policies"),
     get: (name: string) => c.get<PolicyProfile>(url`/policies/${name}`),
     create: (profile: PolicyProfile) => c.post<PolicyProfile>("/policies", profile),
     delete: (name: string) => c.del<undefined>(url`/policies/${name}`),
     evaluate: (name: string, call: PolicyToolCall) =>
       c.post<EvaluationResult>(url`/policies/${name}/evaluate`, call),
-    allowAlways: (projectId: string, tool: string, command?: string) =>
+    allowAlways: (projectId: string, tool: string, command?: string, profile?: string) =>
       c.post<PolicyProfile>("/policies/allow-always", {
         project_id: projectId,
+        profile,
         tool,
         command,
       }),

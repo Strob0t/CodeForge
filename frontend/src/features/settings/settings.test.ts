@@ -93,10 +93,30 @@ describe("Settings Feature", () => {
     expect(typeof mod.default).toBe("function");
   });
 
-  it("should export SETTINGS_SECTIONS with 9 entries", async () => {
+  it("should export PrivacySection component", async () => {
+    const mod = await import("./PrivacySection");
+    expect(mod.default).toBeDefined();
+    expect(typeof mod.default).toBe("function");
+  });
+
+  it("should export SETTINGS_SECTIONS with 10 entries", async () => {
     const mod = await import("./settingsTypes");
     expect(mod.SETTINGS_SECTIONS).toBeDefined();
-    expect(mod.SETTINGS_SECTIONS).toHaveLength(9);
+    expect(mod.SETTINGS_SECTIONS).toHaveLength(10);
+  });
+
+  // KI-93: the privacy page links to /settings?section=privacy.
+  it.each([
+    ["privacy", "settings-privacy"],
+    ["apikeys", "settings-apikeys"],
+    ["", null],
+    [undefined, null],
+    ["nope", null],
+    ["settings-privacy", null],
+    ["../privacy", null],
+  ])("opens the section named %j as %j", async (name, id) => {
+    const mod = await import("./settingsTypes");
+    expect(mod.sectionIdFromQuery(name)).toBe(id);
   });
 
   it("should have matching section IDs in SETTINGS_SECTIONS", async () => {
@@ -111,6 +131,7 @@ describe("Settings Feature", () => {
     expect(ids).toContain("settings-apikeys");
     expect(ids).toContain("settings-users");
     expect(ids).toContain("settings-devtools");
+    expect(ids).toContain("settings-privacy");
   });
 
   it("should export SettingsSection type", async () => {
@@ -118,8 +139,9 @@ describe("Settings Feature", () => {
     // Type exists if SETTINGS_SECTIONS is typed correctly
     const section = mod.SETTINGS_SECTIONS[0];
     expect(section).toHaveProperty("id");
-    expect(section).toHaveProperty("label");
+    expect(section).toHaveProperty("labelKey");
     expect(typeof section.id).toBe("string");
-    expect(typeof section.label).toBe("string");
+    // Translated navigation labels (KI-93 added a section that needs EN and DE).
+    expect(section.labelKey).toBe("settings.nav.general");
   });
 });

@@ -1,13 +1,8 @@
 import { createResource } from "solid-js";
 
-import type { Item } from "./fuzzySearch";
+import { api } from "~/api/client";
 
-interface CommandResponse {
-  id: string;
-  label: string;
-  category: string;
-  description: string;
-}
+import type { Item } from "./fuzzySearch";
 
 /** Built-in fallback commands shown when the backend returns none. */
 const FALLBACK_COMMANDS: Item[] = [
@@ -24,9 +19,7 @@ const FALLBACK_COMMANDS: Item[] = [
 export function useCommandStore() {
   const [commands] = createResource(async (): Promise<Item[]> => {
     try {
-      const response = await fetch("/api/v1/commands");
-      if (!response.ok) return FALLBACK_COMMANDS;
-      const data = (await response.json()) as CommandResponse[];
+      const data = await api.commands.list();
       if (data.length === 0) return FALLBACK_COMMANDS;
       return data.map(
         (cmd): Item => ({

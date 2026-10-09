@@ -18,6 +18,7 @@ const PANEL_GROUPS = [
     items: [
       { value: "code", label: "Code", tip: "Files, RepoMap & Search" },
       { value: "govern", label: "Govern", tip: "Policy & Audit" },
+      { value: "webhooks", label: "Webhooks", tip: "Inbound GitHub, GitLab & Plane webhooks" },
     ],
   },
 ] as const;

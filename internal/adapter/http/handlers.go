@@ -34,7 +34,6 @@ type Handlers struct {
 	Agents             *service.AgentService
 	LLM                llmFull
 	Policies           *service.PolicyService
-	PolicyDir          string // Custom policy YAML directory (empty = no persistence)
 	Runtime            *service.RuntimeService
 	Orchestrator       *service.OrchestratorService
 	MetaAgent          *service.MetaAgentService
@@ -53,9 +52,8 @@ type Handlers struct {
 	BranchProtection   *service.BranchProtectionService
 	Replay             *service.ReplayService
 	Sessions           *service.SessionService
-	VCSWebhook         *service.VCSWebhookService
 	Sync               *service.SyncService
-	PMWebhook          *service.PMWebhookService
+	Webhooks           *service.WebhookService
 	Notification       *service.NotificationService
 	Auth               *service.AuthService
 	Scope              *service.ScopeService
@@ -98,8 +96,22 @@ type Handlers struct {
 	OllamaBaseURL      string // From cfg.Ollama.BaseURL (OLLAMA_BASE_URL env var)
 	Boundaries         *service.BoundaryService
 	ReviewTrigger      *service.ReviewTriggerService
+	ReviewPipeline     *service.ReviewPipelineService
 	PromptEvolution    *service.PromptEvolutionService
 	GDPR               *service.GDPRService
 	Consent            *service.ConsentService
 	WSTickets          wsticket.Store
+}
+
+// WireGroups builds the domain handler groups (Project, Agent, Task, Run,
+// Policy, Utility) from the flat service fields. Call it once the flat
+// fields are set and before MountRoutes; routes bound to a missing group
+// dereference a nil receiver.
+func (h *Handlers) WireGroups() {
+	h.Project = &ProjectHandlers{Projects: h.Projects, Limits: h.Limits}
+	h.Agent = &AgentHandlers{Agents: h.Agents, Limits: h.Limits}
+	h.Task = &TaskHandlers{Tasks: h.Tasks, ActiveWork: h.ActiveWork, Limits: h.Limits}
+	h.Run = &RunHandlers{Runtime: h.Runtime, Events: h.Events, Limits: h.Limits}
+	h.Policy = &PolicyHandlers{Policies: h.Policies, Projects: h.Projects, Limits: h.Limits}
+	h.Utility = &UtilityHandlers{AgentConfig: h.AgentConfig, OllamaBaseURL: h.OllamaBaseURL}
 }

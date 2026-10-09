@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // AuthService handles authentication, JWT tokens, and API keys.
@@ -26,6 +27,7 @@ type AuthService struct {
 	secret  []byte
 	tokens  *TokenManager
 	apiKeys *APIKeyManager
+	setup   setupGuard
 }
 
 // NewAuthService creates a new authentication service with sub-services.
@@ -37,6 +39,12 @@ func NewAuthService(store database.Store, cfg *config.Auth) *AuthService {
 		tokens:  NewTokenManager(store, cfg),
 		apiKeys: NewAPIKeyManager(store),
 	}
+}
+
+// SetConnectionDropper sets what closes the WebSocket connections of a user
+// whose sessions end (the ws.Hub; KI-143).
+func (s *AuthService) SetConnectionDropper(d connectionDropper) {
+	s.tokens.connections = d
 }
 
 // Tokens returns the token manager sub-service.
@@ -64,7 +72,7 @@ func (s *AuthService) register(ctx context.Context, req *user.CreateRequest, fir
 	}
 
 	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("validate: %w", err)
+		return nil, fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), s.cfg.BcryptCost)
@@ -98,7 +106,7 @@ func (s *AuthService) register(ctx context.Context, req *user.CreateRequest, fir
 // Accounts are temporarily locked after 5 consecutive failed attempts (15 min lockout).
 func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID string) (*user.LoginResponse, string, error) {
 	if err := req.Validate(); err != nil {
-		return nil, "", fmt.Errorf("validate: %w", err)
+		return nil, "", fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	u, err := s.store.GetUserByEmail(ctx, req.Email, tenantID)
@@ -139,6 +147,13 @@ func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID
 		if updateErr := s.store.UpdateUser(ctx, u); updateErr != nil {
 			slog.Error("failed to reset user lockout state", "error", updateErr)
 		}
+	}
+
+	// A disabled tenant's users get no tokens (tenant.ErrDisabled). Checked
+	// after the credentials, so the tenant's state is told to its own users
+	// only, and before any token is issued.
+	if err := tenantEnabled(ctx, s.store, u.TenantID); err != nil {
+		return nil, "", err
 	}
 
 	accessToken, err := s.tokens.SignJWT(u)
@@ -222,19 +237,22 @@ func (s *AuthService) GetUser(ctx context.Context, id string) (*user.User, error
 	return s.store.GetUser(ctx, id)
 }
 
-// UpdateUser updates user fields (name, role, enabled).
+// UpdateUser updates user fields (name, role, enabled). A role change and
+// disabling the user invalidate the user's access tokens (KI-143), saved in
+// the same statement as the change.
 func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.UpdateRequest) (*user.User, error) {
-	u, err := s.store.GetUser(ctx, id)
+	cur, err := s.store.GetUser(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	u := *cur // a failed save leaves the user that was read unchanged
 
 	if req.Name != "" {
 		u.Name = req.Name
 	}
 	if req.Role != "" {
 		if !user.ValidRoles[req.Role] {
-			return nil, errors.New("invalid role")
+			return nil, fmt.Errorf("%w: invalid role: must be admin, editor, or viewer", domain.ErrValidation)
 		}
 		u.Role = req.Role
 	}
@@ -242,15 +260,36 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 		u.Enabled = *req.Enabled
 	}
 
-	if err := s.store.UpdateUser(ctx, u); err != nil {
+	if u.Role == cur.Role && (u.Enabled || !cur.Enabled) {
+		if err := s.store.UpdateUser(ctx, &u); err != nil {
+			return nil, err
+		}
+		return &u, nil
+	}
+	if err := s.store.UpdateUserInvalidatingTokens(ctx, &u); err != nil {
 		return nil, err
 	}
-	return u, nil
+	s.tokens.EndUserSessions(u.ID)
+	// A disabled user's refresh tokens go too (refreshing is refused for a
+	// disabled user anyway); after a role change they stay, so the next
+	// refresh gets a token with the new role.
+	if !u.Enabled {
+		logBestEffort(ctx, s.store.DeleteRefreshTokensByUser(ctx, u.ID), "DeleteRefreshTokensByUser")
+	}
+	return &u, nil
 }
 
-// DeleteUser removes a user and their refresh tokens.
+// DeleteUser erases a user like a GDPR erasure (eraseUser): personal data in
+// rows that outlive the user is anonymized, then the user is deleted with
+// their refresh tokens and other dependent rows. Their access tokens stop
+// working with the row (KI-143); their sessions end once the user is
+// erased, so a refused erasure has no side effect (KI-176).
 func (s *AuthService) DeleteUser(ctx context.Context, id string) error {
-	return s.store.DeleteUser(ctx, id)
+	if err := eraseUser(ctx, s.store, id); err != nil {
+		return err
+	}
+	s.tokens.EndUserSessions(id)
+	return nil
 }
 
 // SetupStatus represents the initial setup state of the system.
@@ -377,7 +416,7 @@ func (s *AuthService) syncAdminPassword(ctx context.Context, tenantID string) er
 // It clears must_change_password, failed_attempts, locked_until, and invalidates all sessions.
 func (s *AuthService) AdminResetPassword(ctx context.Context, email, tenantID, newPassword string) error {
 	if err := user.ValidatePasswordComplexity(newPassword); err != nil {
-		return fmt.Errorf("validate: %w", err)
+		return fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	u, err := s.store.GetUserByEmail(ctx, email, tenantID)
@@ -395,15 +434,9 @@ func (s *AuthService) AdminResetPassword(ctx context.Context, email, tenantID, n
 	u.FailedAttempts = 0
 	u.LockedUntil = time.Time{}
 
-	if err := s.store.UpdateUser(ctx, u); err != nil {
-		return fmt.Errorf("update user: %w", err)
+	if err := s.saveEndingSessions(ctx, u); err != nil {
+		return err
 	}
-
-	// Invalidate all sessions for this user
-	if err := s.store.DeleteRefreshTokensByUser(ctx, u.ID); err != nil {
-		slog.Warn("failed to invalidate sessions after admin password reset", "user_id", u.ID, "error", err)
-	}
-
 	slog.Info("admin password reset completed", "user_id", u.ID)
 	return nil
 }
@@ -441,33 +474,34 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email, tenantID 
 }
 
 // ConfirmPasswordReset validates a password reset token and sets a new password.
-// Marks the token as used and invalidates all sessions.
-func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPassword string) error {
+// Marks the token as used and invalidates all sessions. It returns the user
+// whose password was reset (the audit entry names it, KI-172).
+func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPassword string) (*user.User, error) {
 	if err := user.ValidatePasswordComplexity(newPassword); err != nil {
-		return fmt.Errorf("validate: %w", err)
+		return nil, fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	tokenHash := crypto.HashSHA256(rawToken)
 	prt, err := s.store.GetPasswordResetTokenByHash(ctx, tokenHash)
 	if err != nil {
-		return fmt.Errorf("%w: invalid or expired reset token", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: invalid or expired reset token", domain.ErrValidation)
 	}
 
 	if prt.Used {
-		return fmt.Errorf("%w: reset token has already been used", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: reset token has already been used", domain.ErrValidation)
 	}
 	if time.Now().After(prt.ExpiresAt) {
-		return fmt.Errorf("%w: reset token has expired", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: reset token has expired", domain.ErrValidation)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.cfg.BcryptCost)
 	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
+		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
 	u, err := s.store.GetUser(ctx, prt.UserID)
 	if err != nil {
-		return fmt.Errorf("get user: %w", err)
+		return nil, fmt.Errorf("get user: %w", err)
 	}
 
 	u.PasswordHash = string(hash)
@@ -475,28 +509,24 @@ func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPas
 	u.FailedAttempts = 0
 	u.LockedUntil = time.Time{}
 
-	if err := s.store.UpdateUser(ctx, u); err != nil {
-		return fmt.Errorf("update user: %w", err)
+	if err := s.saveEndingSessions(ctx, u); err != nil {
+		return nil, err
 	}
-
 	if err := s.store.MarkPasswordResetTokenUsed(ctx, prt.ID); err != nil {
 		slog.Warn("failed to mark reset token as used", "token_id", prt.ID, "error", err)
 	}
 
-	// Invalidate all sessions
-	if err := s.store.DeleteRefreshTokensByUser(ctx, u.ID); err != nil {
-		slog.Warn("failed to invalidate sessions after password reset", "user_id", u.ID, "error", err)
-	}
-
 	slog.Info("password reset completed via token", "user_id", u.ID)
-	return nil
+	return u, nil
 }
 
 // ChangePassword verifies the old password, validates complexity of the new one,
-// hashes it, updates the user, and clears the MustChangePassword flag.
+// hashes it, updates the user, and clears the MustChangePassword flag. It ends
+// all of the user's sessions, the caller's too: the UI signs in again with the
+// new password (AuthProvider.changePassword).
 func (s *AuthService) ChangePassword(ctx context.Context, userID string, req user.ChangePasswordRequest) error {
 	if err := req.Validate(); err != nil {
-		return fmt.Errorf("validate: %w", err)
+		return fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	u, err := s.store.GetUser(ctx, userID)
@@ -505,7 +535,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID string, req use
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.OldPassword)); err != nil {
-		return errors.New("current password is incorrect")
+		return fmt.Errorf("%w: current password is incorrect", domain.ErrValidation)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), s.cfg.BcryptCost)
@@ -516,8 +546,8 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID string, req use
 	u.PasswordHash = string(hash)
 	u.MustChangePassword = false
 
-	if err := s.store.UpdateUser(ctx, u); err != nil {
-		return fmt.Errorf("update user: %w", err)
+	if err := s.saveEndingSessions(ctx, u); err != nil {
+		return err
 	}
 
 	// Clean up initial password file if it exists
@@ -527,6 +557,23 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID string, req use
 		}
 	}
 
+	return nil
+}
+
+// saveEndingSessions saves a password change and raises the user's token
+// epoch in one statement, in the user's own tenant (the reset endpoints are
+// public, so the request's tenant may be another), then ends the user's other
+// sessions: refresh tokens deleted, this replica's cached epoch dropped
+// (KI-143).
+func (s *AuthService) saveEndingSessions(ctx context.Context, u *user.User) error {
+	ctx = tenantctx.WithTenant(ctx, u.TenantID)
+	if err := s.store.UpdateUserInvalidatingTokens(ctx, u); err != nil {
+		return fmt.Errorf("update user: %w", err)
+	}
+	s.tokens.EndUserSessions(u.ID)
+	if err := s.store.DeleteRefreshTokensByUser(ctx, u.ID); err != nil {
+		slog.Warn("failed to delete the user's refresh tokens", "user_id", u.ID, "error", err)
+	}
 	return nil
 }
 

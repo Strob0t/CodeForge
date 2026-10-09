@@ -107,3 +107,54 @@ func TestMeetsMinimum(t *testing.T) {
 		})
 	}
 }
+
+// KI-204: only the four defined levels are valid; the check is
+// case-sensitive, so a configured "Verified" is an unknown level.
+func TestIsValidLevel(t *testing.T) {
+	tests := []struct {
+		level Level
+		want  bool
+	}{
+		{LevelFull, true},
+		{LevelVerified, true},
+		{LevelPartial, true},
+		{LevelUntrusted, true},
+		{Level(""), false},
+		{Level("Verified"), false},
+		{Level("high"), false},
+		{Level(" verified"), false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.level), func(t *testing.T) {
+			if got := IsValidLevel(tt.level); got != tt.want {
+				t.Errorf("IsValidLevel(%q) = %v, want %v", tt.level, got, tt.want)
+			}
+		})
+	}
+}
+
+// KI-204: an unknown minimum ranked -1, so every level "met" it and a typo
+// disabled the gate. An unknown minimum, or an unknown level on the
+// annotation, now never meets.
+func TestMeetsMinimumUnknownFailsClosed(t *testing.T) {
+	tests := []struct {
+		name  string
+		level Level
+		min   Level
+	}{
+		{"untrusted vs empty minimum", LevelUntrusted, ""},
+		{"untrusted vs wrong case", LevelUntrusted, "Verified"},
+		{"full vs unknown minimum", LevelFull, "high"},
+		{"unknown level vs untrusted", Level("bogus"), LevelUntrusted},
+		{"empty level vs untrusted", Level(""), LevelUntrusted},
+		{"unknown level vs unknown minimum", Level("bogus"), Level("bogus")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &Annotation{TrustLevel: tt.level}
+			if a.MeetsMinimum(tt.min) {
+				t.Errorf("MeetsMinimum(%q) for level %q = true, want false", tt.min, tt.level)
+			}
+		})
+	}
+}

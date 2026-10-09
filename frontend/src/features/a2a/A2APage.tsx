@@ -482,9 +482,15 @@ function PushConfigsTab() {
     {
       key: "token",
       header: t("a2a.pushConfigs.token"),
+      // The API returns the token to admins only; everyone learns whether
+      // one is set (has_token).
       render: (cfg) => (
         <span class="font-mono text-xs text-cf-text-muted">
-          {cfg.token ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "--"}
+          {cfg.token
+            ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+            : cfg.has_token
+              ? t("a2a.pushConfigs.tokenSet")
+              : "--"}
         </span>
       ),
     },

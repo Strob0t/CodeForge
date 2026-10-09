@@ -1,7 +1,7 @@
 # Feature: Project Dashboard (Pillar 1)
 
-> Status: Foundation implemented (Phase 1-2) -- Git local provider, project CRUD, frontend dashboard
-> Priority: Phase 2 (MVP) completed; Phase 9+ for GitHub/SVN/Forgejo adapters
+> Status: Implemented -- local Git, SVN and GitHub-API git providers; GitHub/GitLab/Gitea (Forgejo, Codeberg) issue adapters; project CRUD, batch operations, dashboard
+> Priority: Phase 2 (MVP) completed; GitHub API, SVN and Forgejo/Codeberg adapters implemented
 > Architecture reference: [architecture.md](../architecture.md) -- "Core Service (Go)" section
 
 ### Purpose
@@ -12,15 +12,15 @@ Management of multiple repositories across different SCM platforms. Users can ad
 
 | Provider | Adapter | Key Capabilities |
 |---|---|---|
-| GitHub (PM) | `adapter/githubpm/` | Issues, PRs, Webhooks, Actions |
-| GitHub (API) | `adapter/github/` | Clone (token-auth), ListRepos, Push, PRs, Issues |
-| GitLab | `adapter/gitlab/` | Clone, MR, Webhooks, Issues, CI |
-| Git (local) | `adapter/gitlocal/` | Clone, Branch, Diff, Commit |
-| SVN | `adapter/svn/` | Checkout, Update, Diff, Commit |
-| Gitea/Forgejo | `adapter/gitea/` | Issues, PRs (via Gitea REST API) |
+| GitHub (PM) | `adapter/githubpm/` | Issue list/get/create/update via `gh` CLI. Planned: PRs, Webhooks, Actions |
+| GitHub (API) | `adapter/github/` | Token-auth clone, ListRepos (REST), status/pull/branches/checkout via git CLI. Push, PRs, Issues are declared as capabilities but not implemented |
+| GitLab | `adapter/gitlab/` | Issue CRUD via REST API v4 (clone goes through the local git provider). Planned: MR, Webhooks, CI |
+| Git (local) | `adapter/gitlocal/` | Clone, Status, Pull, ListBranches, Checkout. Planned: Diff, Commit |
+| SVN | `adapter/svn/` | Checkout, Status, Update, ListBranches, Switch (svn 1.10+; the password goes to svn on stdin, KI-87). Planned: Diff, Commit |
+| Gitea/Forgejo | `adapter/gitea/` | Issue CRUD via Gitea REST API. Planned: PRs |
 | Codeberg | `adapter/gitea/` (variant) | Forgejo instance, same adapter as Gitea/Forgejo |
 
-All providers implement the `gitprovider.Provider` interface with capability declarations. See [architecture.md -- Provider Registry Pattern](../architecture.md#provider-registry-pattern).
+Repository operations go through `gitprovider.Provider` adapters: `gitlocal` (registered as `local`, `github`, `gitlab`, `gitea`), `github-api` and `svn`. The GitHub Issues, GitLab and Gitea/Forgejo/Codeberg adapters implement `pmprovider.Provider` (issue CRUD). Both kinds declare capabilities. Webhook ingress for GitHub/GitLab/Plane is served by the Core, not by these adapters: webhooks are registered per project (admins; secret shown once) in the project's Webhooks panel or through the API and delivered to `/api/v1/webhooks/{vcs,pm}/{provider}/{webhookId}`; the webhook names the tenant and the project, and VCS events (GitHub push and pull request, GitLab push) act only when they name the project's repository exactly ([KI-85](../todo.md#known-issues)). See [architecture.md -- Provider Registry Pattern](../architecture.md#provider-registry-pattern).
 
 ### Core Functionality
 
@@ -60,13 +60,19 @@ All providers implement the `gitprovider.Provider` interface with capability dec
 
 - **Provider Registry Pattern** -- new SCM providers are added via blank import, no core changes.
 - Capability-based design means SVN does not support webhooks/PRs, and that is declared behavior not an error.
-- Compliance Tests give every provider adapter the same test suite automatically.
+- Compliance Tests are intended to give every provider adapter the same test suite automatically (planned for git/PM/spec providers; today only the cache port has one, `internal/port/cache/cache_test.go`, and each provider adapter has its own `provider_test.go`).
 
 ### API Endpoints (Implemented)
 
 ```text
 GET    /api/v1/projects                    # List all projects
-POST   /api/v1/projects                    # Add project (clone/checkout)
+POST   /api/v1/projects                    # Create project record (adopts local_path if given)
+GET    /api/v1/projects/remote-branches    # List remote branches for a URL
+POST   /api/v1/projects/{id}/clone         # Clone repo into workspace
+POST   /api/v1/projects/{id}/setup         # Clone + detect stack + import specs
+POST   /api/v1/projects/{id}/adopt         # Adopt existing local path
+POST   /api/v1/projects/{id}/init-workspace # Empty workspace (git init)
+GET    /api/v1/projects/{id}/workspace     # Workspace info
 GET    /api/v1/projects/{id}               # Project details
 PUT    /api/v1/projects/{id}               # Update project
 DELETE /api/v1/projects/{id}               # Remove project
@@ -87,12 +93,12 @@ POST   /api/v1/projects/{id}/git/checkout  # Switch branch
 - [x] Optimistic locking (version field) on projects.
 - [x] Multi-tenancy preparation (tenant_id on projects).
 - [x] Dashboard Polish: KPI strip (7 stats), HealthDot (weighted composite), ChartsPanel (5 Unovis charts), ActivityTimeline (WS 5-tier), ProjectCard enhanced, CreateProjectModal extracted.
-- [x] GitHub OAuth: domain model (`vcsaccount`), OAuth state store, service (`GitHubOAuthService`), HTTP handlers (`/api/v1/auth/github`, `/api/v1/auth/github/callback`).
-- [x] GitHub API git provider (`adapter/github/`): token-auth clone URLs, ListRepos via REST API with pagination, self-registering as `github-api`.
-- [x] Frontend OAuth: "Connect GitHub" button in Settings > VCS Accounts, redirects to GitHub OAuth flow.
-- [x] Forgejo/Codeberg compatibility: Gitea adapter with variant config, `DetectForgejo()`, provider aliases (`forgejo`, `codeberg`), frontend dropdown in CreateProjectModal.
+- [x] GitHub OAuth web flow (KI-55): domain model (`vcsaccount`), OAuth state store, service (`GitHubOAuthService`), HTTP handlers. Enabled only when `github.client_id`, `github.client_secret` and `github.callback_url` are set ([dev-setup](../dev-setup.md)); otherwise both routes answer 501. `POST /api/v1/auth/github` (authenticated) stores a single-use state for the caller's tenant, sets an HttpOnly SameSite=Lax cookie and returns `{url}`; GitHub redirects to `GET /api/v1/auth/github/callback` (public), which checks cookie and state, consumes the state once, creates the VCS account in the starting user's tenant and redirects to `/settings?github_oauth=connected` or `/settings?github_oauth=failed&reason=<code>`. The Settings page shows the outcome. Expired states of abandoned flows are purged by the retention job.
+- [x] GitHub API git provider (`adapter/github/`): ListRepos via REST API with pagination, self-registering as `github-api`; checkout takes only branch names (`git switch --end-of-options`, KI-189). The provider builds token-auth clone URLs, but project clones do not use the project token yet ([KI-227](../todo.md#known-issues)).
+- [x] Frontend OAuth: "Connect GitHub" button in Settings > VCS Accounts asks `POST /api/v1/auth/github` for the URL and opens it; the result is shown when GitHub sends the browser back to `/settings?github_oauth=...`.
+- [x] Forgejo/Codeberg compatibility: Gitea adapter with variant config, `DetectForgejo()`, provider aliases (`forgejo`, `codeberg`), Forgejo/Codeberg options in Settings > VCS Accounts (`VCSSection.tsx`).
 - [x] Batch operations: `POST /projects/batch/{delete,pull,status}` endpoints, concurrent fan-out, frontend multi-select with batch action bar.
-- [x] Cross-repo search: `POST /search` aggregation endpoint, frontend SearchPage with debounced input, project filter, results with code snippets.
+- [x] Cross-repo search: `POST /search` aggregation endpoint, frontend SearchPage with debounced input, project filter, results with code snippets. Routed at `/search` with a sidebar entry (KI-121, 2026-10-04); conversation hits (`POST /search/conversations`) open in their project's chat.
 
 ### UX/UI Improvements (2026-03-18)
 

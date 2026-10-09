@@ -1,11 +1,32 @@
-import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 
 import { api } from "~/api/client";
-import type { Agent } from "~/api/types";
+import type { Agent, Run } from "~/api/types";
+import type { WSMessage } from "~/api/websocket";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 
 import AgentLane from "./AgentLane";
+import {
+  type AgentWork,
+  agentWorkFromRuns,
+  collectLaneEvent,
+  EMPTY_LANE_FEED,
+  IDLE_WORK,
+  isLaneEvent,
+  isProjectEvent,
+  type LaneFeed,
+  payloadString,
+  reduceAgentWork,
+} from "./liveEvents";
 import MessageFlow from "./MessageFlow";
 import SharedContextPanel from "./SharedContextPanel";
 
@@ -30,35 +51,83 @@ export default function WarRoom(props: WarRoomProps) {
     },
   );
 
+  // The project's recent runs attach a lane opened mid-run to its agent's run.
+  const [recentRuns, { refetch: refetchRuns }] = createResource(
+    () => props.projectId,
+    async (id) => {
+      try {
+        return await api.costs.recentRuns(id, 50);
+      } catch {
+        return [] as Run[];
+      }
+    },
+  );
+
+  // What each agent works on, followed from the project's events. Kept here and
+  // not in the lanes: a lane mounts only after the agent list is refetched,
+  // after the agent.status of the agent's run start.
+  const [works, setWorks] = createSignal<Record<string, AgentWork>>({});
+  const workOf = (agentId: string): AgentWork =>
+    works()[agentId] ?? agentWorkFromRuns(recentRuns() ?? [], agentId) ?? IDLE_WORK;
+
+  // Lanes are keyed by agent ID so a refetch keeps them mounted.
+  const agentIds = () => (agents() ?? []).map((a) => a.id);
+  const agentById = (id: string) => (agents() ?? []).find((a) => a.id === id);
+
+  // The output and tool calls of the agents' work, collected here for the
+  // same reason: a run's first output arrives before its agent's lane mounts.
+  const [feed, setFeed] = createSignal<LaneFeed>(EMPTY_LANE_FEED);
+  // Recomputed only when the agents or their work change, not per event.
+  const trackedWork = createMemo((): AgentWork[] =>
+    [...new Set([...Object.keys(works()), ...agentIds()])].map(workOf),
+  );
+  const laneOutputs = (agentId: string) => feed().outputs[workOf(agentId).taskId ?? ""] ?? [];
+  const laneToolCalls = (agentId: string) => feed().toolCalls[workOf(agentId).runId ?? ""] ?? [];
+
   // Debounced refetch on WS events
   const [refetchTimer, setRefetchTimer] = createSignal<ReturnType<typeof setTimeout> | null>(null);
   function debouncedRefetch() {
     const existing = refetchTimer();
     if (existing) clearTimeout(existing);
-    setRefetchTimer(setTimeout(() => refetch(), 500));
+    setRefetchTimer(
+      setTimeout(() => {
+        refetch();
+        refetchRuns();
+      }, 500),
+    );
+  }
+
+  // The agents' work follows the project's events; the agent list (and the
+  // runs a lane opened mid-run attaches to) follow agent status and claims.
+  function followProjectEvent(msg: WSMessage): void {
+    const agentId = payloadString(msg.payload, "agent_id");
+    if (agentId) {
+      setWorks((prev) => {
+        const current =
+          prev[agentId] ?? agentWorkFromRuns(recentRuns() ?? [], agentId) ?? IDLE_WORK;
+        const next = reduceAgentWork(current, msg, agentId);
+        return next === current ? prev : { ...prev, [agentId]: next };
+      });
+    }
+
+    switch (msg.type) {
+      case "agent.status":
+      case "activework.claimed":
+      case "activework.released":
+        debouncedRefetch();
+        break;
+    }
   }
 
   createEffect(() => {
     const projectId = props.projectId;
+    setWorks({});
+    setFeed(EMPTY_LANE_FEED);
     // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
     const unsub = onMessage((msg) => {
-      const p = msg.payload;
-
-      switch (msg.type) {
-        case "agent.status": {
-          if ((p.project_id as string) === projectId) debouncedRefetch();
-          break;
-        }
-        case "run.status": {
-          if ((p.project_id as string) === projectId) debouncedRefetch();
-          break;
-        }
-        case "activework.claimed":
-        case "activework.released": {
-          if ((p.project_id as string) === projectId) debouncedRefetch();
-          break;
-        }
-      }
+      if (isProjectEvent(msg, projectId)) followProjectEvent(msg);
+      // task.output and run.toolcall name no project, only their task or run.
+      if (isLaneEvent(msg)) setFeed((prev) => collectLaneEvent(prev, msg, trackedWork()));
     });
     onCleanup(unsub);
   });
@@ -98,11 +167,20 @@ export default function WarRoom(props: WarRoomProps) {
           }
         >
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <For each={agents() ?? []}>
-              {(agent) => (
-                <div data-agent-id={agent.id}>
-                  <AgentLane agent={agent} />
-                </div>
+            <For each={agentIds()}>
+              {(id) => (
+                <Show when={agentById(id)}>
+                  {(agent) => (
+                    <div data-agent-id={id}>
+                      <AgentLane
+                        agent={agent()}
+                        work={workOf(id)}
+                        outputs={laneOutputs(id)}
+                        toolCalls={laneToolCalls(id)}
+                      />
+                    </div>
+                  )}
+                </Show>
               )}
             </For>
           </div>

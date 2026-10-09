@@ -13,6 +13,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 )
 
 // ---------------------------------------------------------------------------
@@ -32,6 +35,32 @@ func readJSON[T any](w http.ResponseWriter, r *http.Request, bodyLimit int64) (T
 		return v, false
 	}
 	return v, true
+}
+
+// readOptionalJSON decodes a JSON body that a handler accepts but does not
+// require, within bodyLimit: no body (nothing but whitespace) leaves the
+// zero value; a body that is there but is not JSON of T is refused with
+// 400, never taken as the zero value; a body over the limit is refused
+// with 413 (KI-176, S10-A review).
+func readOptionalJSON[T any](w http.ResponseWriter, r *http.Request, bodyLimit int64, handler string) (T, bool) {
+	var v T
+	r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
+	err := json.NewDecoder(r.Body).Decode(&v)
+	if err == nil {
+		return v, true
+	}
+	if errors.Is(err, io.EOF) {
+		var zero T
+		return zero, true
+	}
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return v, false
+	}
+	slog.Debug("optional body refused", "handler", handler, "error", err)
+	writeError(w, http.StatusBadRequest, "invalid request body")
+	return v, false
 }
 
 // urlParam is a short alias for chi.URLParam.
@@ -103,10 +132,13 @@ func sanitizeName(name string) error {
 	return nil
 }
 
+// maxRawBodyBytes limits request bodies read by readBody.
+const maxRawBodyBytes = 10 << 20 // 10 MB
+
 // readBody reads the request body with a size limit. Returns nil if the body
-// exceeds maxBytes (and writes a 413 response).
-func readBody(w http.ResponseWriter, r *http.Request, maxBytes int64) []byte {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+// exceeds maxRawBodyBytes (and writes a 413 response).
+func readBody(w http.ResponseWriter, r *http.Request) []byte {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRawBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
@@ -141,9 +173,19 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 		writeError(w, http.StatusNotFound, fallbackMsg)
 	case errors.Is(err, domain.ErrConflict):
 		writeError(w, http.StatusConflict, "resource was modified by another request")
+	case errors.Is(err, user.ErrAccountGone):
+		// The caller's token outlived its account (deleted or erased): the
+		// request has no user to act as, so it is not authenticated.
+		writeError(w, http.StatusUnauthorized, "authentication required")
+	case errors.Is(err, project.ErrProjectBusy):
+		writeError(w, http.StatusConflict, project.ErrProjectBusy.Error())
 	case errors.Is(err, domain.ErrValidation):
 		msg := strings.TrimPrefix(err.Error(), domain.ErrValidation.Error()+": ")
 		writeError(w, http.StatusBadRequest, msg)
+	case errors.Is(err, tenant.ErrToolUIDRangeExhausted):
+		// Every tool UID of the deployment is taken (KI-96): no new tenant can run tools.
+		slog.Error("tool work refused: the tool UID range is exhausted", "error", err.Error())
+		writeError(w, http.StatusServiceUnavailable, tenant.ErrToolUIDRangeExhausted.Error())
 	case strings.Contains(err.Error(), "invalid input syntax"):
 		writeError(w, http.StatusBadRequest, "invalid identifier format")
 	case strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "SQLSTATE 23505"):

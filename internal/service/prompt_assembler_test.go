@@ -77,7 +77,7 @@ func TestPromptAssembler_Assemble(t *testing.T) {
 		}
 		result := asm.Assemble(ctx, nil)
 
-		// All 4 entries should be included.
+		// All 3 non-reminder entries should be included.
 		if !strings.Contains(result, "You are CodeForge.") {
 			t.Error("result should contain identity text")
 		}
@@ -87,8 +87,9 @@ func TestPromptAssembler_Assemble(t *testing.T) {
 		if !strings.Contains(result, "Available tools") {
 			t.Error("result should contain tools text")
 		}
-		if !strings.Contains(result, "Always commit your changes.") {
-			t.Error("result should contain reminder text")
+		// Reminders fire per turn, never in the system prompt (KI-190).
+		if strings.Contains(result, "Always commit your changes.") {
+			t.Error("result should not contain reminder text")
 		}
 	})
 
@@ -169,7 +170,8 @@ func TestPromptAssembler_SortOrder(t *testing.T) {
 	t.Run("entries sorted by category order then priority", func(t *testing.T) {
 		t.Parallel()
 		// identity (cat=0, prio=95) should appear before behavior (cat=3, prio=80)
-		// which should appear before tools (cat=5, prio=70) before reminder (cat=11, prio=30).
+		// which should appear before tools (cat=5, prio=70). Reminders are not
+		// part of the system prompt (KI-190).
 		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
 		if err != nil {
 			t.Fatalf("setup: %v", err)
@@ -186,16 +188,12 @@ func TestPromptAssembler_SortOrder(t *testing.T) {
 		idxIdentity := strings.Index(result, "You are CodeForge.")
 		idxBehavior := strings.Index(result, "Write clean, tested code.")
 		idxTools := strings.Index(result, "Available tools")
-		idxReminder := strings.Index(result, "Always commit your changes.")
 
 		if idxIdentity > idxBehavior {
 			t.Error("identity should come before behavior")
 		}
 		if idxBehavior > idxTools {
 			t.Error("behavior should come before tools")
-		}
-		if idxTools > idxReminder {
-			t.Error("tools should come before reminder")
 		}
 	})
 
@@ -294,7 +292,7 @@ content: "Project: {{.ProjectName}}. Path: {{.WorkspacePath}}."
 		}
 	})
 
-	t.Run("nil data skips template rendering", func(t *testing.T) {
+	t.Run("nil data leaves templated entries out", func(t *testing.T) {
 		t.Parallel()
 		fsys := fstest.MapFS{
 			"prompts/tmpl.yaml": &fstest.MapFile{
@@ -314,13 +312,13 @@ content: "Hello {{.Name}}, welcome."
 		asm := NewPromptAssembler(lib, 0)
 
 		result := asm.Assemble(prompt.AssemblyContext{}, nil)
-		// With nil data, template rendering is skipped; raw content is used.
-		if !strings.Contains(result, "{{.Name}}") {
-			t.Errorf("nil data should produce raw template content, got %q", result)
+		// A raw template never reaches a prompt (KI-190).
+		if result != "" {
+			t.Errorf("nil data should leave the templated entry out, got %q", result)
 		}
 	})
 
-	t.Run("invalid template returns raw content", func(t *testing.T) {
+	t.Run("invalid template leaves the entry out", func(t *testing.T) {
 		t.Parallel()
 		fsys := fstest.MapFS{
 			"prompts/bad-tmpl.yaml": &fstest.MapFile{
@@ -341,13 +339,13 @@ content: "Hello {{.BadSyntax"
 
 		data := struct{ Name string }{Name: "test"}
 		result := asm.Assemble(prompt.AssemblyContext{}, data)
-		// Should fall back to raw content on parse failure.
-		if !strings.Contains(result, "{{.BadSyntax") {
-			t.Errorf("bad template should produce raw content, got %q", result)
+		// A failed template is logged and left out, never sent raw (KI-190).
+		if result != "" {
+			t.Errorf("bad template should be left out, got %q", result)
 		}
 	})
 
-	t.Run("template execution error returns raw content", func(t *testing.T) {
+	t.Run("template execution error leaves the entry out", func(t *testing.T) {
 		t.Parallel()
 		fsys := fstest.MapFS{
 			"prompts/exec-err.yaml": &fstest.MapFile{
@@ -368,9 +366,8 @@ content: "Result: {{.MissingMethod | call}}"
 
 		data := struct{ Name string }{Name: "test"}
 		result := asm.Assemble(prompt.AssemblyContext{}, data)
-		// Should fall back to raw content on execution failure.
-		if result == "" {
-			t.Error("should produce some output even on template execution error")
+		if result != "" {
+			t.Errorf("template execution error should leave the entry out, got %q", result)
 		}
 	})
 
@@ -433,8 +430,8 @@ func TestPromptAssembler_Pruning(t *testing.T) {
 			t.Error("behavior (priority=80) should survive pruning")
 		}
 		// Lower priority entries should be pruned first.
-		if strings.Contains(result, "Always commit your changes.") {
-			t.Error("reminder (priority=30) should be pruned")
+		if strings.Contains(result, "Available tools") {
+			t.Error("tools (priority=70) should be pruned")
 		}
 	})
 
@@ -454,7 +451,7 @@ func TestPromptAssembler_Pruning(t *testing.T) {
 		result := asm.Assemble(ctx, nil)
 
 		// All entries should be present.
-		if !strings.Contains(result, "Always commit your changes.") {
+		if !strings.Contains(result, "Available tools") {
 			t.Error("with budget=0, no pruning should occur")
 		}
 	})
@@ -478,8 +475,8 @@ func TestPromptAssembler_Pruning(t *testing.T) {
 		if !strings.Contains(result, "You are CodeForge.") {
 			t.Error("identity should be present with large budget")
 		}
-		if !strings.Contains(result, "Always commit your changes.") {
-			t.Error("reminder should be present with large budget")
+		if !strings.Contains(result, "Available tools") {
+			t.Error("tools should be present with large budget")
 		}
 	})
 }
@@ -513,72 +510,41 @@ func TestPromptAssembler_SectionsJoin(t *testing.T) {
 func TestRenderEntry(t *testing.T) {
 	t.Parallel()
 
-	t.Run("nil data returns raw content", func(t *testing.T) {
-		t.Parallel()
-		e := &prompt.PromptEntry{
-			ID:      "test",
-			Content: "Hello {{.Name}}",
-		}
-		result := renderEntry(e, nil)
-		if result != "Hello {{.Name}}" {
-			t.Errorf("expected raw content, got %q", result)
-		}
-	})
-
-	t.Run("content without markers returns raw", func(t *testing.T) {
-		t.Parallel()
-		e := &prompt.PromptEntry{
-			ID:      "test",
-			Content: "No templates here",
-		}
-		data := struct{ Name string }{Name: "World"}
-		result := renderEntry(e, data)
-		if result != "No templates here" {
-			t.Errorf("expected raw content, got %q", result)
-		}
-	})
-
-	t.Run("renders template with valid data", func(t *testing.T) {
-		t.Parallel()
-		e := &prompt.PromptEntry{
-			ID:      "test",
-			Content: "Hello {{.Name}}!",
-		}
-		data := struct{ Name string }{Name: "World"}
-		result := renderEntry(e, data)
-		if result != "Hello World!" {
-			t.Errorf("expected %q, got %q", "Hello World!", result)
-		}
-	})
-
-	t.Run("parse error returns raw content", func(t *testing.T) {
-		t.Parallel()
-		e := &prompt.PromptEntry{
-			ID:      "test",
-			Content: "Bad {{.Syntax",
-		}
-		data := struct{ Name string }{Name: "World"}
-		result := renderEntry(e, data)
-		if result != "Bad {{.Syntax" {
-			t.Errorf("expected raw content on parse error, got %q", result)
-		}
-	})
-
-	t.Run("execution error returns raw content", func(t *testing.T) {
-		t.Parallel()
-		e := &prompt.PromptEntry{
-			ID:      "test",
-			Content: "Value: {{.Missing.Deep.Field}}",
-		}
-		data := struct{ Name string }{Name: "World"}
-		result := renderEntry(e, data)
-		// text/template default behavior panics on missing fields
-		// but template.Execute catches it and returns an error.
-		// renderEntry should return raw content.
-		if result != "Value: {{.Missing.Deep.Field}}" {
-			t.Errorf("expected raw content on exec error, got %q", result)
-		}
-	})
+	data := struct{ Name string }{Name: "World"}
+	tests := []struct {
+		name    string
+		content string
+		noData  bool
+		want    string
+		wantErr bool
+	}{
+		{name: "content without markers is returned unchanged", content: "No templates here", want: "No templates here"},
+		{name: "content without markers needs no data", content: "No templates here", noData: true, want: "No templates here"},
+		{name: "renders template with valid data", content: "Hello {{.Name}}!", want: "Hello World!"},
+		// A raw template never reaches a prompt (KI-190).
+		{name: "templated entry without data is an error", content: "Hello {{.Name}}", noData: true, wantErr: true},
+		{name: "parse error", content: "Bad {{.Syntax", wantErr: true},
+		{name: "missing field", content: "Value: {{.Missing.Deep.Field}}", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := &prompt.PromptEntry{ID: "test", Content: tc.content}
+			var got string
+			var err error
+			if tc.noData {
+				got, err = renderEntry(e, nil)
+			} else {
+				got, err = renderEntry(e, data)
+			}
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("renderEntry() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("renderEntry() = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestEvaluateReminders(t *testing.T) {
@@ -587,7 +553,7 @@ func TestEvaluateReminders(t *testing.T) {
 	t.Run("returns nil when promptAssembler is nil", func(t *testing.T) {
 		t.Parallel()
 		svc := &ConversationService{} // no promptAssembler set
-		result := svc.evaluateReminders(context.Background(), "conv-1", nil)
+		result := svc.evaluateReminders(context.Background(), "conv-1", reminderCoderMode, 3, nil)
 		if result != nil {
 			t.Errorf("expected nil, got %v", result)
 		}
@@ -598,7 +564,7 @@ func TestEvaluateReminders(t *testing.T) {
 		svc := &ConversationService{
 			promptAssembler: &PromptAssembler{library: nil},
 		}
-		result := svc.evaluateReminders(context.Background(), "conv-1", nil)
+		result := svc.evaluateReminders(context.Background(), "conv-1", reminderCoderMode, 3, nil)
 		if result != nil {
 			t.Errorf("expected nil, got %v", result)
 		}
@@ -625,7 +591,7 @@ content: You are CodeForge.
 		svc := &ConversationService{
 			promptAssembler: NewPromptAssembler(lib, 0),
 		}
-		result := svc.evaluateReminders(context.Background(), "conv-1", nil)
+		result := svc.evaluateReminders(context.Background(), "conv-1", reminderCoderMode, 3, nil)
 		if result != nil {
 			t.Errorf("expected nil (no reminders in library), got %v", result)
 		}
@@ -640,6 +606,8 @@ id: reminder-budget
 category: reminder
 name: Budget Warning
 priority: 50
+conditions:
+  modes: [coder]
 content: "Budget at {{.BudgetPercent}}%."
 `),
 			},
@@ -654,7 +622,7 @@ content: "Budget at {{.BudgetPercent}}%."
 		history := []messagequeue.ConversationMessagePayload{
 			{Role: "user", Content: "hello"},
 		}
-		result := svc.evaluateReminders(context.Background(), "conv-1", history)
+		result := svc.evaluateReminders(context.Background(), "conv-1", reminderCoderMode, 3, history)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 reminder, got %d", len(result))
 		}
@@ -672,6 +640,8 @@ id: reminder-stall
 category: reminder
 name: Stall Warning
 priority: 50
+conditions:
+  modes: [coder]
 content: "Stall: {{.StallIterations}}"
 `),
 			},
@@ -688,7 +658,7 @@ content: "Stall: {{.StallIterations}}"
 			{Role: "tool", Name: "Read", Content: "data"},  // non-progress → 1
 			{Role: "tool", Name: "Glob", Content: "files"}, // non-progress → 2
 		}
-		result := svc.evaluateReminders(context.Background(), "conv-1", history)
+		result := svc.evaluateReminders(context.Background(), "conv-1", reminderCoderMode, 3, history)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 reminder, got %d", len(result))
 		}
@@ -706,6 +676,8 @@ id: reminder-turns
 category: reminder
 name: Turn Count
 priority: 50
+conditions:
+  modes: [coder]
 content: "Turns: {{.TurnCount}}"
 `),
 			},
@@ -722,12 +694,38 @@ content: "Turns: {{.TurnCount}}"
 			{Role: "assistant", Content: "hi"},
 			{Role: "user", Content: "bye"},
 		}
-		result := svc.evaluateReminders(context.Background(), "conv-1", history)
+		result := svc.evaluateReminders(context.Background(), "conv-1", reminderCoderMode, 3, history)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 reminder, got %d", len(result))
 		}
 		if result[0] != "Turns: 3" {
 			t.Errorf("reminder = %q, want %q", result[0], "Turns: 3")
+		}
+	})
+
+	t.Run("reminder without a condition never fires", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/reminder.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: reminder-always
+category: reminder
+name: Always
+priority: 50
+content: "Always shown."
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		svc := &ConversationService{
+			promptAssembler: NewPromptAssembler(lib, 0),
+		}
+		history := []messagequeue.ConversationMessagePayload{{Role: "user", Content: "hello"}}
+		if result := svc.evaluateReminders(context.Background(), "conv-1", reminderCoderMode, 3, history); len(result) != 0 {
+			t.Errorf("expected no reminders, got %q", result)
 		}
 	})
 }
@@ -1101,15 +1099,19 @@ func TestBuildSystemPrompt_IncludesChatFirstOrchestration(t *testing.T) {
 		{"propose_goal", "propose_goal tool reference"},
 		{"Roadmap Generation", "section 2 heading"},
 		{"propose_roadmap", "propose_roadmap tool reference"},
-		{"Atomic Step Design", "section 6 heading"},
-		{"spawn_subagent", "spawn_subagent tool reference"},
-		{"Proactive Suggestions", "section 4 heading"},
-		{"Confidence-Based Escalation", "section 7 heading"},
+		{"Atomic Step Design", "section 5 heading"},
+		{"Proactive Suggestions", "section 3 heading"},
+		{"Confidence-Based Escalation", "section 6 heading"},
 	}
 	for _, tc := range requiredStrings {
 		if !strings.Contains(result, tc.needle) {
 			t.Errorf("assembled prompt missing %q (%s)", tc.needle, tc.desc)
 		}
+	}
+
+	// spawn_subagent starts nothing yet and is not offered to the model (KI-25).
+	if strings.Contains(result, "spawn_subagent") {
+		t.Error("assembled prompt tells the model to use spawn_subagent, which is not offered")
 	}
 
 	// Verify it also appears for a zero-condition context (empty conditions = always match).
@@ -1249,6 +1251,28 @@ func TestCountStallIterations(t *testing.T) {
 				{Role: "tool", Name: "Read", Content: "data"},
 				{Role: "assistant", Content: "thinking"},
 				{Role: "tool", Name: "Search", Content: "results"},
+			},
+			want: 2,
+		},
+		{
+			// The worker stores its own tool names (KI-190).
+			name: "worker progress tool names reset",
+			history: []messagequeue.ConversationMessagePayload{
+				{Role: "tool", Name: "read_file", Content: "data"},
+				{Role: "tool", Name: "edit_file", Content: "ok"},
+				{Role: "tool", Name: "read_file", Content: "data"},
+				{Role: "tool", Name: "bash", Content: "ok"},
+				{Role: "tool", Name: "search_files", Content: "x"},
+				{Role: "tool", Name: "write_file", Content: "ok"},
+			},
+			want: 0,
+		},
+		{
+			name: "worker read tools count",
+			history: []messagequeue.ConversationMessagePayload{
+				{Role: "tool", Name: "write_file", Content: "ok"},
+				{Role: "tool", Name: "read_file", Content: "data"},
+				{Role: "tool", Name: "list_directory", Content: "data"},
 			},
 			want: 2,
 		},

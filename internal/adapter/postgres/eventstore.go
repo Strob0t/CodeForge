@@ -32,12 +32,11 @@ func newQueryBuilder(tenantID string) *queryBuilder {
 	}
 }
 
-// newQueryBuilderWith starts a builder with an initial named condition and
-// the tenant_id condition, e.g. newQueryBuilderWith("run_id", runID, tenantID).
-func newQueryBuilderWith(col string, val any, tenantID string) *queryBuilder {
+// newRunQueryBuilder starts a builder with the run_id and tenant_id conditions.
+func newRunQueryBuilder(runID, tenantID string) *queryBuilder {
 	return &queryBuilder{
-		conditions: []string{col + " = $1", "tenant_id = $2"},
-		args:       []any{val, tenantID},
+		conditions: []string{"run_id = $1", "tenant_id = $2"},
+		args:       []any{runID, tenantID},
 		argIdx:     3,
 	}
 }
@@ -81,14 +80,20 @@ func NewEventStore(pool *pgxpool.Pool) *EventStore {
 
 // Append inserts a new event into the agent_events table.
 // The database assigns sequence_number via the sequence default; the assigned value
-// is written back to ev.SequenceNumber.
+// is written back to ev.SequenceNumber. An event without agent, task or run
+// (plan events, task results without an assigned agent) stores NULL for it;
+// an event without payload (review events) stores the empty object.
 func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 	tid := middleware.TenantIDFromContext(ctx)
+	payload := ev.Payload
+	if len(payload) == 0 {
+		payload = []byte("{}")
+	}
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO agent_events (tenant_id, agent_id, task_id, project_id, run_id, event_type, payload, request_id, version, tool_name, model, tokens_in, tokens_out, cost_usd)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING sequence_number`,
-		tid, ev.AgentID, ev.TaskID, ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), ev.Payload, ev.RequestID, ev.Version,
+		tid, nullIfEmpty(ev.AgentID), nullIfEmpty(ev.TaskID), ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), payload, ev.RequestID, ev.Version,
 		ev.ToolName, ev.Model, ev.TokensIn, ev.TokensOut, ev.CostUSD).Scan(&ev.SequenceNumber)
 	if err != nil {
 		return fmt.Errorf("append event: %w", err)
@@ -97,7 +102,7 @@ func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 }
 
 // eventColumns is the SELECT column list for agent_events queries.
-const eventColumns = `id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, sequence_number, created_at, tool_name, model, tokens_in, tokens_out, cost_usd`
+const eventColumns = `id, COALESCE(agent_id::text, ''), COALESCE(task_id::text, ''), project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, sequence_number, created_at, tool_name, model, tokens_in, tokens_out, cost_usd`
 
 // scanEvent scans a row into an AgentEvent including per-tool token columns.
 func scanEvent(scanner interface{ Scan(dest ...any) error }, ev *event.AgentEvent) error {
@@ -160,7 +165,7 @@ func (s *EventStore) LoadTrajectory(ctx context.Context, runID string, filter ev
 	}
 
 	tid := middleware.TenantIDFromContext(ctx)
-	qb := newQueryBuilderWith("run_id", runID, tid)
+	qb := newRunQueryBuilder(runID, tid)
 
 	if cursor != "" {
 		qb.addCondition("id > $%d", cursor)
@@ -297,7 +302,7 @@ func (s *EventStore) TrajectoryStats(ctx context.Context, runID string) (*events
 // If fromEventID is empty, starts from the beginning. If toEventID is empty, goes to the end.
 func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, toEventID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
-	qb := newQueryBuilderWith("run_id", runID, tid)
+	qb := newRunQueryBuilder(runID, tid)
 
 	if fromEventID != "" {
 		qb.addCondition("version >= (SELECT version FROM agent_events WHERE id = $%d)", fromEventID)

@@ -16,6 +16,19 @@ type Capabilities struct {
 	Review   bool `json:"review"`
 }
 
+// Execution is a task handed to a backend together with the project
+// workspace the backend works in.
+type Execution struct {
+	Task          *task.Task
+	WorkspacePath string
+	// HeartbeatSeconds is how often a worker executing the task reports it
+	// alive (0 = the worker's default).
+	HeartbeatSeconds int
+	// ToolUID is the task tenant's tool UID the backend CLI runs as (KI-96;
+	// 0 with workspace.tool_acls off).
+	ToolUID int
+}
+
 // Backend is the port interface for interacting with a coding agent backend.
 type Backend interface {
 	// Name returns the unique identifier for this backend (e.g. "aider", "openhands").
@@ -25,7 +38,7 @@ type Backend interface {
 	Capabilities() Capabilities
 
 	// Execute runs a task on the agent backend and returns the result.
-	Execute(ctx context.Context, t *task.Task) (*task.Result, error)
+	Execute(ctx context.Context, e *Execution) (*task.Result, error)
 
 	// Stop cancels a running task.
 	Stop(ctx context.Context, taskID string) error

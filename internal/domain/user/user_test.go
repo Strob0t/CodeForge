@@ -1,6 +1,10 @@
 package user
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/uuid"
+)
 
 func TestUser_CreateRequest_Validate(t *testing.T) {
 	tests := []struct {
@@ -82,4 +86,43 @@ func TestCreateAPIKeyRequest_Validate(t *testing.T) {
 			t.Fatalf("expected 'name is required', got %v", err)
 		}
 	})
+}
+
+// KI-89 review: only the synthetic identities count as accountless; any
+// other ID names an account (which may be gone).
+func TestIsAccountless(t *testing.T) {
+	for id, want := range map[string]bool{
+		AuthDisabledUserID:                     true,
+		InternalServiceUserID:                  true,
+		AnonymousActorUserID:                   true,
+		"00000000-0000-0000-0000-000000000003": false,
+		"3f2b9c1e-7d4a-4e8b-9a6f-1c2d3e4f5a6b": false,
+		"":                                     false,
+		" " + AuthDisabledUserID:               false,
+	} {
+		if got := IsAccountless(id); got != want {
+			t.Errorf("IsAccountless(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
+
+// S10-A review: the synthetic identities are distinct UUIDs, so an audit
+// entry tells the operator acting with authentication disabled
+// (AuthDisabledUserID) from a failed login (AnonymousActorUserID).
+func TestSyntheticUserIDs_AreDistinctUUIDs(t *testing.T) {
+	ids := map[string]string{
+		"AuthDisabledUserID":    AuthDisabledUserID,
+		"InternalServiceUserID": InternalServiceUserID,
+		"AnonymousActorUserID":  AnonymousActorUserID,
+	}
+	seen := map[string]string{}
+	for name, id := range ids {
+		if _, err := uuid.Parse(id); err != nil {
+			t.Errorf("%s = %q is not a UUID: %v", name, id, err)
+		}
+		if other, dup := seen[id]; dup {
+			t.Errorf("%s and %s share the ID %q", name, other, id)
+		}
+		seen[id] = name
+	}
 }

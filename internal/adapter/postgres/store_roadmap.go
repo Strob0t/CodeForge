@@ -168,7 +168,7 @@ func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureReq
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO features (tenant_id, milestone_id, roadmap_id, title, description, labels, spec_ref, external_ids)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		 RETURNING id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at`,
+		 RETURNING id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at`,
 		tid, req.MilestoneID, roadmapID, req.Title, req.Description, labels, req.SpecRef, externalIDsJSON)
 
 	f, err := scanFeature(row)
@@ -180,7 +180,7 @@ func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureReq
 
 func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at
 		 FROM features WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	f, err := scanFeature(row)
@@ -194,7 +194,7 @@ func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, er
 // Returns domain.ErrNotFound if no match exists.
 func (s *Store) FindFeatureBySpecRef(ctx context.Context, milestoneID, specRef string) (*roadmap.Feature, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at
 		 FROM features WHERE milestone_id = $1 AND spec_ref = $2 AND tenant_id = $3
 		 LIMIT 1`, milestoneID, specRef, tenantFromCtx(ctx))
 
@@ -207,7 +207,7 @@ func (s *Store) FindFeatureBySpecRef(ctx context.Context, milestoneID, specRef s
 
 func (s *Store) ListFeatures(ctx context.Context, milestoneID string) ([]roadmap.Feature, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at
 		 FROM features WHERE milestone_id = $1 AND tenant_id = $2 ORDER BY sort_order ASC, created_at ASC`, milestoneID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list features: %w", err)
@@ -219,7 +219,7 @@ func (s *Store) ListFeatures(ctx context.Context, milestoneID string) ([]roadmap
 
 func (s *Store) ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at
 		 FROM features WHERE roadmap_id = $1 AND tenant_id = $2 ORDER BY sort_order ASC, created_at ASC`, roadmapID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list features by roadmap: %w", err)
@@ -238,9 +238,9 @@ func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
 	labels := orEmpty(f.Labels)
 
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8, milestone_id = $9
+		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8, milestone_id = $9, result = $12
 		 WHERE id = $1 AND version = $10 AND tenant_id = $11`,
-		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.MilestoneID, f.Version, tenantFromCtx(ctx))
+		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.MilestoneID, f.Version, tenantFromCtx(ctx), f.Result)
 	if err != nil {
 		return fmt.Errorf("update feature %s: %w", f.ID, err)
 	}
@@ -254,6 +254,47 @@ func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
 func (s *Store) DeleteFeature(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM features WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete feature %s", id)
+}
+
+// --- Spec files (KI-203) ---
+
+// GetSpecFile returns what the roadmap recorded of its spec file path, or
+// domain.ErrNotFound.
+func (s *Store) GetSpecFile(ctx context.Context, roadmapID, path string) (*roadmap.SpecFile, error) {
+	f := roadmap.SpecFile{RoadmapID: roadmapID, Path: path}
+	var checked []byte
+	err := s.pool.QueryRow(ctx,
+		`SELECT content_sha256, checked FROM roadmap_spec_files WHERE roadmap_id = $1 AND path = $2 AND tenant_id = $3`,
+		roadmapID, path, tenantFromCtx(ctx)).Scan(&f.ContentSHA256, &checked)
+	if err != nil {
+		return nil, notFoundWrap(err, "spec file %s of roadmap %s", path, roadmapID)
+	}
+	if err := unmarshalJSONField(checked, &f.Checked, "checked"); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+// SetSpecFile records what the roadmap saw of its spec file, replacing an
+// earlier record. The roadmap must be the tenant's (domain.ErrNotFound
+// otherwise).
+func (s *Store) SetSpecFile(ctx context.Context, f *roadmap.SpecFile) error {
+	checked := f.Checked
+	if checked == nil {
+		checked = map[string]bool{}
+	}
+	checkedJSON, err := marshalJSON(checked, "checked")
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx,
+		`INSERT INTO roadmap_spec_files (tenant_id, roadmap_id, path, content_sha256, checked)
+		 SELECT r.tenant_id, r.id, $2, $3, $4 FROM roadmaps r WHERE r.id = $1 AND r.tenant_id = $5
+		 ON CONFLICT (roadmap_id, path) DO UPDATE
+		 SET content_sha256 = EXCLUDED.content_sha256, checked = EXCLUDED.checked, updated_at = now()
+		 WHERE roadmap_spec_files.tenant_id = EXCLUDED.tenant_id`,
+		f.RoadmapID, f.Path, f.ContentSHA256, checkedJSON, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "record spec file %s of roadmap %s", f.Path, f.RoadmapID)
 }
 
 func scanRoadmap(row scannable) (roadmap.Roadmap, error) {
@@ -271,7 +312,7 @@ func scanMilestone(row scannable) (roadmap.Milestone, error) {
 func scanFeature(row scannable) (roadmap.Feature, error) {
 	var f roadmap.Feature
 	var externalIDsJSON []byte
-	err := row.Scan(&f.ID, &f.MilestoneID, &f.RoadmapID, &f.Title, &f.Description, &f.Status, &f.Labels, &f.SpecRef, &externalIDsJSON, &f.SortOrder, &f.Version, &f.CreatedAt, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.MilestoneID, &f.RoadmapID, &f.Title, &f.Description, &f.Status, &f.Labels, &f.SpecRef, &externalIDsJSON, &f.Result, &f.SortOrder, &f.Version, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return f, err
 	}

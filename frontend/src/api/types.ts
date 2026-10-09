@@ -1,3 +1,5 @@
+import type { AGUIPermissionRequest } from "./websocket";
+
 /** Application-level settings returned by GET /settings. */
 export interface AppSettings {
   default_provider?: string;
@@ -42,7 +44,8 @@ export interface UpdateProjectRequest {
   description?: string;
   repo_url?: string;
   provider?: string;
-  config?: Record<string, string>;
+  /** Merged into the stored config: a key with a value is set, a key with null is removed, other keys are kept. */
+  config?: Record<string, string | null>;
 }
 
 /** Matches Go domain/project.ParsedRepoURL */
@@ -173,6 +176,12 @@ export interface DiscoverModelsResponse {
   models: DiscoveredModel[];
   count: number;
   ollama_url: string;
+}
+
+/** Response from GET /api/v1/llm/available: the model registry's models, as the worker routes from them */
+export interface AvailableModelsResponse {
+  models: DiscoveredModel[];
+  best_model: string;
 }
 
 /** Add model request for LiteLLM */
@@ -364,6 +373,10 @@ export interface ReviewDecision {
   suggested_reviewers: string[];
 }
 
+/** WS event run.delivery: status of a run's delivery ("partial": the branch
+ * was pushed, the pull request was not opened) */
+export type DeliveryStatus = "started" | "completed" | "partial" | "failed";
+
 /** WS event: multi-agent debate status */
 export interface DebateStatusEvent {
   plan_id: string;
@@ -544,6 +557,8 @@ export interface RetrievalIndexStatus {
   chunk_count: number;
   embedding_model: string;
   error?: string;
+  /** Ready, but ranked by keywords (BM25) alone: no usable embedding model (KI-130, KI-150). */
+  bm25_only?: boolean;
 }
 
 /** Search request body */
@@ -669,6 +684,13 @@ export interface ResourceLimits {
 }
 
 /** Matches Go domain/policy.PolicyProfile */
+/** GET /policies: the usable profiles and which of them are built-in presets. */
+export interface PolicyProfileList {
+  profiles: string[];
+  /** Built-in presets: read-only and never deleted (KI-129). */
+  presets: string[];
+}
+
 export interface PolicyProfile {
   name: string;
   description?: string;
@@ -764,6 +786,8 @@ export interface RoadmapFeature {
   labels: string[];
   spec_ref: string;
   external_ids: Record<string, string>;
+  /** How the auto-agent's verification ended (KI-152); absent until it ran the feature. */
+  result?: string;
   version: number;
   created_at: string;
   updated_at: string;
@@ -847,6 +871,34 @@ export interface PMImportRequest {
   project_ref: string;
 }
 
+/** Matches Go domain/roadmap.SyncDirection: pull (PM tool -> CodeForge), push (CodeForge -> PM tool), bidi (both). */
+export type RoadmapSyncDirection = "pull" | "push" | "bidi";
+
+/** Matches Go domain/roadmap.SyncConfig (POST /projects/{id}/roadmap/sync; the project comes from the path). */
+export interface RoadmapSyncRequest {
+  provider: string;
+  project_ref: string;
+  direction: RoadmapSyncDirection;
+  /** Only count what would change. */
+  dry_run: boolean;
+  /** Create items that exist on one side only. */
+  create_new: boolean;
+  /** Update items that exist on both sides. */
+  update_exist: boolean;
+  /** The provider's own credentials (token, api_token for Plane). */
+  provider_config?: Record<string, string>;
+}
+
+/** Matches Go domain/roadmap.SyncResult */
+export interface RoadmapSyncResult {
+  direction: string;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors?: string[];
+  dry_run: boolean;
+}
+
 /** Spec/PM provider info */
 export interface ProviderInfo {
   name: string;
@@ -890,8 +942,43 @@ export interface User {
   tenant_id: string;
   enabled: boolean;
   must_change_password?: boolean;
+  /** Admin of the default tenant: manages what all tenants share (LLM models, provider credentials). */
+  is_platform_admin: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Matches Go service.UserDataExport (GET /me/export, GDPR Art. 15 and 20). The
+ * UI only saves it as a file, so the lists stay opaque.
+ */
+export interface UserDataExport {
+  exported_at: string;
+  format_version: string;
+  user: User;
+  api_keys: unknown[];
+  llm_keys: unknown[];
+  sessions: unknown[];
+  conversations: unknown[];
+  cost_records: unknown[];
+  audit_trail: unknown[];
+}
+
+/** Matches Go database.ConsentPurpose (GET /me/consent/purposes). */
+export interface ConsentPurpose {
+  id: string;
+  label: string;
+  description: string;
+  legal_basis: "consent" | "legitimate_interest" | "contract";
+  /** A required purpose cannot be withdrawn. */
+  required: boolean;
+  version: number;
+}
+
+/** Matches Go service.ConsentStatus (GET /me/consent). */
+export interface ConsentStatus {
+  purpose_id: string;
+  granted: boolean;
 }
 
 /** Matches Go domain/user.ChangePasswordRequest */
@@ -911,6 +998,13 @@ export interface LoginResponse {
   access_token: string;
   expires_in: number;
   user: User;
+}
+
+/** Matches Go POST /api/v1/ws/ticket: a single-use WebSocket upgrade ticket. */
+export interface WSTicketResponse {
+  ticket: string;
+  /** Seconds until the ticket expires. */
+  expires_in: number;
 }
 
 /** Matches Go domain/user.CreateRequest */
@@ -961,6 +1055,8 @@ export interface InitialSetupRequest {
   email: string;
   name: string;
   password: string;
+  /** One-time token from the Core's log or data/setup_token (KI-119) */
+  setup_token: string;
 }
 
 /** Request body for POST /api/v1/auth/forgot-password */
@@ -1167,6 +1263,43 @@ export interface CreateVCSAccountRequest {
   token: string;
 }
 
+// --- Project webhooks (KI-85) ---
+
+/** What a webhook feeds: VCS events or a roadmap sync (Go domain/webhook.Kind). */
+export type WebhookKind = "vcs" | "pm";
+
+/** The providers inbound webhooks exist for (Go domain/webhook providers). */
+export type WebhookProvider = "github" | "gitlab" | "plane";
+
+/** Matches Go domain/webhook.Endpoint: never a secret or an API token. */
+export interface WebhookEndpoint {
+  id: string;
+  project_id: string;
+  kind: WebhookKind;
+  provider: WebhookProvider;
+  /** The path the provider delivers to, on the API's origin. */
+  url: string;
+  /** A PM webhook's sync has its own API token. */
+  has_api_token: boolean;
+  created_at: string;
+  secret_rotated_at: string;
+}
+
+/** Matches Go domain/webhook.Registered: the only answer that carries the secret. */
+export interface WebhookRegistered extends WebhookEndpoint {
+  secret: string;
+}
+
+/** Matches Go domain/webhook.CreateRequest. */
+export interface CreateWebhookRequest {
+  kind: WebhookKind;
+  provider: WebhookProvider;
+  /** The PM integration's own token for the provider's API; PM webhooks only. */
+  api_token?: string;
+  /** The signing secret Plane generated; Plane only, and required there. */
+  secret?: string;
+}
+
 // --- Audit Trail ---
 
 /** Matches Go domain/event.AuditEntry */
@@ -1186,6 +1319,18 @@ export interface AuditPage {
   cursor: string;
   has_more: boolean;
   total: number;
+}
+
+/**
+ * Matches Go service.ConversationRunState (GET /conversations/{id}/run): the
+ * running turn the chat restores after a reload (KI-148).
+ */
+export interface ConversationRunState {
+  active: boolean;
+  turn_id?: string;
+  /** Text the turn streamed so far, as far as the Core saw it. */
+  streamed_text?: string;
+  pending_approvals: AGUIPermissionRequest[];
 }
 
 // --- Sessions ---
@@ -1274,6 +1419,12 @@ export interface CreateMCPServerRequest {
   env?: Record<string, string>;
   headers?: Record<string, string>;
   enabled: boolean;
+}
+
+/** An MCP server to test: a new one, or a saved one being edited (with its id,
+ * whose stored env and header values stand in for "***"). */
+export interface TestMCPServerRequest extends CreateMCPServerRequest {
+  id?: string;
 }
 
 /** Result of an MCP server connection test */
@@ -1398,6 +1549,8 @@ export interface BenchmarkResult {
   tokens_out: number;
   duration_ms: number;
   evaluator_scores?: Record<string, Record<string, number>>;
+  /** Dimensions an evaluator could not score (dimension -> error); never in scores. */
+  evaluation_errors?: Record<string, string>;
   files_changed?: string[];
   functional_test_output?: string;
   rollout_id?: number;
@@ -1607,13 +1760,23 @@ export interface ActiveWorkItem {
   started_at: string;
 }
 
+/**
+ * Status of a handoff as the Go Core announces it: initiated (the target's
+ * run started), quarantined (held for review), rejected (by the quarantine),
+ * failed (refused, or its retries ran out), a2a_delegated (sent to a remote
+ * A2A agent).
+ */
+export type HandoffStatus = "initiated" | "quarantined" | "rejected" | "failed" | "a2a_delegated";
+
 /** WS event: handoff status between agents (Phase 23D War Room) */
 export interface HandoffStatusEvent {
   source_agent_id: string;
   target_agent_id: string;
   plan_id?: string;
   step_id?: string;
-  status: "initiated" | "accepted" | "completed" | "failed";
+  /** The target agent's run (status initiated). */
+  run_id?: string;
+  status: HandoffStatus;
   context?: string;
 }
 
@@ -1652,11 +1815,10 @@ export interface UpdateGoalRequest {
   enabled?: boolean;
 }
 
+/** Matches Go service.GoalDiscoveryResult (goals is null when nothing was detected) */
 export interface GoalDiscoveryResult {
-  detected: number;
-  imported: number;
-  skipped: number;
-  sources: string[];
+  goals_created: number;
+  goals: ProjectGoal[] | null;
 }
 
 // --- Subscription Providers (OAuth Device Flow) ---
@@ -1725,9 +1887,12 @@ export interface ProjectHealthStats {
   last_activity_at: string;
 }
 
+/** "unknown": no runs in the last 7 days, so the score has no evidence (KI-129). */
+export type HealthLevel = "healthy" | "warning" | "critical" | "unknown";
+
 export interface ProjectHealth {
   score: number;
-  level: "healthy" | "warning" | "critical";
+  level: HealthLevel;
   factors: HealthFactors;
   sparkline_7d: number[];
   stats: ProjectHealthStats;
@@ -1820,12 +1985,16 @@ export interface SendA2ATaskRequest {
   prompt: string;
 }
 
-/** Matches Go database.A2APushConfig */
+/**
+ * Matches Go database.A2APushConfig as the API returns it (pushConfigView):
+ * has_token for everyone, the token itself to admins only ("" otherwise).
+ */
 export interface A2APushConfig {
   id: string;
   task_id: string;
   url: string;
   token: string;
+  has_token: boolean;
   created_at: string;
 }
 
@@ -1851,6 +2020,84 @@ export interface BoundaryConfig {
   version: number;
 }
 
+/** Answer of a review trigger: the started plan (triggered is always true). */
+export interface ReviewTriggerResponse {
+  triggered: boolean;
+  plan_id?: string;
+}
+
+/**
+ * Impact of a review pipeline's refactoring (WS `review.approval_required`,
+ * `review.refactor_applied`; Go event.ReviewImpactEvent).
+ */
+export interface ReviewImpactEvent {
+  run_id: string;
+  plan_id: string;
+  step_id: string;
+  project_id: string;
+  impact_level: "low" | "medium" | "high";
+  files_changed: number;
+  lines_added: number;
+  lines_removed: number;
+  cross_layer: boolean;
+  structural: boolean;
+  /** Why the refactoring needs approval although it could not be scored. */
+  reason?: string;
+  /**
+   * Paths users changed through the editor or the file API while the
+   * refactoring ran (KI-94): they count as its change, and an undo sets them
+   * back too. At most 100, by path; `user_edits_total` counts them all.
+   */
+  user_edits?: ReviewUserEdit[];
+  user_edits_total?: number;
+  /**
+   * The server could not read the user edits when it announced the request
+   * (WS only): load them with the pending decisions.
+   */
+  user_edits_unavailable?: boolean;
+}
+
+/** A path a user changed while a review refactoring ran; Go review.UserEdit. */
+export interface ReviewUserEdit {
+  path: string;
+  /** A rename lists the old and the new path. */
+  operation: "write" | "delete" | "rename";
+  /** Absent without an account (authentication disabled) or once it is deleted. */
+  user_id?: string;
+  user_name?: string;
+  /** The latest change of the path. */
+  edited_at: string;
+}
+
+/**
+ * A refactoring that waits for keep or undo (GET /projects/{id}/review/pending;
+ * Go service.PendingReviewDecision). A failed or cancelled refactoring step
+ * waits too: its plan stays as it ended.
+ */
+export interface PendingReviewDecision extends ReviewImpactEvent {
+  step_status: string;
+  plan_status: string;
+  since: string;
+}
+
+/** Answer to keep (approve) or undo (reject); Go service.ReviewDecision. */
+export interface ReviewDecisionResponse {
+  status: "approved" | "rejected";
+  /** The refactoring had committed and HEAD was moved back. */
+  head_restored: boolean;
+  /** What the undo could not do, e.g. why HEAD was left where it is. */
+  message?: string;
+  restored_paths?: string[];
+}
+
+/** A slash command offered by the backend (GET /commands). */
+export interface CommandInfo {
+  id: string;
+  label: string;
+  category: string;
+  description: string;
+}
+
 // --- Quarantine types (Phase 23) ---
 
 /** Quarantine message status (matches Go domain/quarantine.Status) */
@@ -1868,6 +2115,9 @@ export interface QuarantineMessage {
   risk_score: number;
   risk_factors: string[];
   status: QuarantineStatus;
+  /** The reviewer's user ID; absent before the review and after the reviewer's erasure. */
+  reviewed_by_id?: string;
+  /** The reviewer's name at the time of the review. */
   reviewed_by: string;
   review_note: string;
   created_at: string;
@@ -1883,9 +2133,8 @@ export interface QuarantineStats {
   expired: number;
 }
 
-/** Request body for approve/reject actions */
+/** Request body for approve/reject actions (the reviewer is the logged-in user) */
 export interface QuarantineReviewRequest {
-  reviewed_by: string;
   note: string;
 }
 
@@ -2068,5 +2317,44 @@ export interface RoutingOutcome {
   run_id?: string;
   conversation_id?: string;
   prompt_hash?: string;
+  created_at: string;
+}
+
+// --- Channels (Phase 9) ---
+
+/** Matches Go domain/channel.Channel. */
+export interface ChannelRecord {
+  id: string;
+  tenant_id: string;
+  project_id?: string;
+  name: string;
+  type: "project" | "bot";
+  description: string;
+  /** A webhook key was generated (the key itself is shown only once). */
+  has_webhook_key: boolean;
+  created_by?: string;
+  created_at: string;
+  /** Top-level messages of others after the caller's read position. */
+  unread_count: number;
+}
+
+/** Matches Go domain/channel.ReadState. */
+export interface ChannelReadState {
+  channel_id: string;
+  user_id: string;
+  last_read_message_id?: string;
+  last_read_at: string;
+}
+
+/** Matches Go domain/channel.Message (Go omits an empty parent_id and sender_id). */
+export interface ChannelMessageRecord {
+  id: string;
+  channel_id: string;
+  /** The user who posted it; absent for agents, bots and webhooks. */
+  sender_id?: string;
+  sender_type: string;
+  sender_name: string;
+  content: string;
+  parent_id: string;
   created_at: string;
 }

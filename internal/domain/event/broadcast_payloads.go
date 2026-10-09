@@ -1,8 +1,11 @@
 package event
 
 import (
+	"time"
+
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -47,6 +50,7 @@ type RunStatusEvent struct {
 	RunID     string  `json:"run_id"`
 	TaskID    string  `json:"task_id"`
 	ProjectID string  `json:"project_id"`
+	AgentID   string  `json:"agent_id,omitempty"`
 	Status    string  `json:"status"`
 	StepCount int     `json:"step_count"`
 	CostUSD   float64 `json:"cost_usd,omitempty"`
@@ -80,7 +84,7 @@ type DeliveryEvent struct {
 	RunID      string `json:"run_id"`
 	TaskID     string `json:"task_id"`
 	ProjectID  string `json:"project_id"`
-	Status     string `json:"status"` // "started", "completed", "failed"
+	Status     string `json:"status"` // "started", "completed", "partial" (no pull request), "failed"
 	Mode       string `json:"mode"`
 	PatchPath  string `json:"patch_path,omitempty"`
 	CommitHash string `json:"commit_hash,omitempty"`
@@ -160,6 +164,7 @@ type RetrievalStatusEvent struct {
 	ChunkCount     int    `json:"chunk_count,omitempty"`
 	EmbeddingModel string `json:"embedding_model,omitempty"`
 	Error          string `json:"error,omitempty"`
+	BM25Only       bool   `json:"bm25_only,omitempty"` // ranked by BM25 alone: the embedding model cannot be used (KI-130)
 }
 
 // BudgetAlertEvent is broadcast when a run's cost reaches a budget threshold (e.g. 80%, 90%).
@@ -188,6 +193,36 @@ type ArtifactValidationEvent struct {
 	ArtifactType string   `json:"artifact_type"`
 	Valid        bool     `json:"valid"`
 	Errors       []string `json:"errors,omitempty"`
+}
+
+// ReviewImpactEvent is broadcast when the refactoring step of a review
+// pipeline has been scored (Phase 31 threshold HITL):
+// EventReviewApprovalRequired for a high impact - the step waits until
+// POST /runs/{run_id}/approve or /reject with plan_id and step_id - and
+// EventReviewRefactorApplied for a medium impact (applied, notification).
+// Reason says why approval is needed when the change could not be measured.
+type ReviewImpactEvent struct {
+	RunID        string `json:"run_id"`
+	PlanID       string `json:"plan_id"`
+	StepID       string `json:"step_id"`
+	ProjectID    string `json:"project_id"`
+	ImpactLevel  string `json:"impact_level"`
+	FilesChanged int    `json:"files_changed"`
+	LinesAdded   int    `json:"lines_added"`
+	LinesRemoved int    `json:"lines_removed"`
+	CrossLayer   bool   `json:"cross_layer"`
+	Structural   bool   `json:"structural"`
+	Reason       string `json:"reason,omitempty"`
+	// UserEdits are the paths users changed through the editor or the file
+	// API while the refactoring ran (KI-94): they count as its change, and an
+	// undo sets them back too. Set on approval requests; the list is capped
+	// and UserEditsTotal counts them all.
+	UserEdits      []review.UserEdit `json:"user_edits,omitempty"`
+	UserEditsTotal int               `json:"user_edits_total,omitempty"`
+	// UserEditsUnavailable: the user edits could not be read when the
+	// request was announced; the dialog loads them with the pending
+	// decisions (GET /projects/{id}/review/pending).
+	UserEditsUnavailable bool `json:"user_edits_unavailable,omitempty"`
 }
 
 // ReviewStatusEvent is broadcast when a review's status changes.
@@ -276,7 +311,8 @@ type HandoffStatusEvent struct {
 	TargetAgentID string `json:"target_agent_id"`
 	PlanID        string `json:"plan_id,omitempty"`
 	StepID        string `json:"step_id,omitempty"`
-	Status        string `json:"status"`
+	RunID         string `json:"run_id,omitempty"` // the target agent's run (status initiated)
+	Status        string `json:"status"`           // initiated, quarantined, rejected, failed, a2a_delegated
 	Context       string `json:"context,omitempty"`
 }
 
@@ -359,7 +395,7 @@ type QuarantineAlertEvent struct {
 type QuarantineResolvedEvent struct {
 	ID         string `json:"id"`
 	ProjectID  string `json:"project_id"`
-	Action     string `json:"action"` // "approved" or "rejected"
+	Action     string `json:"action"` // "approved", "rejected", "withdrawn" or "expired" (KI-91)
 	ReviewedBy string `json:"reviewed_by"`
 }
 
@@ -367,8 +403,10 @@ type QuarantineResolvedEvent struct {
 type PMSyncEvent struct {
 	ProjectID string `json:"project_id"`
 	Provider  string `json:"provider"`
+	Status    string `json:"status"` // "completed" or "failed"
 	Created   int    `json:"created"`
 	Updated   int    `json:"updated"`
+	Error     string `json:"error,omitempty"`
 }
 
 // ChannelMessageEvent is broadcast when a new message is posted in a channel.
@@ -377,16 +415,12 @@ type ChannelMessageEvent struct {
 	Message   channel.Message `json:"message"`
 }
 
-// ChannelTypingEvent is broadcast when a user starts or stops typing in a channel.
-type ChannelTypingEvent struct {
-	ChannelID string `json:"channel_id"`
-	User      string `json:"user"`
-	Typing    bool   `json:"typing"`
-}
-
-// ChannelReadEvent is broadcast when a user marks messages as read in a channel.
+// ChannelReadEvent is broadcast when a user's read position in a channel
+// moves (the user's other sessions clear their unread marks, others see the
+// read receipt).
 type ChannelReadEvent struct {
-	ChannelID string `json:"channel_id"`
-	User      string `json:"user"`
-	LastRead  string `json:"last_read"`
+	ChannelID  string    `json:"channel_id"`
+	UserID     string    `json:"user_id"`
+	MessageID  string    `json:"message_id"`
+	LastReadAt time.Time `json:"last_read_at"`
 }

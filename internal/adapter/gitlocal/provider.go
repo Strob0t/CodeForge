@@ -2,14 +2,14 @@
 package gitlocal
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
@@ -78,51 +78,29 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 
 // reclone handles re-cloning when the destination directory already exists.
 // If it contains a git repo with a matching remote, it fetches + resets.
-// Otherwise it removes the directory and does a fresh clone.
+// If it is no repository or a clone of another URL, it removes the directory
+// (o.RemoveDestination) and does a fresh clone; any other error is returned.
 func (p *Provider) reclone(ctx context.Context, url, absPath string, o gitprovider.CloneOptions) error {
-	// Check if it's a git repo by running git rev-parse.
-	if _, err := runGit(ctx, absPath, "rev-parse", "--git-dir"); err == nil {
-		// It's a git repo — check if the remote matches.
-		remote, _ := runGit(ctx, absPath, "remote", "get-url", "origin")
-		if strings.TrimSpace(remote) == url {
-			// Same remote: fetch + reset to latest.
-			if _, err := runGit(ctx, absPath, "fetch", "origin"); err != nil {
-				return fmt.Errorf("gitlocal: fetch: %w", err)
-			}
-
-			branch := o.Branch
-			if branch == "" {
-				// Determine the branch to reset to:
-				// 1. Try symbolic-ref for remote HEAD
-				// 2. Fall back to current local branch
-				ref, refErr := runGit(ctx, absPath, "symbolic-ref", "refs/remotes/origin/HEAD")
-				if refErr == nil {
-					branch = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ref), "refs/remotes/origin/"))
-				}
-				if branch == "" {
-					// Use the current checked-out branch.
-					cur, curErr := runGit(ctx, absPath, "rev-parse", "--abbrev-ref", "HEAD")
-					if curErr == nil && strings.TrimSpace(cur) != "" {
-						branch = strings.TrimSpace(cur)
-					}
-				}
-				if branch == "" {
-					branch = "main"
-				}
-			}
-
-			if _, err := runGit(ctx, absPath, "checkout", branch); err != nil {
-				return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
-			}
-			if _, err := runGit(ctx, absPath, "reset", "--hard", "origin/"+branch); err != nil {
-				return fmt.Errorf("gitlocal: reset: %w", err)
-			}
-			return nil
+	// Only a directory that is no repository, or a clone of another URL, is
+	// discarded: a repository git must not run in, or one that could not be
+	// checked (a git deadline, an unreadable .git), is reported and kept
+	// with its uncommitted work.
+	repo, err := git.OpenRepo(ctx, absPath)
+	switch {
+	case errors.Is(err, git.ErrNotRepository):
+		// No repository: discarded below.
+	case err != nil:
+		return fmt.Errorf("gitlocal: %w", err)
+	default:
+		// The origin as the config names it (no git process, no URL
+		// rewrite): the same remote is fetched and reset in place.
+		if remote, _ := repo.Config("remote.origin.url"); remote == url {
+			return p.update(ctx, repo, url, absPath, o)
 		}
 	}
 
 	// Not a git repo or different remote — remove and re-clone.
-	if err := os.RemoveAll(absPath); err != nil {
+	if err := o.RemoveDestination(ctx, absPath); err != nil {
 		return fmt.Errorf("gitlocal: remove existing directory: %w", err)
 	}
 
@@ -133,6 +111,45 @@ func (p *Provider) reclone(ctx context.Context, url, absPath string, o gitprovid
 	args = append(args, url, absPath)
 	if _, err := runGit(ctx, "", args...); err != nil {
 		return fmt.Errorf("gitlocal: clone: %w", err)
+	}
+	return nil
+}
+
+// update fetches url into the clone at absPath and resets it to the branch.
+func (p *Provider) update(ctx context.Context, repo *git.Repo, url, absPath string, o gitprovider.CloneOptions) error {
+	// Same remote: fetch + reset to latest, from the clone URL (which
+	// may be a local path) rather than the agent-writable remote.
+	if err := repo.FetchFrom(ctx, url); err != nil {
+		return fmt.Errorf("gitlocal: fetch: %w", err)
+	}
+
+	branch := o.Branch
+	if branch == "" {
+		// Determine the branch to reset to:
+		// 1. Try symbolic-ref for remote HEAD
+		// 2. Fall back to current local branch
+		ref, refErr := runGit(ctx, absPath, "symbolic-ref", "refs/remotes/origin/HEAD")
+		if refErr == nil {
+			branch = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ref), "refs/remotes/origin/"))
+		}
+		if branch == "" {
+			// Use the current checked-out branch.
+			cur, curErr := runGit(ctx, absPath, "rev-parse", "--abbrev-ref", "HEAD")
+			if curErr == nil && strings.TrimSpace(cur) != "" {
+				branch = strings.TrimSpace(cur)
+			}
+		}
+		if branch == "" {
+			branch = "main"
+		}
+	}
+
+	// The branch may come from the agent-writable origin HEAD.
+	if err := checkout(ctx, absPath, branch); err != nil {
+		return err
+	}
+	if _, err := runGit(ctx, absPath, "reset", "--hard", "origin/"+branch, "--"); err != nil {
+		return fmt.Errorf("gitlocal: reset: %w", err)
 	}
 	return nil
 }
@@ -174,7 +191,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 		}
 
 		// Porcelain status for modified/untracked
-		porcelain, err := runGit(ctx, repoPath, "status", "--porcelain")
+		porcelain, err := runGit(ctx, repoPath, "status", "--porcelain", "--ignore-submodules=all")
 		if err != nil {
 			return fmt.Errorf("gitlocal: porcelain status: %w", err)
 		}
@@ -211,7 +228,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 // Pull fetches and merges updates for the given repository.
 func (p *Provider) Pull(ctx context.Context, repoPath string) error {
 	return p.pool.Run(ctx, func() error {
-		if _, err := runGit(ctx, repoPath, "pull"); err != nil {
+		if _, err := runGit(ctx, repoPath, "pull", "--no-recurse-submodules"); err != nil {
 			return fmt.Errorf("gitlocal: pull: %w", err)
 		}
 		return nil
@@ -250,26 +267,27 @@ func (p *Provider) ListBranches(ctx context.Context, repoPath string) ([]project
 // Checkout switches to the specified branch.
 func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error {
 	return p.pool.Run(ctx, func() error {
-		if _, err := runGit(ctx, repoPath, "checkout", branch); err != nil {
-			return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
-		}
-		return nil
+		return checkout(ctx, repoPath, branch)
 	})
 }
 
-// runGit executes a git command and returns its combined stdout.
+// checkout switches the workspace at dir to branch. Only a valid branch name
+// reaches git, and `git switch --end-of-options` reads it as nothing but a
+// branch: with `git checkout`, "-f", "." or a file name would discard
+// uncommitted changes (KI-189).
+func checkout(ctx context.Context, dir, branch string) error {
+	if err := git.CheckBranchName(ctx, branch); err != nil {
+		return fmt.Errorf("gitlocal: checkout: %w: %w", domain.ErrValidation, err)
+	}
+	if _, err := runGit(ctx, dir, "switch", "--end-of-options", branch); err != nil {
+		return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
+	}
+	return nil
+}
+
+// runGit runs git hardened in the workspace repository at dir, or outside any
+// repository when dir is "" (clone): workspaces are agent-writable, their
+// hooks, filters and drivers must not run in the Go Core (KI-77).
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
-	}
-	return stdout.String(), nil
+	return git.RunIn(ctx, dir, args...)
 }

@@ -3,6 +3,8 @@ package http
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -10,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/llm"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
@@ -19,7 +22,50 @@ func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "LLM service unavailable")
 		return
 	}
+	// Every user may list the models: their credentials stay on the server.
+	for i := range models {
+		models[i].Params = redactCredentials(models[i].Params)
+	}
 	writeJSONList(w, http.StatusOK, models)
+}
+
+// redactCredentials returns the LiteLLM parameters without credentials: a
+// parameter whose name holds one (secrets.IsCredentialName: api_key,
+// aws_secret_access_key, vertex_credentials, an Authorization header, ...) is
+// dropped, and the values are walked (redactParamValue). The parameters are
+// the proxy's free-form model config, hence the map of JSON values.
+func redactCredentials(params map[string]any) map[string]any {
+	if params == nil {
+		return nil
+	}
+	out := make(map[string]any, len(params))
+	for name, value := range params {
+		if secrets.IsCredentialName(name) {
+			continue
+		}
+		out[name] = redactParamValue(value)
+	}
+	return out
+}
+
+// redactParamValue redacts a JSON parameter value by shape: URL userinfo and
+// credential query parameters in strings, credential keys in objects, and the
+// elements of arrays. Numbers, booleans and null are kept.
+func redactParamValue(value any) any {
+	switch v := value.(type) {
+	case string:
+		return secrets.RedactURL(v)
+	case map[string]any:
+		return redactCredentials(v)
+	case []any:
+		out := make([]any, len(v))
+		for i := range v {
+			out[i] = redactParamValue(v[i])
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // AddLLMModel handles POST /api/v1/llm/models
@@ -41,25 +87,31 @@ func (h *Handlers) AddLLMModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "ok", "model": req.ModelName})
 }
 
-// DeleteLLMModel handles POST /api/v1/llm/models/delete
+// DeleteLLMModel handles DELETE /api/v1/llm/models/{id}
 func (h *Handlers) DeleteLLMModel(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[struct {
-		ID string `json:"id"`
-	}](w, r, h.Limits.MaxRequestBodySize)
-	if !ok {
-		return
-	}
-	if req.ID == "" {
-		writeError(w, http.StatusBadRequest, "id is required")
+	id, err := decodedURLParam(r, "id")
+	if err != nil || strings.TrimSpace(id) == "" {
+		writeError(w, http.StatusBadRequest, "a valid model id is required")
 		return
 	}
 
-	if err := h.LLM.DeleteModel(r.Context(), req.ID); err != nil {
+	if err := h.LLM.DeleteModel(r.Context(), id); err != nil {
 		slog.Error("litellm request failed", "error", err)
 		writeError(w, http.StatusBadGateway, "LLM service error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// decodedURLParam returns a path parameter with percent-escapes decoded. chi
+// matches routes on the escaped path only when the URL contains escapes that
+// normalize differently (such as %2F); only then is the parameter still escaped.
+func decodedURLParam(r *http.Request, name string) (string, error) {
+	param := chi.URLParam(r, name)
+	if r.URL.RawPath == "" {
+		return param, nil
+	}
+	return url.PathUnescape(param)
 }
 
 // LLMHealth handles GET /api/v1/llm/health
@@ -145,19 +197,24 @@ func (h *Handlers) RefreshLLMModels(w http.ResponseWriter, r *http.Request) {
 
 // --- Copilot Token Exchange Handler (Phase 22A) ---
 
-// HandleCopilotExchange handles POST /api/v1/copilot/exchange.
+// HandleCopilotExchange handles POST /api/v1/copilot/exchange (platform
+// admins only): it checks that the platform's GitHub Copilot credential can
+// be exchanged. The bearer token is the platform's credential and never
+// leaves the server (KI-80); the response carries only the status and the
+// expiry.
 func (h *Handlers) HandleCopilotExchange(w http.ResponseWriter, r *http.Request) {
 	if h.TokenExchanger == nil {
 		writeError(w, http.StatusNotFound, "copilot integration not enabled")
 		return
 	}
-	token, expiry, err := h.TokenExchanger.ExchangeToken(r.Context())
+	_, expiry, err := h.TokenExchanger.ExchangeToken(r.Context())
 	if err != nil {
+		slog.Warn("copilot token exchange failed", "error", err)
 		writeError(w, http.StatusBadGateway, "copilot token exchange failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"token":      token,
+		"status":     "ok",
 		"expires_at": expiry.Format(time.RFC3339),
 	})
 }

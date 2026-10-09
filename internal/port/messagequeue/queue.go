@@ -1,11 +1,35 @@
 // Package messagequeue defines the message queue port (interface).
 package messagequeue
 
-import "context"
+import (
+	"context"
+	"time"
+)
+
+// StreamMaxAge is how long the queue keeps a message (the JetStream stream's
+// MaxAge): no message is delivered, or redelivered, later than this after it
+// was published. Bookkeeping that makes deliveries idempotent may be removed
+// once it is older (retention.handoff_claims, KI-90).
+const StreamMaxAge = 30 * 24 * time.Hour
 
 // Handler processes a message received from the queue.
 // The context carries request-scoped values such as the request ID.
 type Handler func(ctx context.Context, subject string, data []byte) error
+
+// RetryAfterError is a handler error that asks for the message's redelivery
+// after After instead of the queue's default retry delay. The redelivery
+// counts as a delivery: the last one is dead-lettered as usual.
+type RetryAfterError struct {
+	Err   error
+	After time.Duration
+}
+
+func (e *RetryAfterError) Error() string { return e.Err.Error() }
+func (e *RetryAfterError) Unwrap() error { return e.Err }
+
+// RetryAfter returns err as a handler error whose message is redelivered
+// after d.
+func RetryAfter(err error, d time.Duration) error { return &RetryAfterError{Err: err, After: d} }
 
 // Queue is the port interface for publishing and subscribing to messages.
 type Queue interface {
@@ -34,11 +58,12 @@ type Queue interface {
 
 // Subject constants for NATS subjects used by CodeForge.
 const (
-	SubjectTaskAgent   = "tasks.agent"   // tasks.agent.{backend} — dispatched to specific backend
-	SubjectTaskResult  = "tasks.result"  // results from workers
-	SubjectTaskOutput  = "tasks.output"  // streaming output lines from workers
-	SubjectTaskCancel  = "tasks.cancel"  // cancel a running task
-	SubjectAgentOutput = "agents.output" // Python → Go: per-line backend output
+	SubjectTaskAgent     = "tasks.agent"     // tasks.agent.{backend} — dispatched to specific backend
+	SubjectTaskResult    = "tasks.result"    // results from workers
+	SubjectTaskOutput    = "tasks.output"    // streaming output lines from workers
+	SubjectTaskCancel    = "tasks.cancel"    // cancel a running task
+	SubjectTaskHeartbeat = "tasks.heartbeat" // Python → Go: every 30 s while a worker executes a task
+	SubjectAgentOutput   = "agents.output"   // Python → Go: per-line backend output
 
 	// Run protocol subjects (Phase 4B step-by-step execution)
 	SubjectRunStart            = "runs.start"             // Go → Python: start a new run
@@ -89,6 +114,13 @@ const (
 	SubjectConversationRunCancel       = "conversation.run.cancel"       // Go → Python: cancel a conversation run
 	SubjectConversationCompactRequest  = "conversation.compact.request"  // Go → Python: compact conversation history
 	SubjectConversationCompactComplete = "conversation.compact.complete" // Python → Go: compact finished (publish-only from Python)
+	SubjectConversationTestRequest     = "conversation.test.request"     // Go → Python: run a workspace test file (auto-agent, KI-81)
+	SubjectConversationTestResult      = "conversation.test.result"      // Python → Go: workspace test outcome
+
+	// Workspace deletion (KI-96 D11): the worker removes a deleted project's
+	// workspace as the tenant's tool UID.
+	SubjectWorkspaceDeleteRequest = "workspace.delete.request" // Go → Python: remove a project workspace
+	SubjectWorkspaceDeleteResult  = "workspace.delete.result"  // Python → Go: removal outcome
 
 	// Evaluation subjects (Phase 20G — GEMMAS)
 	SubjectEvalGemmasRequest = "evaluation.gemmas.request" // Go → Python: compute GEMMAS metrics
@@ -111,7 +143,8 @@ const (
 	SubjectMemoryRecallResult = "memory.recall.result" // Python → Go: recall results
 
 	// Handoff subjects (Phase 23B)
-	SubjectHandoffRequest = "handoff.request" // Go → Python: agent-to-agent handoff
+	SubjectHandoffRequest  = "handoff.request"  // Python → Go: a worker's handoff_to call (KI-15)
+	SubjectHandoffApproved = "handoff.approved" // Go → Go: a handoff an admin released from the quarantine
 
 	// Trajectory subjects (Phase 6.1)
 	SubjectTrajectoryEvent = "runs.trajectory.event" // Python → Go: granular trajectory events
@@ -119,11 +152,6 @@ const (
 	// Backend health subjects (Phase 5.4)
 	SubjectBackendHealthRequest = "backends.health.request" // Go → Python: check backend availability
 	SubjectBackendHealthResult  = "backends.health.result"  // Python → Go: health check results
-
-	// Review/Refactor subjects (Phase 31)
-	SubjectReviewTriggerRequest   = "review.trigger.request"   // Go → Python: trigger a review run
-	SubjectReviewTriggerComplete  = "review.trigger.complete"  // Python → Go: review run finished
-	SubjectReviewApprovalRequired = "review.approval.required" // Python → Go: human approval needed
 
 	// Prompt evolution subjects (Phase 33)
 	SubjectPromptEvolutionReflect         = "prompt.evolution.reflect"          // Go → Python: request failure reflection

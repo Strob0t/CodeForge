@@ -1,32 +1,46 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 
+import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
+
 import { api } from "../../api/client";
 
-interface PermissionRequestCardProps {
+export interface PermissionRequestCardProps {
   projectId: string;
   runId: string;
   callId: string;
   tool: string;
   command?: string;
   path?: string;
+  profile?: string;
+  /** Truncated JSON of the tool arguments (display only). */
+  argumentsPreview?: string;
   timeoutSeconds?: number;
+  /** Seconds left of a card restored after a reload, counted by the Core (KI-148). */
+  remainingSeconds?: number;
   onResolved?: (decision: "allow" | "deny") => void;
 }
 
 export default function PermissionRequestCard(props: PermissionRequestCardProps) {
+  const { t } = useI18n();
+  const { show: toast } = useToast();
   const timeout = () => props.timeoutSeconds ?? 60;
-  const [remaining, setRemaining] = createSignal(timeout());
+  // The countdown is display only: the Core denies the call when its
+  // timeout passes, on its own clock. It runs from the seconds the Core
+  // reported (a restored card) or the timeout, measured from when the card
+  // appeared; the browser's clock is never compared with the Core's.
+  // eslint-disable-next-line solid/reactivity -- the starting value, read once
+  const startSeconds = props.remainingSeconds ?? timeout();
+  const shownAt = performance.now(); // monotonic: clock changes do not count
+  const [remaining, setRemaining] = createSignal(startSeconds);
   const [resolved, setResolved] = createSignal<"allow" | "deny" | null>(null);
   const [loading, setLoading] = createSignal(false);
 
   const timer = setInterval(() => {
-    setRemaining((r) => {
-      if (r <= 1) {
-        handleDecision("deny");
-        return 0;
-      }
-      return r - 1;
-    });
+    const left = Math.max(0, startSeconds - Math.floor((performance.now() - shownAt) / 1000));
+    setRemaining(left);
+    if (left === 0) clearInterval(timer);
   }, 1000);
 
   onCleanup(() => clearInterval(timer));
@@ -49,9 +63,10 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
   async function handleAllowAlways() {
     await handleDecision("allow");
     try {
-      await api.policies.allowAlways(props.projectId, props.tool, props.command);
-    } catch {
-      // Best-effort: current call already approved, persistence failure is non-blocking
+      await api.policies.allowAlways(props.projectId, props.tool, props.command, props.profile);
+    } catch (err) {
+      // The current call is approved; tell the user the rule was not saved.
+      toast("error", t("policy.allowAlwaysFailed", { error: extractErrorMessage(err) }));
     }
   }
 
@@ -112,6 +127,14 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
           <div class="flex gap-2">
             <span class="text-cf-text-muted w-20">Path:</span>
             <span class="font-mono text-cf-text-primary break-all">{props.path}</span>
+          </div>
+        </Show>
+        <Show when={props.argumentsPreview}>
+          <div class="flex gap-2">
+            <span class="text-cf-text-muted w-20 shrink-0">Arguments:</span>
+            <pre class="font-mono text-xs text-cf-text-primary whitespace-pre-wrap break-all max-h-40 overflow-y-auto min-w-0">
+              {props.argumentsPreview}
+            </pre>
           </div>
         </Show>
       </div>

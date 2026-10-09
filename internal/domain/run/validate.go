@@ -26,6 +26,11 @@ var validDeliverModes = map[DeliverMode]bool{
 	DeliverModePR:          true,
 }
 
+// IsValid reports whether m is a delivery mode a run accepts ("" = none).
+func (m DeliverMode) IsValid() bool {
+	return validDeliverModes[m]
+}
+
 // validExecModes enumerates all valid execution modes.
 var validExecModes = map[ExecMode]bool{
 	ExecModeMount:   true,

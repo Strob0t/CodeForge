@@ -1,15 +1,18 @@
+import { useSearchParams } from "@solidjs/router";
 import { createSignal, For, onCleanup, onMount } from "solid-js";
 
 import { useI18n } from "~/i18n";
+import { firstParam } from "~/lib/searchParams";
 import { PageLayout, Section } from "~/ui";
 import { cx } from "~/utils/cx";
 
 import APIKeysSection from "./APIKeysSection";
 import DevToolsSection from "./DevToolsSection";
 import GeneralSection from "./GeneralSection";
+import PrivacySection from "./PrivacySection";
 import ProvidersSection from "./ProvidersSection";
 import ProxySection from "./ProxySection";
-import { SETTINGS_SECTIONS } from "./settingsTypes";
+import { sectionIdFromQuery, SETTINGS_SECTIONS } from "./settingsTypes";
 import { ShortcutsSection } from "./ShortcutsSection";
 import SubscriptionsSection from "./SubscriptionsSection";
 import UsersSection from "./UsersSection";
@@ -25,6 +28,15 @@ export default function SettingsPage() {
   const sections = SETTINGS_SECTIONS;
 
   const [activeSection, setActiveSection] = createSignal("settings-general");
+
+  // A link can open a section: /settings?section=privacy (the privacy policy's links).
+  const [searchParams] = useSearchParams();
+  onMount(() => {
+    const id = sectionIdFromQuery(firstParam(searchParams.section));
+    if (!id) return;
+    setActiveSection(id);
+    document.getElementById(id)?.scrollIntoView();
+  });
 
   onMount(() => {
     const observer = new IntersectionObserver(
@@ -56,7 +68,7 @@ export default function SettingsPage() {
               )}
               onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: "smooth" })}
             >
-              {s.label}
+              {t(s.labelKey)}
             </button>
           )}
         </For>
@@ -73,6 +85,7 @@ export default function SettingsPage() {
       <ProxySection />
       <SubscriptionsSection />
       <APIKeysSection />
+      <PrivacySection />
       <UsersSection />
       <DevToolsSection />
     </PageLayout>
