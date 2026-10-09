@@ -1330,6 +1330,10 @@ generates its own secret: create the webhook in Plane first, then register it wi
 sets or removes (`""`) the PM token, `DELETE` removes the webhook. An event is acted on only when it names the project's repository exactly
 (host and owner/name of `repo_url`, case-insensitive; Plane: `plane_project_id`); a PM webhook syncs with its own `api_token`.
 
+#### Process metrics and file sizes
+
+`scripts/repo-metrics.sh [base-ref]` prints the commit-size, fix-with-test, feat-with-docs, file-size and lint-warning figures of the branch ([repo-metrics.md](testing/repo-metrics.md) keeps the history). `scripts/check-file-sizes.sh [files]` lists product files over 700 lines (i18n catalogs and `frontend/src/api/types.ts` exempt); it joins pre-commit once the current stock is split. `scripts/check-agents-words.sh` keeps `AGENTS.md` under 3,000 words (pre-commit).
+
 #### Branch protection for `staging` and `main` (owner sets it)
 
 CI alone does not stop a red or force-pushed commit from reaching `staging` or `main`; a repository ruleset does. The session cannot create it (the GitHub proxy refuses write access to the rulesets API), so the owner imports [`docs/ci/ruleset-staging-main.json`](ci/ruleset-staging-main.json) once: *Settings -> Rules -> Rulesets -> New ruleset -> Import a ruleset*. It requires a pull request (no approvals, the repository has one maintainer), the status checks `Go`, `Python`, `Frontend`, `Contract Tests`, `Smoke Tests`, `Security Scanning`, `Feature Verification` and `Tenant isolation (Docker, KI-96)` (the job names in `.github/workflows/ci.yml`; `strict` means the branch must be up to date with its base), and forbids deletion and force-pushes. Renaming a CI job means updating the ruleset.
