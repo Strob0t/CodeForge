@@ -31,6 +31,20 @@ type DiffImpactConfig struct {
 	AlwaysApproveStructural bool `json:"always_approve_structural" yaml:"always_approve_structural"`
 }
 
+// DefaultDiffImpactConfig is the threshold HITL of the contract-first review
+// design (docs/specs/2026-03-15-contract-first-review-refactor-design.md):
+// below 50 changed lines a refactoring is applied, below 200 applied with a
+// notification, from 200 lines - or when it touches a boundary file or adds,
+// deletes or renames a file - it waits for approval.
+func DefaultDiffImpactConfig() DiffImpactConfig {
+	return DiffImpactConfig{
+		AutoApplyThreshold:      50,
+		ApprovalThreshold:       200,
+		AlwaysApproveBoundary:   true,
+		AlwaysApproveStructural: true,
+	}
+}
+
 // DiffImpactScorer scores a DiffStats value as low, medium, or high impact.
 // Cross-layer and structural changes are unconditionally high when the
 // corresponding flag is enabled in the config.

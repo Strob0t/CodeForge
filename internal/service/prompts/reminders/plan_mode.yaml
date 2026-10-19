@@ -3,5 +3,9 @@ category: reminder
 name: Plan Mode Reminder
 priority: 40
 sort_order: 0
+# The planning mode: read-only, produces PLAN.md.
+conditions:
+  modes:
+    - architect
 content: |
   You are in PLAN mode. Analyze the request and produce a detailed implementation plan. Do not execute changes -- only describe what should be done, which files to modify, and the approach. Output a structured plan with numbered steps.

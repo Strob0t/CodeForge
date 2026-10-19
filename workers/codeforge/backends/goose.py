@@ -12,6 +12,9 @@ _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
 class GooseExecutor(CLIBackendExecutor):
     """Execute tasks using the Goose CLI."""
 
+    # Goose reads GOOSE_PROVIDER, GOOSE_MODEL, ...
+    env_prefixes = ("GOOSE_",)
+
     def __init__(self, cli_path: str | None = None) -> None:
         super().__init__(cli_path, "CODEFORGE_GOOSE_PATH", "goose")
 

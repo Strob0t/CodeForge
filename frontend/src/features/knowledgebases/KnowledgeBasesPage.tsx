@@ -2,6 +2,7 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateKnowledgeBaseRequest, KnowledgeBase } from "~/api/types";
+import { useAuth } from "~/components/AuthProvider";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { KB_CATEGORIES } from "~/config/domain-constants";
@@ -9,6 +10,7 @@ import { kbCategoryVariant, kbStatusVariant } from "~/config/statusVariants";
 import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -35,6 +37,10 @@ export function KnowledgeBasesContent() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
+  const { hasRole } = useAuth();
+  // The tenant's admins manage knowledge bases; the Go Core refuses everyone
+  // else (403, KI-105), so the UI offers them no action (KI-146).
+  const isAdmin = (): boolean => hasRole("admin");
   const [kbs, { refetch }] = createResource(() => api.knowledgeBases.list());
   const [showForm, setShowForm] = createSignal(false);
   const [indexingId, setIndexingId] = createSignal<string | null>(null);
@@ -113,13 +119,22 @@ export function KnowledgeBasesContent() {
 
   return (
     <>
-      <div class="mb-4 flex justify-end">
-        <Button onClick={() => setShowForm((v) => !v)}>
-          {showForm() ? t("common.cancel") : t("kb.form.create")}
-        </Button>
-      </div>
+      <Show
+        when={isAdmin()}
+        fallback={
+          <Alert variant="info" class="mb-4">
+            {t("kb.adminOnly")}
+          </Alert>
+        }
+      >
+        <div class="mb-4 flex justify-end">
+          <Button onClick={() => setShowForm((v) => !v)}>
+            {showForm() ? t("common.cancel") : t("kb.form.create")}
+          </Button>
+        </div>
+      </Show>
 
-      <Show when={showForm()}>
+      <Show when={isAdmin() && showForm()}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -211,8 +226,8 @@ export function KnowledgeBasesContent() {
               {(kb) => (
                 <KBCard
                   kb={kb}
-                  onDelete={handleDelete}
-                  onIndex={handleIndex}
+                  onDelete={isAdmin() ? handleDelete : undefined}
+                  onIndex={isAdmin() ? handleIndex : undefined}
                   indexing={indexingId() === kb.id}
                 />
               )}
@@ -235,8 +250,10 @@ export default function KnowledgeBasesPage() {
 
 function KBCard(props: {
   kb: KnowledgeBase;
-  onDelete: (id: string) => Promise<void>;
-  onIndex: (id: string) => Promise<void>;
+  /** Deletes the knowledge base; absent when the user may not. */
+  onDelete?: (id: string) => Promise<void>;
+  /** Indexes the knowledge base; absent when the user may not. */
+  onIndex?: (id: string) => Promise<void>;
   indexing: boolean;
 }) {
   const { t } = useI18n();
@@ -283,21 +300,29 @@ function KBCard(props: {
         </Show>
 
         <div class="mt-4 flex gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void props.onIndex(props.kb.id)}
-            disabled={props.indexing}
-          >
-            {props.indexing
-              ? "Indexing..."
-              : props.kb.status === "indexed"
-                ? t("kb.index.reindex")
-                : t("kb.index.button")}
-          </Button>
-          <Button variant="danger" size="sm" onClick={() => void props.onDelete(props.kb.id)}>
-            Delete
-          </Button>
+          <Show when={props.onIndex}>
+            {(onIndex) => (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void onIndex()(props.kb.id)}
+                disabled={props.indexing}
+              >
+                {props.indexing
+                  ? t("kb.index.indexing")
+                  : props.kb.status === "indexed"
+                    ? t("kb.index.reindex")
+                    : t("kb.index.button")}
+              </Button>
+            )}
+          </Show>
+          <Show when={props.onDelete}>
+            {(onDelete) => (
+              <Button variant="danger" size="sm" onClick={() => void onDelete()(props.kb.id)}>
+                {t("common.delete")}
+              </Button>
+            )}
+          </Show>
         </div>
       </Card.Body>
     </Card>

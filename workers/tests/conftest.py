@@ -19,12 +19,73 @@ TODO (FIX-066 to FIX-070): Missing test coverage for the following modules:
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import pytest
+
+from codeforge import tool_process
+from codeforge.config import get_settings
+from codeforge.consumer._base import ConsumerBaseMixin
 from tests.fake_llm import FakeLLM
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_worker_settings() -> Iterator[None]:
+    """Rebuild WorkerSettings for every test.
+
+    get_settings() is a process-wide lru_cache singleton, and modules such as
+    codeforge.llm call it at import time. Without a reset, env overrides set by
+    a test (monkeypatch.setenv / patch.dict) are never seen, and one test's
+    overrides would leak into every later test.
+    """
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def datasets_in_tmp(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Point the benchmark datasets directory at the temp directory.
+
+    Datasets are read below that directory only (KI-107); tests that write
+    datasets to temporary files use this.
+    """
+    import tempfile
+
+    from codeforge.evaluation import datasets
+
+    directory = tempfile.gettempdir()
+    monkeypatch.setattr(datasets, "datasets_dir", lambda: directory)
+    return directory
+
+
+@pytest.fixture(autouse=True)
+def _fresh_tool_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Check tool isolation (KI-71) again from each test's settings.
+
+    The isolation status is cached for the worker's lifetime; a test that
+    installs one must not leak it into the next.
+    """
+    monkeypatch.setattr(tool_process, "_status", None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_consumer_dedup_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give every test an empty consumer dedup cache.
+
+    ``ConsumerBaseMixin._processed_ids`` is class-level state shared by every
+    TaskConsumer, so IDs seen in one test would be skipped as duplicates in the
+    next. monkeypatch restores the original after each test, even when a test
+    rebinds the attribute itself.
+    """
+    monkeypatch.setattr(ConsumerBaseMixin, "_processed_ids", OrderedDict())
 
 
 def load_scenario(role: str, scenario: str) -> tuple[dict[str, Any], dict[str, Any], FakeLLM]:

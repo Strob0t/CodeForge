@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 )
@@ -170,13 +170,16 @@ func rateLimitKey(r *http.Request) string {
 	return ip
 }
 
-// realIP extracts the client IP from RemoteAddr.
-// Proxy headers (X-Forwarded-For, X-Real-Ip) are NOT trusted because
-// they can be spoofed by attackers to bypass rate limiting.
+// realIP returns the rate limit identity of the client from RemoteAddr (set by
+// ClientIP from trusted proxies only). IPv6 clients are grouped by their /64,
+// since a single host usually controls a whole /64.
 func realIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
+	addr := parseHostAddr(r.RemoteAddr)
+	if !addr.IsValid() {
 		return r.RemoteAddr
 	}
-	return host
+	if addr.Is6() {
+		return netip.PrefixFrom(addr, 64).Masked().String()
+	}
+	return addr.String()
 }

@@ -67,6 +67,16 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                                 </span>
                               )}
                             </For>
+                            <For each={Object.entries(res.evaluation_errors ?? {})}>
+                              {([k, message]) => (
+                                <span
+                                  class="rounded bg-cf-danger-bg px-1.5 py-0.5 text-xs text-cf-danger-fg"
+                                  title={message}
+                                >
+                                  {k}: {t("benchmark.evaluationError")}
+                                </span>
+                              )}
+                            </For>
                           </div>
                         </td>
                         <td class="py-2 font-mono text-xs">

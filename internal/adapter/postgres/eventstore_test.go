@@ -26,7 +26,7 @@ func TestQueryBuilder_EmptyFilter(t *testing.T) {
 }
 
 func TestQueryBuilder_WithInitialColumn(t *testing.T) {
-	qb := newQueryBuilderWith("run_id", "run-abc", "tenant-1")
+	qb := newRunQueryBuilder("run-abc", "tenant-1")
 
 	want := "run_id = $1 AND tenant_id = $2"
 	if got := qb.where(); got != want {
@@ -47,7 +47,7 @@ func TestQueryBuilder_WithInitialColumn(t *testing.T) {
 }
 
 func TestQueryBuilder_AllFilters(t *testing.T) {
-	qb := newQueryBuilderWith("run_id", "run-abc", "tenant-1")
+	qb := newRunQueryBuilder("run-abc", "tenant-1")
 
 	qb.addCondition("agent_id = $%d", "agent-1")
 
@@ -103,7 +103,7 @@ func TestQueryBuilder_ArgIndexing(t *testing.T) {
 }
 
 func TestQueryBuilder_AddLimit(t *testing.T) {
-	qb := newQueryBuilderWith("run_id", "run-1", "tenant-1")
+	qb := newRunQueryBuilder("run-1", "tenant-1")
 	qb.addCondition("id > $%d", "cursor-abc")
 
 	limitIdx := qb.addLimit(51)

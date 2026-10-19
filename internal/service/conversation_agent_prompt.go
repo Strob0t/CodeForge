@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -62,48 +64,96 @@ func (s *ConversationService) buildConversationContextEntries(
 	return toContextEntryPayloads(entries)
 }
 
-// evaluateReminders checks runtime conditions and returns matching reminder texts.
+// evaluateReminders returns the reminders that fire for a dispatched turn.
 // Delegates to PromptAssemblyService when available.
 func (s *ConversationService) evaluateReminders(
 	ctx context.Context,
 	conversationID string,
+	mode *messagequeue.ModePayload,
+	autonomy int,
 	history []messagequeue.ConversationMessagePayload,
 ) []string {
 	if s.promptSvc != nil {
-		return s.promptSvc.EvaluateReminders(ctx, conversationID, history)
+		return s.promptSvc.EvaluateReminders(ctx, conversationID, mode, autonomy, history)
 	}
 	if s.promptAssembler == nil || s.promptAssembler.library == nil {
 		return nil
 	}
-
-	// Fetch all reminder entries from the library.
-	reminders := s.promptAssembler.library.GetByCategory(prompt.CategoryReminder)
-	if len(reminders) == 0 {
-		return nil
-	}
-
-	// Query accumulated cost for this conversation from trajectory events.
 	budgetPct, budgetUsed, budgetLimit := s.computeBudget(ctx, conversationID)
+	data := reminderData(mode, history, budgetPct, budgetUsed, budgetLimit)
+	return firingReminders(s.promptAssembler.library, reminderContext(mode, autonomy, s.appEnv), &data)
+}
 
-	// Build reminder template data from current state.
-	data := reminderTemplateData{
-		TurnCount:       len(history),
-		BudgetPercent:   budgetPct,
-		BudgetUsed:      budgetUsed,
-		BudgetLimit:     budgetLimit,
-		StallIterations: countStallIterations(history),
+// reminderContext is the assembly context of a dispatched conversation turn
+// in mode (nil without a mode service).
+func reminderContext(mode *messagequeue.ModePayload, autonomy int, env string) prompt.AssemblyContext {
+	ctx := prompt.AssemblyContext{Autonomy: autonomy, Env: env, Agentic: true}
+	if mode != nil {
+		ctx.ModeID = mode.ID
 	}
+	return ctx
+}
 
+// reminderData collects the runtime signals of a dispatched turn that
+// reminders fire on and render.
+func reminderData(
+	mode *messagequeue.ModePayload,
+	history []messagequeue.ConversationMessagePayload,
+	budgetPct float64, budgetUsed, budgetLimit string,
+) reminderTemplateData {
+	data := reminderTemplateData{
+		TurnCount:     len(history),
+		BudgetPercent: budgetPct,
+		BudgetUsed:    budgetUsed,
+		BudgetLimit:   budgetLimit,
+	}
+	if modeCanProgress(mode) {
+		data.StallIterations = countStallIterations(history)
+	}
+	return data
+}
+
+// firingReminders renders the reminders of lib that fire for the turn
+// (PromptEntry.ReminderFires, KI-190). A reminder without a condition is
+// skipped and logged: it would otherwise be sent on every turn.
+func firingReminders(lib *PromptLibraryService, turn prompt.AssemblyContext, data *reminderTemplateData) []string {
+	sig := prompt.ReminderSignals{StallIterations: data.StallIterations, BudgetPercent: data.BudgetPercent}
+	reminders := lib.GetByCategory(prompt.CategoryReminder)
 	var result []string
 	for i := range reminders {
-		text := renderEntry(&reminders[i], data)
-		text = strings.TrimSpace(text)
-		if text != "" {
+		if !reminders[i].HasReminderCondition() {
+			slog.Warn("prompt reminder has no condition, skipped", "id", reminders[i].ID)
+			continue
+		}
+		if !reminders[i].ReminderFires(turn, sig) {
+			continue
+		}
+		if text := renderedEntry(&reminders[i], data); text != "" {
 			result = append(result, text)
 		}
 	}
-
 	return result
+}
+
+// modeCanProgress reports whether a mode may use a progress tool (Edit,
+// Write, Bash). In a read-only mode every call is a read, which is no stall.
+// No mode (no mode service) means the default coder mode.
+func modeCanProgress(m *messagequeue.ModePayload) bool {
+	if m == nil {
+		return true
+	}
+	isTool := func(tool string) func(string) bool {
+		return func(name string) bool { return policy.CanonicalTool(name) == tool }
+	}
+	for tool := range run.ProgressTools {
+		if slices.ContainsFunc(m.DeniedTools, isTool(tool)) {
+			continue
+		}
+		if len(m.Tools) == 0 || slices.ContainsFunc(m.Tools, isTool(tool)) {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultBudgetLimit is the default cost budget (USD) when no explicit limit is configured.
@@ -138,7 +188,8 @@ func (s *ConversationService) computeBudget(ctx context.Context, conversationID 
 var progressToolsConv = run.ProgressTools
 
 // countStallIterations counts consecutive non-progress tool results at the tail
-// of the message history. A "progress" tool is Edit, Write, or Bash. Non-tool
+// of the message history. A "progress" tool is Edit, Write, or Bash, under its
+// canonical name (the worker stores edit_file, write_file, bash). Non-tool
 // messages (assistant, user) are skipped. The count resets on any progress tool.
 func countStallIterations(history []messagequeue.ConversationMessagePayload) int {
 	count := 0
@@ -146,7 +197,7 @@ func countStallIterations(history []messagequeue.ConversationMessagePayload) int
 		if history[i].Role != "tool" {
 			continue
 		}
-		if progressToolsConv[history[i].Name] {
+		if progressToolsConv[policy.CanonicalTool(history[i].Name)] {
 			count = 0
 		} else {
 			count++

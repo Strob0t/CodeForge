@@ -56,7 +56,7 @@ Every code change must update relevant documentation:
 - `docs/features/*.md` — for feature-specific changes
 - `docs/dev-setup.md` — for new directories, ports, tooling
 
-See [CLAUDE.md](CLAUDE.md) for the full documentation policy.
+See [AGENTS.md](AGENTS.md) (section "Workflow") for the full documentation policy.
 
 ## Testing
 

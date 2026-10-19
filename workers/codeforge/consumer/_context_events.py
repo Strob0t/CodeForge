@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING
 
 import structlog
@@ -23,15 +22,14 @@ class ContextEventsHandlerMixin:
         workers know that a team's shared context has changed. No further
         action is needed since the Python side does not cache shared context.
         """
-        try:
-            data = json.loads(msg.data)
-            logger.info(
-                "shared context updated",
-                team_id=data.get("team_id", ""),
-                key=data.get("key", ""),
-                author=data.get("author", ""),
-                version=data.get("version"),
-            )
-        except (json.JSONDecodeError, Exception) as exc:
-            logger.warning("failed to parse shared context update", error=str(exc))
+        data = await self._parse_json_object(msg)
+        if data is None:
+            return
+        logger.info(
+            "shared context updated",
+            team_id=data.get("team_id", ""),
+            key=data.get("key", ""),
+            author=data.get("author", ""),
+            version=data.get("version"),
+        )
         await msg.ack()

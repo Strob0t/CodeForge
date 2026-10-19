@@ -206,6 +206,13 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                   </div>
                 </Show>
 
+                {/* No usable embedding model: keyword ranking only (KI-138) */}
+                <Show when={status().bm25_only}>
+                  <div class="mb-3">
+                    <Alert variant="warning">{t("retrieval.bm25Only")}</Alert>
+                  </div>
+                </Show>
+
                 {/* Search */}
                 <form class="mb-3 flex gap-2" onSubmit={handleSearch}>
                   <Input

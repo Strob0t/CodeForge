@@ -1,14 +1,14 @@
+# Prometheus alert rules for a CodeForge host. CodeForge itself exports no
+# Prometheus metrics (and ships no Prometheus service): these rules need
+# cAdvisor (container_*), node_exporter (node_*) and blackbox_exporter
+# (probe_*, e.g. probing /health and the HTTPS endpoint). Rules on
+# application metrics nothing exported (http_requests_total,
+# http_request_duration_seconds, nats_consumer_pending, nats_stream_bytes)
+# were removed (KI-214). Disk alerts matter most for a self-hosted install:
+# PostgreSQL stops when its volume fills.
 groups:
   - name: codeforge
     rules:
-      - alert: NATSConsumerLag
-        expr: nats_consumer_pending > 1000
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "NATS consumer {{ $labels.consumer }} has high lag"
-
       - alert: HighMemoryUsage
         expr: container_memory_usage_bytes / container_spec_memory_limit_bytes > 0.9
         for: 2m
@@ -24,27 +24,6 @@ groups:
           severity: critical
         annotations:
           summary: "Health check failing for {{ $labels.instance }}"
-
-      - alert: HighHTTPErrorRate
-        expr: |
-          sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
-          / sum(rate(http_requests_total[5m])) by (service) > 0.05
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "HTTP 5xx error rate above 5% for {{ $labels.service }}"
-
-      - alert: HighLatencyP95
-        expr: |
-          histogram_quantile(0.95,
-            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
-          ) > 2
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "P95 latency above 2s for {{ $labels.service }}"
 
       - alert: DiskSpaceLow
         expr: |
@@ -77,11 +56,3 @@ groups:
           severity: warning
         annotations:
           summary: "SSL cert for {{ $labels.instance }} expires in {{ $value | humanize }} days"
-
-      - alert: NATSStreamStorageHigh
-        expr: nats_stream_bytes > 8589934592
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "NATS stream {{ $labels.stream }} storage above 8GB (80% of 10GB cap)"

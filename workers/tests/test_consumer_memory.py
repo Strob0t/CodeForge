@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._memory import MemoryHandlerMixin
 from codeforge.consumer._subjects import SUBJECT_MEMORY_RECALL_RESULT
@@ -20,15 +18,8 @@ from codeforge.memory.models import MemoryKind
 class _TestMixin(MemoryHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js: AsyncMock | None = AsyncMock()
-        self._processed_ids: set[str] = set()
-        self._processed_ids_max = 10_000
         self._llm = MagicMock()
         self._db_url = "postgresql://test:5432/test"
-
-
-@pytest.fixture(autouse=True)
-def _fresh_state() -> None:
-    ConsumerBaseMixin._processed_ids = set()
 
 
 def _make_msg(data: dict) -> MagicMock:

@@ -11,19 +11,21 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 )
 
 var (
-	ErrNameRequired      = errors.New("template name is required")
-	ErrIDRequired        = errors.New("template id is required")
-	ErrNoSteps           = errors.New("template must have at least one step")
-	ErrStepMissingName   = errors.New("step name is required")
-	ErrStepMissingMode   = errors.New("step mode_id is required")
-	ErrInvalidProtocol   = errors.New("invalid protocol")
-	ErrDAGCycle          = errors.New("step dependencies contain a cycle")
-	ErrDAGInvalidRef     = errors.New("step dependency references invalid index")
-	ErrBindingCount      = errors.New("binding count must match step count")
-	ErrBindingMissingIDs = errors.New("binding must have task_id and agent_id")
+	ErrNameRequired       = errors.New("template name is required")
+	ErrIDRequired         = errors.New("template id is required")
+	ErrNoSteps            = errors.New("template must have at least one step")
+	ErrStepMissingName    = errors.New("step name is required")
+	ErrStepMissingMode    = errors.New("step mode_id is required")
+	ErrInvalidDeliverMode = errors.New("step deliver_mode is not a run deliver mode")
+	ErrInvalidProtocol    = errors.New("invalid protocol")
+	ErrDAGCycle           = errors.New("step dependencies contain a cycle")
+	ErrDAGInvalidRef      = errors.New("step dependency references invalid index")
+	ErrBindingCount       = errors.New("binding count must match step count")
+	ErrBindingMissingIDs  = errors.New("binding must have task_id and agent_id")
 )
 
 // Template defines a reusable pipeline structure that can be instantiated
@@ -89,6 +91,9 @@ func (t *Template) Validate() error {
 		}
 		if s.ModeID == "" {
 			return fmt.Errorf("step %d: %w", i, ErrStepMissingMode)
+		}
+		if !run.DeliverMode(s.DeliverMode).IsValid() {
+			return fmt.Errorf("step %d: deliver_mode %q: %w", i, s.DeliverMode, ErrInvalidDeliverMode)
 		}
 	}
 

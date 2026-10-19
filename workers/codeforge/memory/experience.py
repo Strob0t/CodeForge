@@ -1,7 +1,9 @@
-"""Experience Pool: caching successful agent runs for similarity-based reuse.
+"""Experience Pool: caching successful answers for similarity-based reuse.
 
-The @exp_cache decorator wraps async functions to check for cached results
-before executing, storing new results on success.
+Entries belong to a tenant and a project; every lookup, store and
+invalidation names the tenant (there is no default tenant). The @exp_cache
+decorator wraps async functions to check for cached results before
+executing, storing new results on success.
 """
 
 from __future__ import annotations
@@ -26,8 +28,14 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
+def _require_tenant(tenant_id: str) -> None:
+    if not tenant_id:
+        msg = "experience pool: tenant_id is required"
+        raise ValueError(msg)
+
+
 class ExperiencePool:
-    """Caches successful agent runs for reuse via similarity-based matching."""
+    """Caches successful answers per tenant and project for reuse via similarity-based matching."""
 
     def __init__(
         self,
@@ -36,22 +44,29 @@ class ExperiencePool:
         scorer: CompositeScorer | None = None,
         confidence_threshold: float = 0.85,
         max_entries: int = 1000,
-        tenant_id: str = "00000000-0000-0000-0000-000000000000",
     ) -> None:
+        if not 0.0 < confidence_threshold <= 1.0:
+            msg = f"experience confidence_threshold must be in (0, 1], got {confidence_threshold}"
+            raise ValueError(msg)
+        if max_entries < 0:
+            msg = f"experience max_entries must be 0 (unlimited) or positive, got {max_entries}"
+            raise ValueError(msg)
         self._db_url = db_url
         self._llm = llm
         self._scorer = scorer or CompositeScorer()
         self._threshold = confidence_threshold
         self._max_entries = max_entries
-        self._tenant_id = tenant_id
 
     async def lookup(
         self,
         task_desc: str,
         project_id: str,
+        *,
+        tenant_id: str,
         threshold: float | None = None,
     ) -> dict[str, Any] | None:
-        """Look up a cached experience entry by task similarity."""
+        """Look up the tenant's cached entry of the project most similar to the task."""
+        _require_tenant(tenant_id)
         threshold = threshold or self._threshold
         query_emb = await compute_embedding(self._llm, task_desc)
         if query_emb is None:
@@ -67,7 +82,7 @@ class ExperiencePool:
                    WHERE project_id = %s AND tenant_id = %s
                    ORDER BY last_used_at DESC
                    LIMIT 200""",
-                (project_id, self._tenant_id),
+                (project_id, tenant_id),
             )
             rows = await cur.fetchall()
 
@@ -98,8 +113,9 @@ class ExperiencePool:
             # Increment hit count
             async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
                 await cur.execute(
-                    "UPDATE experience_entries SET hit_count = hit_count + 1, last_used_at = NOW() WHERE id = %s",
-                    (best_entry["id"],),
+                    "UPDATE experience_entries SET hit_count = hit_count + 1, last_used_at = NOW()"
+                    " WHERE id = %s AND tenant_id = %s",
+                    (best_entry["id"], tenant_id),
                 )
                 await conn.commit()
             logger.info(
@@ -115,12 +131,15 @@ class ExperiencePool:
         self,
         task_desc: str,
         project_id: str,
+        *,
+        tenant_id: str,
         result_output: str,
         result_cost: float,
         result_status: str,
         run_id: str,
     ) -> str:
-        """Store a new experience entry."""
+        """Store a new entry for the tenant and project, evicting its oldest beyond max_entries."""
+        _require_tenant(tenant_id)
         embedding = await compute_embedding(self._llm, task_desc)
         embedding_bytes = embedding.tobytes() if embedding is not None else None
 
@@ -134,7 +153,7 @@ class ExperiencePool:
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
-                    self._tenant_id,
+                    tenant_id,
                     project_id,
                     task_desc,
                     embedding_bytes,
@@ -163,19 +182,20 @@ class ExperiencePool:
                                0
                            )
                        )""",
-                    (project_id, self._tenant_id, project_id, self._tenant_id, self._max_entries),
+                    (project_id, tenant_id, project_id, tenant_id, self._max_entries),
                 )
                 await conn.commit()
 
             logger.info("experience stored", entry_id=entry_id)
             return entry_id
 
-    async def invalidate(self, entry_id: str) -> None:
-        """Remove an experience entry."""
+    async def invalidate(self, entry_id: str, *, tenant_id: str) -> None:
+        """Remove one of the tenant's experience entries."""
+        _require_tenant(tenant_id)
         import psycopg
 
         async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
-            await cur.execute("DELETE FROM experience_entries WHERE id = %s", (entry_id,))
+            await cur.execute("DELETE FROM experience_entries WHERE id = %s AND tenant_id = %s", (entry_id, tenant_id))
             await conn.commit()
         logger.info("experience invalidated", entry_id=entry_id)
 
@@ -186,12 +206,16 @@ def exp_cache(
     pool: ExperiencePool,
     project_id_arg: str = "project_id",
     task_desc_arg: str = "task_desc",
+    tenant_id_arg: str = "tenant_id",
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator that checks the experience pool before executing a function.
 
+    The cache is used only when the call passes a project, a task and a
+    tenant as keyword arguments.
+
     Usage:
         @exp_cache(pool, project_id_arg="project_id", task_desc_arg="prompt")
-        async def run_agent(project_id: str, prompt: str) -> str:
+        async def answer(project_id: str, prompt: str, tenant_id: str) -> str:
             ...
     """
 
@@ -200,9 +224,11 @@ def exp_cache(
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             project_id = kwargs.get(project_id_arg, "")
             task_desc = kwargs.get(task_desc_arg, "")
+            tenant_id = str(kwargs.get(tenant_id_arg, "") or "")
+            use_cache = bool(project_id and task_desc and tenant_id)
 
-            if project_id and task_desc:
-                cached = await pool.lookup(task_desc, project_id)
+            if use_cache:
+                cached = await pool.lookup(task_desc, project_id, tenant_id=tenant_id)
                 if cached:
                     logger.info(
                         "using cached experience",
@@ -214,10 +240,11 @@ def exp_cache(
             result = await func(*args, **kwargs)
 
             # Store successful result
-            if project_id and task_desc and result:
+            if use_cache and result:
                 await pool.store(
                     task_desc=task_desc,
                     project_id=project_id,
+                    tenant_id=tenant_id,
                     result_output=str(result),
                     result_cost=0.0,
                     result_status="success",

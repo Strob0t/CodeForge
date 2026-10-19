@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,6 +51,7 @@ func TestGenerateAccessToken_Valid(t *testing.T) {
 	store := &mockStore{}
 	tm := newTestTokenManager(store)
 	u := testUser()
+	store.users = append(store.users, *u) // a token's user must exist (KI-143)
 
 	tokenStr, err := tm.SignJWT(u)
 	if err != nil {
@@ -271,6 +273,7 @@ func TestRevokeToken_Idempotent(t *testing.T) {
 
 	// Verify it is actually revoked.
 	u := testUser()
+	store.users = append(store.users, *u)
 	tokenStr, err := tm.SignJWT(u)
 	if err != nil {
 		t.Fatalf("SignJWT: %v", err)
@@ -373,8 +376,14 @@ func TestCleanupExpiredTokens(t *testing.T) {
 		"valid-jti-1":   time.Now().Add(1 * time.Hour),
 	}
 
-	// Override PurgeExpiredTokens to actually remove expired entries.
+	// Override PurgeExpiredTokens to actually remove expired entries. The
+	// cleanup goroutine may still be purging after cancel(), so the map is
+	// guarded by mu, and purged signals the first completed purge.
+	var mu sync.Mutex
+	purged := make(chan struct{}, 1)
 	pStore.purgeFunc = func(_ context.Context) (int64, error) {
+		mu.Lock()
+		defer mu.Unlock()
 		var count int64
 		now := time.Now()
 		for jti, exp := range inner.revokedTokens {
@@ -382,6 +391,10 @@ func TestCleanupExpiredTokens(t *testing.T) {
 				delete(inner.revokedTokens, jti)
 				count++
 			}
+		}
+		select {
+		case purged <- struct{}{}:
+		default:
 		}
 		return count, nil
 	}
@@ -394,11 +407,19 @@ func TestCleanupExpiredTokens(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	tm.StartTokenCleanup(ctx, 50*time.Millisecond)
 
 	// Wait for at least one tick.
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-purged:
+	case <-time.After(5 * time.Second):
+		t.Fatal("token cleanup did not run within 5s")
+	}
 	cancel()
+
+	mu.Lock()
+	defer mu.Unlock()
 
 	// Expired tokens should have been purged.
 	if len(inner.revokedTokens) != 1 {
@@ -432,6 +453,7 @@ func TestHMACSignatureVerification(t *testing.T) {
 	store := &mockStore{}
 	tm := newTestTokenManager(store)
 	u := testUser()
+	store.users = append(store.users, *u)
 
 	tokenStr, err := tm.SignJWT(u)
 	if err != nil {
@@ -585,6 +607,7 @@ func TestGenerateAccessToken_MustChangePassword(t *testing.T) {
 	tm := newTestTokenManager(store)
 	u := testUser()
 	u.MustChangePassword = true
+	store.users = append(store.users, *u)
 
 	tokenStr, err := tm.SignJWT(u)
 	if err != nil {

@@ -1,13 +1,18 @@
+# Patterns without **/ match only at the context root (KI-214): a host's
+# frontend/node_modules would overlay the image's npm ci result, and env
+# files and caches of any directory would reach the images.
 .git
 .venv
-__pycache__
-*.pyc
-node_modules
+**/__pycache__
+**/*.pyc
+**/node_modules
 data/
 *.log
-.env
-.env.*
+**/.env*
 !.env.example
+# Production secret files (SECRETS_DIR default) and database dumps.
+secrets/
+backups/
 .mypy_cache
 .pytest_cache
 .ruff_cache
@@ -17,8 +22,13 @@ coverage/
 
 # FIX-114: Exclude non-runtime files to reduce build context size.
 tests/
+# The worker image runs no tests; the isolation suites mount them.
+workers/tests/
 docs/
 scripts/
+# Dockerfile.worker copies the healthcheck script and its entrypoint.
+!scripts/worker-healthcheck.py
+!scripts/worker-entrypoint.sh
 *.md
 .worktrees/
 .github/

@@ -45,8 +45,8 @@ func (b *Backend) Capabilities() agentbackend.Capabilities {
 // Execute dispatches a task to the Python OpenHands worker via NATS.
 // Returns nil result because execution is asynchronous -- the result
 // arrives later on the tasks.result subject.
-func (b *Backend) Execute(ctx context.Context, t *task.Task) (*task.Result, error) {
-	data, err := json.Marshal(t)
+func (b *Backend) Execute(ctx context.Context, e *agentbackend.Execution) (*task.Result, error) {
+	data, err := json.Marshal(messagequeue.NewTaskAgentPayload(e, backendName))
 	if err != nil {
 		return nil, fmt.Errorf("openhands: marshal task: %w", err)
 	}

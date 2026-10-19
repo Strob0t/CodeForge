@@ -2,13 +2,30 @@ package pipeline
 
 import "github.com/Strob0t/CodeForge/internal/domain/plan"
 
-// BuiltinTemplates returns the set of built-in pipeline templates.
+// BuiltinTemplates returns the set of built-in pipeline templates. Steps have
+// no deliver mode: a step's change stays in the workspace for the next step.
 func BuiltinTemplates() []Template {
 	return []Template{
 		standardDev(),
 		securityAudit(),
 		reviewOnly(),
 		reviewRefactor(),
+		boundaryAnalysis(),
+	}
+}
+
+// boundaryAnalysis runs the boundary analyzer alone (project onboarding and
+// POST /projects/{id}/boundaries/analyze).
+func boundaryAnalysis() Template {
+	return Template{
+		ID:          "boundary-analysis",
+		Name:        "Boundary Analysis",
+		Description: "Identifies the files that define contracts between modules, services and languages.",
+		Builtin:     true,
+		Protocol:    plan.ProtocolSequential,
+		Steps: []Step{
+			{Name: "Boundary Analysis", ModeID: "boundary_analyzer"},
+		},
 	}
 }
 
@@ -22,10 +39,10 @@ func standardDev() Template {
 		Builtin:     true,
 		Protocol:    plan.ProtocolSequential,
 		Steps: []Step{
-			{Name: "Plan", ModeID: "architect", DeliverMode: "append"},
-			{Name: "Implement", ModeID: "coder", DeliverMode: "diff", DependsOn: []int{0}},
-			{Name: "Review", ModeID: "reviewer", DeliverMode: "append", DependsOn: []int{1}},
-			{Name: "Test", ModeID: "tester", DeliverMode: "append", DependsOn: []int{2}},
+			{Name: "Plan", ModeID: "architect"},
+			{Name: "Implement", ModeID: "coder", DependsOn: []int{0}},
+			{Name: "Review", ModeID: "reviewer", DependsOn: []int{1}},
+			{Name: "Test", ModeID: "tester", DependsOn: []int{2}},
 		},
 	}
 }
@@ -40,9 +57,9 @@ func securityAudit() Template {
 		Builtin:     true,
 		Protocol:    plan.ProtocolSequential,
 		Steps: []Step{
-			{Name: "Plan", ModeID: "architect", DeliverMode: "append"},
-			{Name: "Implement", ModeID: "coder", DeliverMode: "diff", DependsOn: []int{0}},
-			{Name: "Audit", ModeID: "security", DeliverMode: "append", DependsOn: []int{1}},
+			{Name: "Plan", ModeID: "architect"},
+			{Name: "Implement", ModeID: "coder", DependsOn: []int{0}},
+			{Name: "Audit", ModeID: "security", DependsOn: []int{1}},
 		},
 	}
 }
@@ -57,10 +74,10 @@ func reviewRefactor() Template {
 		Builtin:     true,
 		Protocol:    plan.ProtocolSequential,
 		Steps: []Step{
-			{Name: "Boundary Analysis", ModeID: "boundary_analyzer", DeliverMode: "append"},
-			{Name: "Contract Review", ModeID: "contract_reviewer", DeliverMode: "append", DependsOn: []int{0}},
-			{Name: "Code Review", ModeID: "reviewer", DeliverMode: "append", DependsOn: []int{1}},
-			{Name: "Refactoring Proposals", ModeID: "refactorer", DeliverMode: "diff", DependsOn: []int{2}},
+			{Name: "Boundary Analysis", ModeID: "boundary_analyzer"},
+			{Name: "Contract Review", ModeID: "contract_reviewer", DependsOn: []int{0}},
+			{Name: "Code Review", ModeID: "reviewer", DependsOn: []int{1}},
+			{Name: "Refactoring Proposals", ModeID: "refactorer", DependsOn: []int{2}},
 		},
 	}
 }
@@ -76,8 +93,8 @@ func reviewOnly() Template {
 		Protocol:    plan.ProtocolParallel,
 		MaxParallel: 2,
 		Steps: []Step{
-			{Name: "Review", ModeID: "reviewer", DeliverMode: "append"},
-			{Name: "Audit", ModeID: "security", DeliverMode: "append"},
+			{Name: "Review", ModeID: "reviewer"},
+			{Name: "Audit", ModeID: "security"},
 		},
 	}
 }

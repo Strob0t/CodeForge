@@ -12,6 +12,9 @@ type Tenant struct {
 	Settings  map[string]string `json:"settings,omitempty"`
 	CreatedAt time.Time         `json:"created_at"`
 	UpdatedAt time.Time         `json:"updated_at"`
+	// ToolUID is the tenant's tool UID (KI-96), nil until the tenant first
+	// needs one. Only platform admins see it (the HTTP layer adds it).
+	ToolUID *int `json:"-"`
 }
 
 // CreateRequest holds the fields required to create a new tenant.

@@ -63,15 +63,10 @@ class ContextHandlerMixin:
         try:
             result = await reranker.rerank(entries=entries, query=request.query)
         except Exception as exc:
+            # The error result answers the Go waiter and settles the request:
+            # repeating the LLM work after Go got its answer would only cost money.
             logger.error("context rerank failed", error=str(exc))
-            await self._publish_error(
-                ContextRerankResult(
-                    request_id=request.request_id,
-                    error="internal worker error",
-                ),
-                SUBJECT_CONTEXT_RERANK_RESULT,
-            )
-            raise
+            return ContextRerankResult(request_id=request.request_id, error="internal worker error")
 
         payload = ContextRerankResult(
             request_id=request.request_id,

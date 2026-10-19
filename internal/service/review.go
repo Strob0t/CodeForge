@@ -205,6 +205,7 @@ func (s *ReviewService) HandlePlanComplete(ctx context.Context, planID, status s
 		// Not every plan is linked to a review — this is expected.
 		return
 	}
+	ctx = withEntityTenant(ctx, r.TenantID)
 
 	var newStatus review.Status
 	switch status {
@@ -245,7 +246,9 @@ func (s *ReviewService) ManualTrigger(ctx context.Context, policyID string) (*re
 }
 
 // triggerReview creates a review record, instantiates the pipeline, and starts the plan.
+// It runs in the policy's tenant: the cron scheduler has no request tenant.
 func (s *ReviewService) triggerReview(ctx context.Context, policy *review.ReviewPolicy, triggerRef string) (*review.Review, error) {
+	ctx = withEntityTenant(ctx, policy.TenantID)
 	now := time.Now().UTC()
 	r := &review.Review{
 		ID:         crypto.GenerateUUIDv4(),
@@ -366,13 +369,13 @@ func (s *ReviewService) appendEvent(ctx context.Context, evType event.Type, r *r
 	if s.events == nil {
 		return
 	}
-	_ = s.events.Append(ctx, &event.AgentEvent{
+	logBestEffort(ctx, s.events.Append(ctx, &event.AgentEvent{
 		ID:        crypto.GenerateUUIDv4(),
 		TaskID:    r.ID,
 		ProjectID: r.ProjectID,
 		Type:      evType,
 		CreatedAt: time.Now().UTC(),
-	})
+	}), "AppendEvent", slog.String("type", string(evType)), slog.String("review_id", r.ID))
 }
 
 // GetReview retrieves a review by ID.

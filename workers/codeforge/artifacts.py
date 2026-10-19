@@ -21,6 +21,10 @@ class ArtifactType(StrEnum):
     TEST_REPORT = "TEST_REPORT"
     AUDIT_REPORT = "AUDIT_REPORT"
     DECISION_MD = "DECISION.md"
+    BOUNDARIES_JSON = "BOUNDARIES.json"
+    CONTRACT_REVIEW_MD = "CONTRACT_REVIEW.md"
+    PROPOSAL_MD = "PROPOSAL.md"
+    SYNTHESIS_MD = "SYNTHESIS.md"
 
 
 class ArtifactValidationResult(BaseModel):
@@ -102,6 +106,68 @@ def _validate_decision_md(output: str) -> list[str]:
     return errs
 
 
+_JSON_FENCE = "```json"
+
+
+def _decode_array(text: str) -> list[dict[str, object]] | None:
+    """Decode the JSON array of objects at the start of text; the rest is ignored."""
+    if not text.startswith("["):
+        return None
+    try:
+        data, _ = json.JSONDecoder().raw_decode(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, list) or not all(isinstance(e, dict) for e in data):
+        return None
+    return data
+
+
+def boundaries_from_output(output: str) -> list[dict[str, object]] | None:
+    """Return the BOUNDARIES.json array of an output, None when it has none.
+
+    Mirrors boundary.FromOutput in Go: a ```json block holding the array wins;
+    otherwise the output is scanned from each '[' for an array of objects
+    (prose brackets are skipped), the first non-empty one taken, an empty one
+    only when there is none.
+    """
+    rest = output
+    while (i := rest.find(_JSON_FENCE)) >= 0:
+        block = rest[i + len(_JSON_FENCE) :]
+        end = block.find("```")
+        if end < 0:
+            break
+        found = _decode_array(block[:end].strip())
+        if found is not None:
+            return found
+        rest = block[end + 3 :]
+
+    empty: list[dict[str, object]] | None = None
+    i = output.find("[")
+    while i >= 0:
+        found = _decode_array(output[i:])
+        if found:
+            return found
+        if found is not None and empty is None:
+            empty = found
+        i = output.find("[", i + 1)
+    return empty
+
+
+def _validate_boundaries_json(output: str) -> list[str]:
+    if boundaries_from_output(output) is None:
+        return ["no BOUNDARIES.json array (a JSON array of boundary objects) in the output"]
+    return []
+
+
+def _non_empty(artifact_type: str):
+    def validate(output: str) -> list[str]:
+        if not output.strip():
+            return [f"{artifact_type} must not be empty"]
+        return []
+
+    return validate
+
+
 _VALIDATORS: dict[str, callable] = {
     ArtifactType.PLAN_MD: _validate_plan_md,
     ArtifactType.DIFF: _validate_diff,
@@ -109,6 +175,10 @@ _VALIDATORS: dict[str, callable] = {
     ArtifactType.TEST_REPORT: _validate_test_report,
     ArtifactType.AUDIT_REPORT: _validate_audit_report,
     ArtifactType.DECISION_MD: _validate_decision_md,
+    ArtifactType.BOUNDARIES_JSON: _validate_boundaries_json,
+    ArtifactType.CONTRACT_REVIEW_MD: _non_empty(ArtifactType.CONTRACT_REVIEW_MD),
+    ArtifactType.PROPOSAL_MD: _non_empty(ArtifactType.PROPOSAL_MD),
+    ArtifactType.SYNTHESIS_MD: _non_empty(ArtifactType.SYNTHESIS_MD),
 }
 
 

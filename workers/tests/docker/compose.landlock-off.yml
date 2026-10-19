@@ -1,0 +1,6 @@
+# Landlock switched off in production: refused (command lines and /proc
+# would be readable across tenants), the worker is not ready (KI-96 D6).
+services:
+  worker:
+    environment:
+      CODEFORGE_TOOL_LANDLOCK: "off"

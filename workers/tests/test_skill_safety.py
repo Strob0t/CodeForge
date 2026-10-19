@@ -40,26 +40,28 @@ async def test_unsafe_content() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fail_open_on_llm_error() -> None:
+async def test_fail_closed_on_llm_error() -> None:
     mock_client = AsyncMock()
     mock_client.chat_completion = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
 
     with patch("codeforge.skills.safety.resolve_skill_selection_model", return_value="test-model"):
         result = await check_skill_safety("normal content", mock_client)
 
-    # Fail-open: treat as safe when LLM is unavailable
-    # (runtime sandboxing is the final safety net)
-    assert result.safe is True
+    # Fail-closed (13dc103d): an unavailable LLM denies the skill
+    assert result.safe is False
+    assert result.risks == ["safety check unavailable - denied by fail-closed policy"]
 
 
 @pytest.mark.asyncio
-async def test_fail_open_on_no_model() -> None:
+async def test_fail_closed_on_no_model() -> None:
     mock_client = AsyncMock()
 
     with patch("codeforge.skills.safety.resolve_skill_selection_model", return_value=""):
         result = await check_skill_safety("normal content", mock_client)
 
-    assert result.safe is True
+    assert result.safe is False
+    assert result.risks == ["no model available for safety check"]
+    mock_client.chat_completion.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -73,8 +75,9 @@ async def test_malformed_json_response() -> None:
     with patch("codeforge.skills.safety.resolve_skill_selection_model", return_value="test-model"):
         result = await check_skill_safety("some content", mock_client)
 
-    # Malformed response treated as safe (fail-open)
-    assert result.safe is True
+    # Malformed response denies the skill (fail-closed)
+    assert result.safe is False
+    assert result.risks == ["safety check unavailable - denied by fail-closed policy"]
 
 
 def test_safety_result_model() -> None:

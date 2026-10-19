@@ -7,6 +7,10 @@ import type {
   AutoAgentStatus,
   BenchmarkRequest,
   BenchmarkResult,
+  ChannelMessageRecord,
+  ChannelReadState,
+  ChannelRecord,
+  CommandInfo,
   CreateGoalRequest,
   CreateMCPServerRequest,
   CreatePlanRequest,
@@ -32,6 +36,7 @@ import type {
   RetrievalIndexStatus,
   RetrievalSearchResult,
   ReviewDecision,
+  ReviewDecisionResponse,
   Run,
   RunOutcome,
   SearchRequest,
@@ -39,9 +44,11 @@ import type {
   StartRunRequest,
   SubAgentSearchRequest,
   SubAgentSearchResult,
+  TestMCPServerRequest,
   TrajectoryPage,
   UpdateGoalRequest,
 } from "../types";
+import type { AGUIPermissionRequest } from "../websocket";
 
 export function createHealthResource() {
   return {
@@ -76,6 +83,26 @@ export function createRunsResource(c: CoreClient) {
       ),
     revert: (runId: string, callId: string) =>
       c.post<{ status: string }>(url`/runs/${runId}/revert/${callId}`),
+    /** The tool call awaiting a decision (404 when it is no longer pending). */
+    pendingApproval: (runId: string, callId: string) =>
+      c.get<AGUIPermissionRequest>(url`/runs/${runId}/approvals/${callId}`),
+    /** Decide a pending tool call from the approval page (recorded in the feedback audit). */
+    decideApproval: (runId: string, callId: string, decision: "allow" | "deny") =>
+      c.post<{ status: string; decision: string }>(
+        `${url`/feedback/${runId}/${callId}`}?decision=${decision}`,
+      ),
+    /** Keep the refactoring of a review step (a waiting step is approved). */
+    approveRefactor: (runId: string, step: { plan_id: string; step_id: string }) =>
+      c.post<ReviewDecisionResponse>(url`/runs/${runId}/approve`, step),
+    /** Undo the refactoring of a review step (a waiting step fails). */
+    rejectRefactor: (runId: string, step: { plan_id: string; step_id: string }) =>
+      c.post<ReviewDecisionResponse>(url`/runs/${runId}/reject`, step),
+  };
+}
+
+export function createCommandsResource(c: CoreClient) {
+  return {
+    list: () => c.get<CommandInfo[]>("/commands"),
   };
 }
 
@@ -186,6 +213,8 @@ export function createSearchResource(c: CoreClient) {
           symbol_name?: string;
           score: number;
         }[];
+        /** The searched projects' indexes that are building, failed or BM25-only (KI-150). */
+        indexes?: RetrievalIndexStatus[];
       }>("/search", {
         query,
         project_ids: projectIds,
@@ -235,9 +264,15 @@ export function createMCPResource(c: CoreClient) {
       c.put<MCPServer>(url`/mcp/servers/${id}`, data),
     deleteServer: (id: string) => c.del<undefined>(url`/mcp/servers/${id}`),
     testServer: (id: string) => c.post<MCPTestResult>(url`/mcp/servers/${id}/test`),
-    testConnection: (data: CreateMCPServerRequest) =>
+    testConnection: (data: TestMCPServerRequest) =>
       c.post<MCPTestResult>("/mcp/servers/test", data),
     listTools: (id: string) => c.get<MCPServerTool[]>(url`/mcp/servers/${id}/tools`),
+    listProjectServers: (projectId: string) =>
+      c.get<MCPServer[]>(url`/projects/${projectId}/mcp-servers`),
+    assignToProject: (projectId: string, serverId: string) =>
+      c.post<undefined>(url`/projects/${projectId}/mcp-servers`, { server_id: serverId }),
+    unassignFromProject: (projectId: string, serverId: string) =>
+      c.del<undefined>(url`/projects/${projectId}/mcp-servers/${serverId}`),
   };
 }
 
@@ -276,50 +311,32 @@ export function createGoalsResource(c: CoreClient) {
 
 export function createChannelsResource(c: CoreClient) {
   return {
-    list: () =>
-      c.get<
-        {
-          id: string;
-          tenant_id: string;
-          project_id: string;
-          name: string;
-          type: "project" | "bot";
-          description: string;
-          created_by: string;
-          created_at: string;
-        }[]
-      >("/channels"),
+    list: () => c.get<ChannelRecord[]>("/channels"),
 
-    get: (id: string) =>
-      c.get<{
-        id: string;
-        name: string;
-        type: string;
-        description: string;
-        project_id: string;
-        created_at: string;
-      }>(url`/channels/${id}`),
+    get: (id: string) => c.get<ChannelRecord>(url`/channels/${id}`),
+
+    /** Admins: make a new webhook key; it is returned only this once. */
+    regenerateWebhookKey: (id: string) =>
+      c.post<{ webhook_key: string }>(url`/channels/${id}/webhook-key`, {}),
+
+    /** Move the caller's read position to a message (undefined: not tracked, the caller has no account). */
+    markRead: (id: string, messageId: string) =>
+      c.post<ChannelReadState | undefined>(url`/channels/${id}/read`, { message_id: messageId }),
+
+    readStates: (id: string) => c.get<ChannelReadState[]>(url`/channels/${id}/read`),
 
     messages: (id: string, cursor?: string, limit?: number) => {
       const params = new URLSearchParams();
       if (cursor) params.set("cursor", cursor);
       if (limit) params.set("limit", String(limit));
       const qs = params.toString();
-      return c.get<
-        {
-          id: string;
-          channel_id: string;
-          sender_type: string;
-          sender_name: string;
-          content: string;
-          parent_id: string;
-          created_at: string;
-        }[]
-      >(`/channels/${encodeURIComponent(id)}/messages${qs ? `?${qs}` : ""}`);
+      return c.get<ChannelMessageRecord[]>(
+        `/channels/${encodeURIComponent(id)}/messages${qs ? `?${qs}` : ""}`,
+      );
     },
 
     send: (id: string, content: string, senderName: string) =>
-      c.post<{ id: string }>(url`/channels/${id}/messages`, {
+      c.post<ChannelMessageRecord>(url`/channels/${id}/messages`, {
         content,
         sender_name: senderName,
         sender_type: "user",
@@ -330,15 +347,7 @@ export function createChannelsResource(c: CoreClient) {
       parentId: string,
       data: { sender_name: string; sender_type: string; content: string },
     ) =>
-      c.post<{
-        id: string;
-        channel_id: string;
-        sender_type: string;
-        sender_name: string;
-        content: string;
-        parent_id: string;
-        created_at: string;
-      }>(url`/channels/${channelId}/messages/${parentId}/thread`, data),
+      c.post<ChannelMessageRecord>(url`/channels/${channelId}/messages/${parentId}/thread`, data),
   };
 }
 

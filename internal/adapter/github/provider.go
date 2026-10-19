@@ -1,45 +1,78 @@
 // Package github implements a gitprovider.Provider that uses the GitHub REST API
-// for repository listing and token-authenticated clone URLs, while delegating
-// local git operations (status, pull, branches, checkout) to the git CLI.
+// for repository listing, pull requests (PR delivery, KI-117) and
+// token-authenticated clone URLs, while delegating local git operations
+// (status, pull, branches, checkout) to the git CLI.
 package github
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
+	"sync/atomic"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/githubapi"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/git"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
 
 const providerName = "github-api"
 
+// maxRepoPages bounds ListRepos: up to 5,000 repositories.
+const maxRepoPages = 50
+
 // Provider implements gitprovider.Provider for GitHub using the REST API
-// for listing repos and token-based clone URLs.
+// for listing repos, opening pull requests and token-based clone URLs.
 type Provider struct {
 	token      string
 	baseURL    string // GitHub API base URL (default: https://api.github.com)
 	httpClient *http.Client
 }
 
-// NewProvider creates a GitHub API provider with the given token and base URL.
+var _ gitprovider.PullRequestCreator = (*Provider)(nil)
+
+// apiClient is the HTTP client of every provider NewProvider creates: the
+// base URL is project configuration, which tenants write, so it connects
+// only to the addresses its outbound policy allows (public ones, plus the
+// private hosts of pm.allowed_private_hosts, KI-166) and follows redirects
+// only within the API's origin.
+var apiClient atomic.Pointer[http.Client]
+
+func init() {
+	apiClient.Store(githubapi.PublicHTTPClient())
+}
+
+// SetOutboundPolicy makes the providers created from now on connect through
+// policy; the Go Core builds it from pm.allowed_private_hosts at startup.
+func SetOutboundPolicy(policy *netutil.OutboundPolicy) {
+	apiClient.Store(githubapi.NewHTTPClient(policy))
+}
+
+// NewProvider creates a GitHub API provider with the given token and base
+// URL.
 func NewProvider(token, baseURL string) *Provider {
+	return newProvider(token, baseURL, apiClient.Load())
+}
+
+func newProvider(token, baseURL string, httpClient *http.Client) *Provider {
 	if baseURL == "" {
-		baseURL = "https://api.github.com"
+		baseURL = githubapi.DefaultBaseURL
 	}
 	return &Provider{
-		token:   token,
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		token:      token,
+		baseURL:    strings.TrimSuffix(baseURL, "/"),
+		httpClient: httpClient,
 	}
+}
+
+func (p *Provider) api() (*githubapi.Client, error) {
+	return githubapi.NewClient(p.baseURL, p.token, p.httpClient)
 }
 
 func (p *Provider) Name() string { return providerName }
@@ -77,30 +110,81 @@ type ghRepo struct {
 	FullName string `json:"full_name"`
 }
 
-// ListRepos lists all repositories accessible to the authenticated user,
-// handling pagination via the Link header.
+// ListRepos lists the repositories accessible to the authenticated user,
+// following the pagination within the API's origin.
 func (p *Provider) ListRepos(ctx context.Context) ([]string, error) {
-	var repos []string
-	url := fmt.Sprintf("%s/user/repos?per_page=100&sort=updated", p.baseURL)
-
-	for url != "" {
-		body, nextURL, err := p.doGetPaginated(ctx, url)
-		if err != nil {
-			return nil, fmt.Errorf("github: list repos: %w", err)
-		}
-
-		var page []ghRepo
-		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("github: parse repos response: %w", err)
-		}
-
-		for i := range page {
-			repos = append(repos, page[i].FullName)
-		}
-		url = nextURL
+	api, err := p.api()
+	if err != nil {
+		return nil, fmt.Errorf("github: list repos: %w", err)
 	}
-
+	list, more, err := githubapi.List[ghRepo](ctx, api, "/user/repos?per_page=100&sort=updated", maxRepoPages)
+	if err != nil {
+		return nil, fmt.Errorf("github: list repos: %w", err)
+	}
+	if more {
+		slog.WarnContext(ctx, "github repository listing truncated", "pages", maxRepoPages)
+	}
+	repos := make([]string, 0, len(list))
+	for i := range list {
+		repos = append(repos, list[i].FullName)
+	}
 	return repos, nil
+}
+
+// CreatePullRequest opens pr through the REST API and returns its web URL.
+// Without a base it targets the repository's default branch, as gh did.
+func (p *Provider) CreatePullRequest(ctx context.Context, pr *gitprovider.PullRequest) (string, error) {
+	if pr.Head == "" || pr.Title == "" {
+		return "", fmt.Errorf("%w: a pull request needs a head branch and a title", domain.ErrValidation)
+	}
+	repoPath, err := githubapi.RepoPath(pr.Repo)
+	if err != nil {
+		return "", err
+	}
+	api, err := p.api()
+	if err != nil {
+		return "", err
+	}
+	base := pr.Base
+	if base == "" {
+		page, err := api.Do(ctx, http.MethodGet, repoPath, nil)
+		if err != nil {
+			return "", fmt.Errorf("github: repository %s: %w", pr.Repo, err)
+		}
+		repo, err := githubapi.Decode[struct {
+			DefaultBranch string `json:"default_branch"`
+		}](page.Body)
+		if err != nil {
+			return "", err
+		}
+		if repo.DefaultBranch == "" {
+			return "", fmt.Errorf("github: repository %s has no default branch", pr.Repo)
+		}
+		base = repo.DefaultBranch
+	}
+	body, err := json.Marshal(struct {
+		Title string `json:"title"`
+		Head  string `json:"head"`
+		Base  string `json:"base"`
+		Body  string `json:"body,omitempty"`
+	}{pr.Title, pr.Head, base, pr.Body})
+	if err != nil {
+		return "", fmt.Errorf("github: marshal pull request: %w", err)
+	}
+	page, err := api.Do(ctx, http.MethodPost, repoPath+"/pulls", body)
+	if err != nil {
+		return "", fmt.Errorf("github: create pull request: %w", err)
+	}
+	created, err := githubapi.Decode[struct {
+		HTMLURL string `json:"html_url"`
+	}](page.Body)
+	if err != nil {
+		return "", err
+	}
+	if created.HTMLURL == "" {
+		return "", fmt.Errorf("github: create pull request: the answer carries no pull request URL")
+	}
+	return created.HTMLURL, nil
 }
 
 // Clone clones a repository to the given local path using git CLI.
@@ -144,7 +228,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 		}
 	}
 
-	porcelain, err := runGit(ctx, repoPath, "status", "--porcelain")
+	porcelain, err := runGit(ctx, repoPath, "status", "--porcelain", "--ignore-submodules=all")
 	if err != nil {
 		return nil, fmt.Errorf("github: porcelain status: %w", err)
 	}
@@ -173,7 +257,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 
 // Pull fetches and merges updates for the given repository.
 func (p *Provider) Pull(ctx context.Context, repoPath string) error {
-	if _, err := runGit(ctx, repoPath, "pull"); err != nil {
+	if _, err := runGit(ctx, repoPath, "pull", "--no-recurse-submodules"); err != nil {
 		return fmt.Errorf("github: pull: %w", err)
 	}
 	return nil
@@ -205,76 +289,22 @@ func (p *Provider) ListBranches(ctx context.Context, repoPath string) ([]project
 	return branches, nil
 }
 
-// Checkout switches to the specified branch.
+// Checkout switches to the specified branch. Only a valid branch name
+// reaches git, and `git switch --end-of-options` reads it as nothing but a
+// branch: with `git checkout`, "-f", "." or a file name would discard
+// uncommitted changes (KI-189).
 func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error {
-	if _, err := runGit(ctx, repoPath, "checkout", branch); err != nil {
+	if err := git.CheckBranchName(ctx, branch); err != nil {
+		return fmt.Errorf("github: checkout: %w: %w", domain.ErrValidation, err)
+	}
+	if _, err := runGit(ctx, repoPath, "switch", "--end-of-options", branch); err != nil {
 		return fmt.Errorf("github: checkout %s: %w", branch, err)
 	}
 	return nil
 }
 
-// doGetPaginated performs a GET request and returns the body + the "next" URL from the Link header.
-func (p *Provider) doGetPaginated(ctx context.Context, url string) (body []byte, nextURL string, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		return nil, "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	if p.token != "" {
-		req.Header.Set("Authorization", "Bearer "+p.token)
-	}
-
-	resp, err := p.httpClient.Do(req) //nolint:gosec // G704: url is constructed internally from GitHub API base URL
-	if err != nil {
-		return nil, "", fmt.Errorf("http request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return nil, "", fmt.Errorf("github API %d", resp.StatusCode)
-	}
-
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(resp.Body); err != nil {
-		return nil, "", fmt.Errorf("read response: %w", err)
-	}
-
-	nextURL = parseLinkNext(resp.Header.Get("Link"))
-	return buf.Bytes(), nextURL, nil
-}
-
-// parseLinkNext extracts the "next" URL from a GitHub Link header.
-func parseLinkNext(header string) string {
-	if header == "" {
-		return ""
-	}
-	for _, part := range strings.Split(header, ",") {
-		part = strings.TrimSpace(part)
-		if !strings.Contains(part, `rel="next"`) {
-			continue
-		}
-		start := strings.Index(part, "<")
-		end := strings.Index(part, ">")
-		if start >= 0 && end > start {
-			return part[start+1 : end]
-		}
-	}
-	return ""
-}
-
-// runGit executes a git command and returns its combined stdout.
+// runGit runs git hardened in the workspace repository at dir, or outside any
+// repository when dir is "" (clone).
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // G204: args are controlled by caller (internal git operations)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
-	}
-	return stdout.String(), nil
+	return git.RunIn(ctx, dir, args...) // hardened: workspaces are agent-writable (KI-77)
 }

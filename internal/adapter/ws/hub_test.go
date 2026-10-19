@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 func TestNewHub(t *testing.T) {
@@ -25,14 +26,11 @@ func TestHubConnectionCount(t *testing.T) {
 	}
 }
 
-func TestHubBroadcastNoConnections(t *testing.T) {
+func TestHubBroadcastGlobalNoConnections(t *testing.T) {
 	hub := NewHub("", nil)
 
-	// Broadcast with no connections should not panic.
-	hub.Broadcast(context.Background(), Message{
-		Type:    "test",
-		Payload: []byte(`{"key":"value"}`),
-	})
+	// BroadcastGlobal with no connections should not panic.
+	hub.BroadcastGlobal(context.Background(), "test", map[string]string{"key": "value"})
 }
 
 func TestHubBroadcastEventNoConnections(t *testing.T) {
@@ -50,7 +48,8 @@ func TestHubBroadcastEventMarshalError(t *testing.T) {
 	hub := NewHub("", nil)
 
 	// A channel cannot be marshaled to JSON — should log error, not panic.
-	hub.BroadcastEvent(context.Background(), "bad", make(chan int))
+	hub.BroadcastEvent(tenantctx.WithTenant(context.Background(), "tenant-1"), "bad", make(chan int))
+	hub.BroadcastGlobal(context.Background(), "bad", make(chan int))
 }
 
 func TestHubRemoveNonexistent(t *testing.T) {
@@ -59,15 +58,17 @@ func TestHubRemoveNonexistent(t *testing.T) {
 	// Removing a connection that was never added should not panic.
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	c := &conn{ws: nil, cancel: cancel, tenantID: "test-tenant"}
-	hub.remove(c)
+	c := &conn{sock: nil, cancel: cancel, tenantID: "test-tenant"}
+	if hub.remove(c) {
+		t.Fatal("remove() reported an unregistered connection as removed")
+	}
 }
 
 func TestHubBroadcastToTenantNoConnections(t *testing.T) {
 	hub := NewHub("", nil)
 
 	// BroadcastToTenant with no connections should not panic.
-	hub.BroadcastToTenant(context.Background(), "tenant-1", Message{
+	hub.BroadcastToTenant("tenant-1", Message{
 		Type:    "test",
 		Payload: []byte(`{"key":"value"}`),
 	})

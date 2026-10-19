@@ -7,17 +7,98 @@ on:
 
 permissions: {} # Default: no permissions. Jobs declare what they need.
 
+# One run per ref at a time, in order: a later push never leaves :main or
+# :staging pointing at an older commit (KI-214).
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ${{ github.repository_owner }}/codeforge
 
 jobs:
+  # A v* tag releases the version in VERSION (KI-116): it must name that
+  # version and point at a commit of main's first-parent history, else
+  # nothing is built. It builds the images as <version>; as <major>.<minor>
+  # when it is at least as high as every release of that line, and as
+  # "latest" when it is at least as high as every release (releases: the
+  # vX.Y.Z tags on main's first-parent history); docker-compose.prod.yml
+  # pins <version> (scripts/sync-version.sh).
+  # workers/tests/test_release_images.py runs this check.
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      latest: ${{ steps.check.outputs.latest }}
+      minor: ${{ steps.check.outputs.minor }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # all history and the v* tags, for the checks below
+
+      - name: Check the release tag
+        id: check
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+            echo "minor=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not name the version in VERSION ($version)"
+            exit 1
+          fi
+          # A release is a commit of main itself (its first-parent history),
+          # not one of a branch merged into it.
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          first_parent="$(git rev-list --first-parent origin/main)"
+          on_main() { grep -Fx "$(git rev-parse "$1^{commit}")" <<< "$first_parent" > /dev/null; }
+          if ! on_main "$GITHUB_SHA"; then
+            echo "::error::tag $TAG does not point at a commit of main's first-parent history"
+            exit 1
+          fi
+          # Tags only move forward: "latest" for a release (not a prerelease)
+          # at least as high as every released version, <major>.<minor> for
+          # one at least as high as every release of its line. Released are
+          # the vX.Y.Z tags on main's first-parent history: a stray or
+          # failed tag elsewhere holds nothing back.
+          released=""
+          for tag in $(git tag -l 'v*'); do
+            if [[ "$tag" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]] && on_main "$tag"; then
+              released+="${tag#v}"$'\n'
+            fi
+          done
+          highest() { awk -v prefix="$1" 'NF && substr($0, 1, length(prefix)) == prefix' <<< "$released" | sort -V | tail -n 1; }
+          not_older() { [ -z "$1" ] || [ "$(printf '%s\n' "$1" "$version" | sort -V | tail -n 1)" = "$version" ]; }
+          latest=false
+          minor=false
+          case "$version" in
+            *-*) ;; # a prerelease
+            *)
+              if not_older "$(highest "")"; then latest=true; fi
+              if not_older "$(highest "${version%.*}.")"; then minor=true; fi
+              ;;
+          esac
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "minor=$minor" >> "$GITHUB_OUTPUT"
+
   build-core:
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       id-token: write
+      attestations: write # the SLSA provenance step stores its attestation
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -37,12 +118,16 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core
+          # Branch pushes: the branch name and the commit SHA. The version
+          # tags and "latest" come only from a release tag (release job).
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.release.outputs.minor == 'true' }}
             type=sha,prefix=
-            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.ref_type != 'tag' }}
+            type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
 
@@ -57,11 +142,20 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=core
+          cache-to: type=gha,mode=max,scope=core
+
+      # The scan pulls exactly this push by digest; registry paths must be
+      # lowercase and the repository owner may not be.
+      - name: Record pushed image reference
+        id: image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "ref=${IMAGE,,}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Generate SLSA provenance attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         if: github.event_name != 'pull_request'
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core
@@ -69,11 +163,15 @@ jobs:
           push-to-registry: true
 
   build-worker:
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       id-token: write
+      attestations: write # the SLSA provenance step stores its attestation
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -93,12 +191,16 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker
+          # Branch pushes: the branch name and the commit SHA. The version
+          # tags and "latest" come only from a release tag (release job).
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.release.outputs.minor == 'true' }}
             type=sha,prefix=
-            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.ref_type != 'tag' }}
+            type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
 
@@ -113,11 +215,20 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+      # The scan pulls exactly this push by digest; registry paths must be
+      # lowercase and the repository owner may not be.
+      - name: Record pushed image reference
+        id: image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "ref=${IMAGE,,}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Generate SLSA provenance attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         if: github.event_name != 'pull_request'
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker
@@ -125,11 +236,15 @@ jobs:
           push-to-registry: true
 
   build-frontend:
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       id-token: write
+      attestations: write # the SLSA provenance step stores its attestation
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -149,12 +264,16 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend
+          # Branch pushes: the branch name and the commit SHA. The version
+          # tags and "latest" come only from a release tag (release job).
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.release.outputs.minor == 'true' }}
             type=sha,prefix=
-            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.ref_type != 'tag' }}
+            type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
 
@@ -169,11 +288,20 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      # The scan pulls exactly this push by digest; registry paths must be
+      # lowercase and the repository owner may not be.
+      - name: Record pushed image reference
+        id: image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "ref=${IMAGE,,}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Generate SLSA provenance attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         if: github.event_name != 'pull_request'
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend
@@ -181,7 +309,7 @@ jobs:
           push-to-registry: true
 
   scan-images:
-    name: Grype Image Scan
+    name: Grype Image Scan (${{ matrix.name }})
     needs: [build-core, build-worker, build-frontend]
     runs-on: ubuntu-latest
     permissions:
@@ -189,8 +317,15 @@ jobs:
       security-events: write
       packages: read
     strategy:
+      fail-fast: false
       matrix:
-        image: [codeforge-core, codeforge-worker, codeforge-frontend]
+        include:
+          - name: codeforge-core
+            image: ${{ needs.build-core.outputs.image }}
+          - name: codeforge-worker
+            image: ${{ needs.build-worker.outputs.image }}
+          - name: codeforge-frontend
+            image: ${{ needs.build-frontend.outputs.image }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -204,7 +339,7 @@ jobs:
         uses: anchore/scan-action@869c549e657a088dc0441b08ce4fc0ecdac2bb65 # v5
         id: scan
         with:
-          image: "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:sha-${{ github.sha }}"
+          image: ${{ matrix.image }}
           fail-build: true
           severity-cutoff: high
           output-format: sarif

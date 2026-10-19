@@ -7,22 +7,23 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/webhook"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
-	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
-// VCSWebhookService processes VCS webhook events from GitHub and GitLab.
+// VCSWebhookService processes VCS webhook events from GitHub and GitLab for
+// the project of the webhook they arrived on (KI-85).
 type VCSWebhookService struct {
 	hub    broadcast.Broadcaster
-	store  database.Store
 	review *ReviewService
 }
 
 // NewVCSWebhookService creates a new VCSWebhookService.
-func NewVCSWebhookService(hub broadcast.Broadcaster, store database.Store) *VCSWebhookService {
-	return &VCSWebhookService{hub: hub, store: store}
+func NewVCSWebhookService(hub broadcast.Broadcaster) *VCSWebhookService {
+	return &VCSWebhookService{hub: hub}
 }
 
 // SetReviewService sets the review service for triggering automated reviews on push events.
@@ -30,17 +31,49 @@ func (s *VCSWebhookService) SetReviewService(rs *ReviewService) {
 	s.review = rs
 }
 
-// resolveProject looks up a project ID by repository name.
-func (s *VCSWebhookService) resolveProject(ctx context.Context, repoFullName string) (string, error) {
-	p, err := s.store.GetProjectByRepoName(ctx, repoFullName)
-	if err != nil {
-		return "", err
-	}
-	return p.ID, nil
+// webhookRepository is the repository a GitHub or GitLab payload names.
+type webhookRepository struct {
+	fullName string // GitHub full_name, GitLab path_with_namespace
+	webURL   string // GitHub html_url, GitLab web_url (its host)
 }
 
-// HandleGitHubPush processes a GitHub push webhook payload.
-func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, data []byte) (*webhook.VCSPushEvent, error) {
+// matches reports whether the payload's repository is the project's: the
+// same host and full path (GitLab subgroups included), case-insensitive as
+// GitHub and GitLab treat them, never a part of it (KI-85, D3). A payload
+// without a URL is on the provider's public host.
+func (r webhookRepository) matches(proj *project.Project, defaultHost string) bool {
+	host, path, ok := project.RepoHostPath(proj.RepoURL)
+	return ok && r.fullName != "" &&
+		strings.EqualFold(host, webhookHost(r.webURL, defaultHost)) && strings.EqualFold(path, r.fullName)
+}
+
+// checkRepository refuses an event for another repository than the
+// webhook's project with webhook.ErrRepositoryMismatch (the event is
+// ignored and logged).
+func checkRepository(proj *project.Project, provider string, repo webhookRepository) error {
+	defaultHost := "github.com"
+	if provider == "gitlab" {
+		defaultHost = "gitlab.com"
+	}
+	if repo.matches(proj, defaultHost) {
+		return nil
+	}
+	slog.Warn("webhook event for another repository ignored",
+		"provider", provider, "project_id", proj.ID, "event_repository", repo.fullName, "event_url", repo.webURL)
+	return fmt.Errorf("%s event for %q, project %s is %q: %w", provider, repo.fullName, proj.ID, proj.RepoURL, webhook.ErrRepositoryMismatch)
+}
+
+// parsePayload decodes a webhook payload; a payload that cannot be read is
+// a validation error (400).
+func parsePayload[T any](data []byte, what string, v *T) error {
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("parse %s: %w: %w", what, err, domain.ErrValidation)
+	}
+	return nil
+}
+
+// HandleGitHubPush processes a GitHub push webhook payload for proj.
+func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, proj *project.Project, data []byte) (*webhook.VCSPushEvent, error) {
 	var raw struct {
 		Ref        string `json:"ref"`
 		Before     string `json:"before"`
@@ -48,6 +81,7 @@ func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, data []byte) (
 		Forced     bool   `json:"forced"`
 		Repository struct {
 			FullName string `json:"full_name"`
+			HTMLURL  string `json:"html_url"`
 		} `json:"repository"`
 		Sender struct {
 			Login string `json:"login"`
@@ -63,13 +97,17 @@ func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, data []byte) (
 			Removed  []string `json:"removed"`
 		} `json:"commits"`
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse github push: %w", err)
+	if err := parsePayload(data, "github push", &raw); err != nil {
+		return nil, err
+	}
+	if err := checkRepository(proj, "github", webhookRepository{raw.Repository.FullName, raw.Repository.HTMLURL}); err != nil {
+		return nil, err
 	}
 
 	ev := &webhook.VCSPushEvent{
 		VCSEvent: webhook.VCSEvent{
 			Type:       webhook.VCSEventPush,
+			ProjectID:  proj.ID,
 			Provider:   "github",
 			Repository: raw.Repository.FullName,
 			Branch:     extractBranchFromRef(raw.Ref),
@@ -96,14 +134,15 @@ func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, data []byte) (
 	return ev, nil
 }
 
-// HandleGitLabPush processes a GitLab push webhook payload.
-func (s *VCSWebhookService) HandleGitLabPush(ctx context.Context, data []byte) (*webhook.VCSPushEvent, error) {
+// HandleGitLabPush processes a GitLab push webhook payload for proj.
+func (s *VCSWebhookService) HandleGitLabPush(ctx context.Context, proj *project.Project, data []byte) (*webhook.VCSPushEvent, error) {
 	var raw struct {
 		Ref     string `json:"ref"`
 		Before  string `json:"before"`
 		After   string `json:"after"`
 		Project struct {
 			PathWithNamespace string `json:"path_with_namespace"`
+			WebURL            string `json:"web_url"`
 		} `json:"project"`
 		UserUsername string `json:"user_username"`
 		Commits      []struct {
@@ -117,13 +156,17 @@ func (s *VCSWebhookService) HandleGitLabPush(ctx context.Context, data []byte) (
 			Removed  []string `json:"removed"`
 		} `json:"commits"`
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse gitlab push: %w", err)
+	if err := parsePayload(data, "gitlab push", &raw); err != nil {
+		return nil, err
+	}
+	if err := checkRepository(proj, "gitlab", webhookRepository{raw.Project.PathWithNamespace, raw.Project.WebURL}); err != nil {
+		return nil, err
 	}
 
 	ev := &webhook.VCSPushEvent{
 		VCSEvent: webhook.VCSEvent{
 			Type:       webhook.VCSEventPush,
+			ProjectID:  proj.ID,
 			Provider:   "gitlab",
 			Repository: raw.Project.PathWithNamespace,
 			Branch:     extractBranchFromRef(raw.Ref),
@@ -149,6 +192,13 @@ func (s *VCSWebhookService) HandleGitLabPush(ctx context.Context, data []byte) (
 	return ev, nil
 }
 
+// send broadcasts an event to the webhook's tenant.
+func (s *VCSWebhookService) send(ctx context.Context, eventType string, payload any) {
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, eventType, payload)
+	}
+}
+
 // processPushEvent handles the shared post-parse logic for push events:
 // file counting, logging, broadcasting, and triggering review checks.
 func (s *VCSWebhookService) processPushEvent(ctx context.Context, ev *webhook.VCSPushEvent) {
@@ -156,28 +206,28 @@ func (s *VCSWebhookService) processPushEvent(ctx context.Context, ev *webhook.VC
 
 	slog.Info("VCS push received",
 		"provider", ev.Provider,
+		"project_id", ev.ProjectID,
 		"repo", ev.Repository,
 		"branch", ev.Branch,
 		"commits", len(ev.Commits),
 	)
 
-	s.hub.BroadcastEvent(ctx, event.EventVCSPush, ev)
+	s.send(ctx, event.EventVCSPush, ev)
 
-	if s.review != nil && s.store != nil {
-		if projectID, err := s.resolveProject(ctx, ev.Repository); err == nil {
-			if pushErr := s.review.HandlePush(ctx, projectID, ev.Branch, len(ev.Commits)); pushErr != nil {
-				slog.Warn("review trigger failed",
-					"project_id", projectID,
-					"branch", ev.Branch,
-					"error", pushErr,
-				)
-			}
+	if s.review != nil {
+		if pushErr := s.review.HandlePush(ctx, ev.ProjectID, ev.Branch, len(ev.Commits)); pushErr != nil {
+			slog.Warn("review trigger failed",
+				"project_id", ev.ProjectID,
+				"branch", ev.Branch,
+				"error", pushErr,
+			)
 		}
 	}
 }
 
-// HandleGitHubPullRequest processes a GitHub pull_request webhook payload.
-func (s *VCSWebhookService) HandleGitHubPullRequest(ctx context.Context, data []byte) (*webhook.VCSPullRequestEvent, error) {
+// HandleGitHubPullRequest processes a GitHub pull_request webhook payload
+// for proj.
+func (s *VCSWebhookService) HandleGitHubPullRequest(ctx context.Context, proj *project.Project, data []byte) (*webhook.VCSPullRequestEvent, error) {
 	var raw struct {
 		Action      string `json:"action"`
 		PullRequest struct {
@@ -194,18 +244,23 @@ func (s *VCSWebhookService) HandleGitHubPullRequest(ctx context.Context, data []
 		} `json:"pull_request"`
 		Repository struct {
 			FullName string `json:"full_name"`
+			HTMLURL  string `json:"html_url"`
 		} `json:"repository"`
 		Sender struct {
 			Login string `json:"login"`
 		} `json:"sender"`
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse github pull_request: %w", err)
+	if err := parsePayload(data, "github pull_request", &raw); err != nil {
+		return nil, err
+	}
+	if err := checkRepository(proj, "github", webhookRepository{raw.Repository.FullName, raw.Repository.HTMLURL}); err != nil {
+		return nil, err
 	}
 
 	ev := &webhook.VCSPullRequestEvent{
 		VCSEvent: webhook.VCSEvent{
 			Type:       webhook.VCSEventPullRequest,
+			ProjectID:  proj.ID,
 			Provider:   "github",
 			Repository: raw.Repository.FullName,
 			Branch:     raw.PullRequest.Head.Ref,
@@ -220,20 +275,18 @@ func (s *VCSWebhookService) HandleGitHubPullRequest(ctx context.Context, data []
 		Draft:      raw.PullRequest.Draft,
 	}
 
-	slog.Info("github PR event", "repo", ev.Repository, "action", ev.Action, "pr", ev.PRNumber)
+	slog.Info("github PR event", "project_id", proj.ID, "repo", ev.Repository, "action", ev.Action, "pr", ev.PRNumber)
 
-	s.hub.BroadcastEvent(ctx, event.EventVCSPullRequest, ev)
+	s.send(ctx, event.EventVCSPullRequest, ev)
 
 	// Trigger pre-merge review checks on PR open/synchronize.
-	if s.review != nil && s.store != nil && (ev.Action == "opened" || ev.Action == "synchronize") {
-		if projectID, err := s.resolveProject(ctx, ev.Repository); err == nil {
-			if _, prErr := s.review.HandlePreMerge(ctx, projectID, ev.BaseBranch); prErr != nil {
-				slog.Warn("pre-merge review trigger failed",
-					"project_id", projectID,
-					"base_branch", ev.BaseBranch,
-					"error", prErr,
-				)
-			}
+	if s.review != nil && (ev.Action == "opened" || ev.Action == "synchronize") {
+		if _, prErr := s.review.HandlePreMerge(ctx, proj.ID, ev.BaseBranch); prErr != nil {
+			slog.Warn("pre-merge review trigger failed",
+				"project_id", proj.ID,
+				"base_branch", ev.BaseBranch,
+				"error", prErr,
+			)
 		}
 	}
 

@@ -20,7 +20,8 @@ const benchmarkResultColumns = `id, tenant_id, run_id, task_id, task_name, score
 		tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
 		evaluator_scores, files_changed, functional_test_output,
 		rollout_id, rollout_count, is_best_rollout, diversity_score,
-		selected_model, routing_reason, fallback_chain, fallback_count, provider_errors`
+		selected_model, routing_reason, fallback_chain, fallback_count, provider_errors,
+		evaluation_errors`
 
 // CreateBenchmarkRun inserts a new benchmark run.
 func (s *Store) CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error {
@@ -177,21 +178,31 @@ func (s *Store) CreateBenchmarkResult(ctx context.Context, res *benchmark.Result
 		evalScores = json.RawMessage(`{}`)
 	}
 	filesChanged := pgTextArray(res.FilesChanged)
+	evalErrors := res.EvaluationErrors
+	if evalErrors == nil {
+		evalErrors = map[string]string{}
+	}
+	evalErrorsJSON, err := json.Marshal(evalErrors)
+	if err != nil {
+		return fmt.Errorf("marshal evaluation errors: %w", err)
+	}
 	const q = `INSERT INTO benchmark_results
 		(id, tenant_id, run_id, task_id, task_name, scores, actual_output, expected_output,
 		 tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
 		 evaluator_scores, files_changed, functional_test_output,
 		 rollout_id, rollout_count, is_best_rollout, diversity_score,
-		 selected_model, routing_reason, fallback_chain, fallback_count, provider_errors)
+		 selected_model, routing_reason, fallback_chain, fallback_count, provider_errors,
+		 evaluation_errors)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-		        $21, $22, $23, $24, $25)`
-	_, err := s.pool.Exec(ctx, q,
+		        $21, $22, $23, $24, $25, $26)`
+	_, err = s.pool.Exec(ctx, q,
 		res.ID, tenantFromCtx(ctx), res.RunID, res.TaskID, res.TaskName,
 		scores, res.ActualOutput, res.ExpectedOutput,
 		toolCalls, res.CostUSD, res.TokensIn, res.TokensOut, res.DurationMs,
 		evalScores, filesChanged, res.FunctionalTestOutput,
 		res.RolloutID, res.RolloutCount, res.IsBestRollout, res.DiversityScore,
 		res.SelectedModel, res.RoutingReason, res.FallbackChain, res.FallbackCount, res.ProviderErrors,
+		evalErrorsJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("create benchmark result: %w", err)
@@ -244,6 +255,7 @@ func scanBenchmarkRun(row scannable) (benchmark.Run, error) {
 func scanBenchmarkResult(row scannable) (benchmark.Result, error) {
 	var res benchmark.Result
 	var filesChanged []string
+	var evalErrors []byte
 	err := row.Scan(
 		&res.ID, &res.TenantID, &res.RunID, &res.TaskID, &res.TaskName,
 		&res.Scores, &res.ActualOutput, &res.ExpectedOutput,
@@ -251,10 +263,19 @@ func scanBenchmarkResult(row scannable) (benchmark.Result, error) {
 		&res.EvaluatorScores, &filesChanged, &res.FunctionalTestOutput,
 		&res.RolloutID, &res.RolloutCount, &res.IsBestRollout, &res.DiversityScore,
 		&res.SelectedModel, &res.RoutingReason, &res.FallbackChain, &res.FallbackCount, &res.ProviderErrors,
+		&evalErrors,
 	)
 	if err != nil {
 		return res, err
 	}
 	res.FilesChanged = filesChanged
+	if len(evalErrors) > 0 {
+		if err := json.Unmarshal(evalErrors, &res.EvaluationErrors); err != nil {
+			return res, fmt.Errorf("evaluation errors of benchmark result %s: %w", res.ID, err)
+		}
+		if len(res.EvaluationErrors) == 0 {
+			res.EvaluationErrors = nil
+		}
+	}
 	return res, nil
 }

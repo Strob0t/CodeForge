@@ -328,8 +328,8 @@ func TestInstantiate_PartialBindings_AutoFill(t *testing.T) {
 
 func TestBuiltinTemplates_AllValid(t *testing.T) {
 	templates := BuiltinTemplates()
-	if len(templates) != 4 {
-		t.Fatalf("expected 4 builtin templates, got %d", len(templates))
+	if len(templates) != 5 {
+		t.Fatalf("expected 5 builtin templates (boundary-analysis added for KI-17), got %d", len(templates))
 	}
 
 	for _, tmpl := range templates {

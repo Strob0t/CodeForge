@@ -98,9 +98,8 @@ func (h *Handlers) TriggerPromptEvolutionReflect(w http.ResponseWriter, r *http.
 		return
 	}
 
-	var req triggerReflectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[triggerReflectRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
 		return
 	}
 

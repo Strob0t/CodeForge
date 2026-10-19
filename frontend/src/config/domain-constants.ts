@@ -1,6 +1,8 @@
 // Centralized domain constants for constrained form values.
 // Stable enums that don't need a backend endpoint live here.
 
+import type { WebhookKind, WebhookProvider } from "~/api/types";
+
 /** Scope types for configuration scopes. */
 export const SCOPE_TYPES = ["shared", "global"] as const;
 export type ScopeType = (typeof SCOPE_TYPES)[number];
@@ -21,15 +23,6 @@ export const AUTONOMY_LEVELS = [
   { value: "headless", label: "5 - Headless" },
 ] as const;
 
-/** Autonomy levels with numeric values and i18n keys (used in per-project settings). */
-export const AUTONOMY_LEVELS_NUMERIC = [
-  { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
-  { value: "2", labelKey: "dashboard.form.autonomy.2" as const },
-  { value: "3", labelKey: "dashboard.form.autonomy.3" as const },
-  { value: "4", labelKey: "dashboard.form.autonomy.4" as const },
-  { value: "5", labelKey: "dashboard.form.autonomy.5" as const },
-] as const;
-
 /** Common denied actions for mode configuration (suggestions, not exhaustive). */
 export const COMMON_DENIED_ACTIONS = [
   "rm",
@@ -44,3 +37,24 @@ export const COMMON_DENIED_ACTIONS = [
   "kill",
   "pkill",
 ] as const;
+
+/**
+ * The providers each kind of inbound webhook accepts (Go
+ * internal/domain/webhook/endpoint.go, "providers"; the API has no list).
+ */
+export const WEBHOOK_PROVIDERS = {
+  vcs: ["github", "gitlab"],
+  pm: ["github", "gitlab", "plane"],
+} as const satisfies Record<WebhookKind, readonly WebhookProvider[]>;
+
+/**
+ * Plane generates its webhooks' signing secret itself, so it is given to
+ * CodeForge; GitHub and GitLab take the secret CodeForge generates (Go
+ * webhook.ProviderGeneratesSecret).
+ */
+export function webhookProviderGeneratesSecret(provider: WebhookProvider): boolean {
+  return provider === "plane";
+}
+
+/** The shortest signing secret accepted from Plane (Go webhook.MinProvidedSecretLength). */
+export const WEBHOOK_MIN_PROVIDED_SECRET_LENGTH = 16;

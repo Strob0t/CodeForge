@@ -7,6 +7,32 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- GitHub OAuth web flow (`POST /api/v1/auth/github`, callback `/api/v1/auth/github/callback`), enabled with `github.client_id`, `github.client_secret` and `github.callback_url`
+- Approval emails: `notification.approval_recipients` and `notification.web_ui_url`; the mail links to the web approval page (`GET /api/v1/runs/{id}/approvals/{callId}`, `POST /api/v1/feedback/{run_id}/{call_id}`)
+- Review pipeline end to end: baseline record, impact gate, keep/undo decision (`POST /runs/{id}/approve|reject`, `GET /projects/{id}/review/pending`)
+- A2A API keys per tenant (`a2a.api_keys` entries `<tenant-uuid>:<key>`), quarantine of inbound A2A prompts, `HandoffService` with claimed stages and `handoff.status`
+- Channel webhook keys (`POST /channels/{id}/webhook-key`, public `POST /webhooks/channels/{id}`) and per-user read state (`unread_count`, `channel.read`)
+- `runtime.task_accept_timeout`, `workspace.adopt_roots`, `plane.base_url`; blue-green deployment overlay with `scripts/deploy-blue-green.sh`
+- `evaluation_errors` on benchmark results
+
+### Changed
+- Webhook-triggered roadmap sync finds its project by exact repository match and answers 202, 404 or 400 instead of always 200
+- Commit delivery commits only the run's own change; user work from before the run stays uncommitted
+- Quarantine reviews record the logged-in user; the privacy page states that account data is erased immediately and backups roll off after about five weeks
+- `spawn_subagent` is no longer offered to models until it starts sub-agents
+
+### Removed
+- Tiered cache (`cache.*` settings, `CODEFORGE_CACHE_*`, ristretto dependency) and `runtime.stale_work_threshold`
+
+### Security
+- Go git calls in workspaces refuse more transport and promisor config keys, set `GIT_NO_LAZY_FETCH=1` and refuse workspaces with submodules or nested repositories
+- The auto-agent's workspace test run moved from the Go Core to the worker
+- Adopting a workspace is limited to the caller's tenant directory (platform admins may also use `workspace.adopt_roots`)
+
+### Fixed
+- Evaluator and verifier failures are no longer recorded as a 0.0 score
+
 ## [0.8.0] - 2026-03-27
 
 ### Added

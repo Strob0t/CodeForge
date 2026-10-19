@@ -1,12 +1,14 @@
 package http
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 func (h *Handlers) CreateConversation(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +95,11 @@ func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Reques
 	} else {
 		_, err = h.Conversations.SendMessage(r.Context(), id, &req)
 	}
+	if errors.Is(err, service.ErrConversationRunInProgress) {
+		// One run per conversation: the client stops the active run first.
+		writeError(w, http.StatusConflict, "conversation run in progress")
+		return
+	}
 	if err != nil {
 		writeDomainError(w, err, "send message")
 		return
@@ -113,12 +120,8 @@ func (h *Handlers) StopConversation(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "stop conversation")
 		return
 	}
-	// Mark the conversation run as cancelled in RuntimeService so that
-	// in-flight NATS tool-call requests are rejected immediately instead
-	// of blocking the queue until timeout.
-	if h.Runtime != nil {
-		h.Runtime.MarkConversationRunCancelled(id)
-	}
+	// StopConversation also marks the run cancelled in the RuntimeService, so
+	// its in-flight tool-call requests are rejected at once.
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled", "conversation_id": id})
 }
 
@@ -144,7 +147,7 @@ func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resolved := h.Runtime.ResolveApproval(runID, callID, req.Decision)
+	resolved := h.Runtime.ResolveApproval(r.Context(), runID, callID, req.Decision)
 	if !resolved {
 		writeError(w, http.StatusNotFound, "no pending approval for this run/call")
 		return
@@ -158,9 +161,40 @@ func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetPendingApproval handles GET /api/v1/runs/{id}/approvals/{callId}: the
+// tool call awaiting a decision, for the web UI's approval page (approval
+// emails link there). 404 when it is not pending in the caller's tenant.
+func (h *Handlers) GetPendingApproval(w http.ResponseWriter, r *http.Request) {
+	req, err := h.Runtime.PendingApproval(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "callId"))
+	if err != nil {
+		writeDomainError(w, err, "no pending approval for this run/call (answered, timed out or ended)")
+		return
+	}
+	writeJSON(w, http.StatusOK, req)
+}
+
+// GetConversationRunState handles GET /api/v1/conversations/{id}/run: the
+// running turn and its pending approvals, which the chat restores after a
+// reload (KI-148).
+func (h *Handlers) GetConversationRunState(w http.ResponseWriter, r *http.Request) {
+	state, err := h.Runtime.ConversationRunState(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeDomainError(w, err, "conversation not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
 // BypassConversationApprovals handles POST /api/v1/conversations/{id}/bypass-approvals.
+// Only the caller's tenant's conversations can be bypassed: the bypass flag is
+// keyed by conversation ID alone, so an unchecked ID would lift another
+// tenant's approvals (KI-63).
 func (h *Handlers) BypassConversationApprovals(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if _, err := h.Conversations.Get(r.Context(), id); err != nil {
+		writeDomainError(w, err, "conversation not found")
+		return
+	}
 	if h.Runtime != nil {
 		h.Runtime.BypassConversationApprovals(id)
 	}

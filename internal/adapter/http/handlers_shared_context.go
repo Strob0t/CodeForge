@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -16,11 +15,10 @@ func (h *Handlers) InitSharedContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing teamId")
 		return
 	}
-	var body struct {
+	body, ok := readJSON[struct {
 		ProjectID string `json:"project_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	}](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
 		return
 	}
 	sc, err := h.SharedContext.InitForTeam(r.Context(), teamID, body.ProjectID)
@@ -53,9 +51,8 @@ func (h *Handlers) AddSharedContextItem(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "missing teamId")
 		return
 	}
-	var body cfcontext.AddSharedItemRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	body, ok := readJSON[cfcontext.AddSharedItemRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
 		return
 	}
 	body.TeamID = teamID

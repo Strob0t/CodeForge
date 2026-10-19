@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -44,6 +45,7 @@ func DefaultSandboxConfig() SandboxConfig {
 // SandboxService manages Docker containers for sandboxed agent execution.
 type SandboxService struct {
 	defaults  SandboxConfig
+	docker    string // docker CLI binary; replaced by a fake in tests
 	mu        sync.Mutex
 	sandboxes map[string]*Sandbox
 }
@@ -52,6 +54,7 @@ type SandboxService struct {
 func NewSandboxService(cfg SandboxConfig) *SandboxService {
 	return &SandboxService{
 		defaults:  cfg,
+		docker:    "docker",
 		sandboxes: make(map[string]*Sandbox),
 	}
 }
@@ -81,6 +84,11 @@ func (s *SandboxService) Create(ctx context.Context, runID, workspacePath string
 	}
 	limits = resource.Cap(limits, maxLimits)
 
+	cpus, err := cpusFlag(limits.CPUQuota)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox create: %w", err)
+	}
+
 	containerName := fmt.Sprintf("codeforge-%s", shortID(runID))
 	image := s.defaults.Image
 
@@ -88,7 +96,7 @@ func (s *SandboxService) Create(ctx context.Context, runID, workspacePath string
 		"create",
 		"--name", containerName,
 		fmt.Sprintf("--memory=%dm", limits.MemoryMB),
-		fmt.Sprintf("--cpus=%d", limits.CPUQuota/1000),
+		cpus,
 		fmt.Sprintf("--pids-limit=%d", limits.PidsLimit),
 	}
 
@@ -105,7 +113,7 @@ func (s *SandboxService) Create(ctx context.Context, runID, workspacePath string
 		image,
 	)
 
-	output, err := runDocker(ctx, args...)
+	output, err := s.runDocker(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox create: %w", err)
 	}
@@ -148,6 +156,11 @@ func (s *SandboxService) CreateHybrid(ctx context.Context, runID, workspacePath 
 	}
 	limits = resource.Cap(limits, maxLimits)
 
+	cpus, err := cpusFlag(limits.CPUQuota)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid sandbox create: %w", err)
+	}
+
 	containerName := fmt.Sprintf("codeforge-hybrid-%s", shortID(runID))
 	image := s.defaults.Image
 
@@ -155,7 +168,7 @@ func (s *SandboxService) CreateHybrid(ctx context.Context, runID, workspacePath 
 		"create",
 		"--name", containerName,
 		fmt.Sprintf("--memory=%dm", limits.MemoryMB),
-		fmt.Sprintf("--cpus=%d", limits.CPUQuota/1000),
+		cpus,
 		fmt.Sprintf("--pids-limit=%d", limits.PidsLimit),
 	}
 
@@ -173,7 +186,7 @@ func (s *SandboxService) CreateHybrid(ctx context.Context, runID, workspacePath 
 		"sleep", "infinity", // Keep container running for docker exec
 	)
 
-	output, err := runDocker(ctx, args...)
+	output, err := s.runDocker(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("hybrid sandbox create: %w", err)
 	}
@@ -202,7 +215,7 @@ func (s *SandboxService) Start(ctx context.Context, runID string) error {
 		return fmt.Errorf("sandbox not found for run %s", runID)
 	}
 
-	if _, err := runDocker(ctx, "start", sb.ContainerID); err != nil {
+	if _, err := s.runDocker(ctx, "start", sb.ContainerID); err != nil {
 		return fmt.Errorf("sandbox start: %w", err)
 	}
 
@@ -225,7 +238,7 @@ func (s *SandboxService) Exec(ctx context.Context, runID string, command []strin
 
 	args := append([]string{"exec", sb.ContainerID}, command...)
 
-	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // G204: docker args are constructed internally, not from user input
+	cmd := exec.CommandContext(ctx, s.docker, args...) //nolint:gosec // G204: docker args are constructed internally, not from user input
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -244,7 +257,7 @@ func (s *SandboxService) Stop(ctx context.Context, runID string) error {
 		return fmt.Errorf("sandbox not found for run %s", runID)
 	}
 
-	if _, err := runDocker(ctx, "stop", "-t", "10", sb.ContainerID); err != nil {
+	if _, err := s.runDocker(ctx, "stop", "-t", "10", sb.ContainerID); err != nil {
 		return fmt.Errorf("sandbox stop: %w", err)
 	}
 
@@ -266,7 +279,7 @@ func (s *SandboxService) Remove(ctx context.Context, runID string) error {
 		return nil
 	}
 
-	if _, err := runDocker(ctx, "rm", "-f", sb.ContainerID); err != nil {
+	if _, err := s.runDocker(ctx, "rm", "-f", sb.ContainerID); err != nil {
 		return fmt.Errorf("sandbox remove: %w", err)
 	}
 
@@ -285,6 +298,16 @@ func (s *SandboxService) Get(runID string) (*Sandbox, bool) {
 	return sb, ok
 }
 
+// cpusFlag converts a CPU quota in thousandths of a CPU (1000 = one CPU) into
+// docker's decimal --cpus flag. Non-positive quotas are rejected because docker
+// reads --cpus=0 as "no limit".
+func cpusFlag(cpuQuota int) (string, error) {
+	if cpuQuota <= 0 {
+		return "", fmt.Errorf("cpu_quota must be positive (1000 = one CPU), got %d", cpuQuota)
+	}
+	return "--cpus=" + strconv.FormatFloat(float64(cpuQuota)/1000, 'f', -1, 64), nil
+}
+
 // shortID returns the first 12 characters of an ID (or the full string if shorter).
 func shortID(id string) string {
 	if len(id) > 12 {
@@ -294,8 +317,8 @@ func shortID(id string) string {
 }
 
 // runDocker executes a docker command and returns stdout.
-func runDocker(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // G204: docker args are constructed internally, not from user input
+func (s *SandboxService) runDocker(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, s.docker, args...) //nolint:gosec // G204: docker args are constructed internally, not from user input
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

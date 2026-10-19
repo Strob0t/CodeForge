@@ -3,6 +3,7 @@ import { createSignal, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { AGUIRoadmapProposal } from "~/api/websocket";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button } from "~/ui";
 import type { BadgeVariant } from "~/ui/primitives/Badge";
 
@@ -24,6 +25,8 @@ export default function RoadmapProposalCard(props: Props) {
   const { t } = useI18n();
   const [status, setStatus] = createSignal<"pending" | "approved" | "rejected">("pending");
   const [saving, setSaving] = createSignal(false);
+  // Why the approval failed: it used to fail silently (KI-157).
+  const [error, setError] = createSignal("");
 
   const displayTitle = (): string =>
     props.proposal.action === "create_step" && props.proposal.step_title
@@ -32,6 +35,7 @@ export default function RoadmapProposalCard(props: Props) {
 
   const handleApprove = async (): Promise<void> => {
     setSaving(true);
+    setError("");
     try {
       if (props.proposal.action === "create_milestone") {
         await api.roadmap.createMilestone(props.projectId, {
@@ -56,7 +60,8 @@ export default function RoadmapProposalCard(props: Props) {
       }
       setStatus("approved");
       props.onApprove(displayTitle());
-    } catch {
+    } catch (err) {
+      setError(extractErrorMessage(err, t("roadmap.proposalApproveFailed")));
       setSaving(false);
     }
   };
@@ -137,6 +142,11 @@ export default function RoadmapProposalCard(props: Props) {
             {t("common.reject")}
           </Button>
         </div>
+        <Show when={error()}>
+          <p role="alert" class="mt-2 text-xs text-cf-danger-fg">
+            {error()}
+          </p>
+        </Show>
       </Show>
     </div>
   );

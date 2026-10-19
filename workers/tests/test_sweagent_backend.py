@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from codeforge.backends.sweagent import SweagentExecutor
+
+
+async def _hang() -> bytes:
+    """A CLI that prints nothing and never ends: the task's deadline expires (KI-194)."""
+    await asyncio.Event().wait()
+    return b""
 
 
 class TestSweagentInfo:
@@ -100,18 +107,18 @@ class TestSweagentExecute:
 
     @pytest.mark.asyncio
     async def test_timeout_terminates_process(self, executor: SweagentExecutor) -> None:
-        """Timeout triggers graceful termination."""
+        """Timeout stops the process group (KI-22)."""
         mock_proc = AsyncMock()
         mock_proc.returncode = None
         mock_proc.stdout = AsyncMock()
-        mock_proc.stdout.readline = AsyncMock(side_effect=TimeoutError)
+        mock_proc.stdout.readline = AsyncMock(side_effect=_hang)
         mock_proc.terminate = AsyncMock()
         mock_proc.wait = AsyncMock()
         mock_proc.kill = AsyncMock()
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch("codeforge.backends.sweagent.graceful_terminate", new_callable=AsyncMock) as mock_term,
+            patch("codeforge.backends._cli_base.terminate_process_group", new_callable=AsyncMock) as mock_term,
         ):
             result = await executor.execute(
                 task_id="t4",
@@ -175,13 +182,13 @@ class TestSweagentCancel:
 
     @pytest.mark.asyncio
     async def test_cancel_running_task(self) -> None:
-        """Cancel terminates the running subprocess."""
+        """Cancel stops the running subprocess and its process group (KI-22)."""
         executor = SweagentExecutor(cli_path="/usr/bin/sweagent")
         mock_proc = AsyncMock()
         mock_proc.returncode = None
         executor._processes["t1"] = mock_proc
 
-        with patch("codeforge.backends.sweagent.graceful_terminate", new_callable=AsyncMock) as mock_term:
+        with patch("codeforge.backends._cli_base.terminate_process_group", new_callable=AsyncMock) as mock_term:
             await executor.cancel("t1")
 
         mock_term.assert_awaited_once_with(mock_proc)
@@ -199,11 +206,11 @@ class TestSweagentCheckAvailable:
     @pytest.mark.asyncio
     async def test_available_when_cli_found(self) -> None:
         executor = SweagentExecutor(cli_path="/usr/bin/sweagent")
-        with patch("codeforge.backends.sweagent.check_cli_available", return_value=True):
+        with patch("codeforge.backends._cli_base.check_cli_available", return_value=True):
             assert await executor.check_available() is True
 
     @pytest.mark.asyncio
     async def test_unavailable_when_cli_missing(self) -> None:
         executor = SweagentExecutor(cli_path="/usr/bin/sweagent")
-        with patch("codeforge.backends.sweagent.check_cli_available", return_value=False):
+        with patch("codeforge.backends._cli_base.check_cli_available", return_value=False):
             assert await executor.check_available() is False

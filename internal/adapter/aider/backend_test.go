@@ -7,6 +7,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
@@ -73,7 +74,7 @@ func TestExecutePublishesTask(t *testing.T) {
 		Status:    task.StatusPending,
 	}
 
-	result, err := b.Execute(context.Background(), tsk)
+	result, err := b.Execute(context.Background(), &agentbackend.Execution{Task: tsk, WorkspacePath: "/data/workspaces/proj-1"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -90,12 +91,12 @@ func TestExecutePublishesTask(t *testing.T) {
 		t.Fatalf("expected subject 'tasks.agent.aider', got %q", msg.subject)
 	}
 
-	var published task.Task
+	var published messagequeue.TaskAgentPayload
 	if err := json.Unmarshal(msg.data, &published); err != nil {
 		t.Fatalf("unmarshal published data: %v", err)
 	}
-	if published.ID != "task-1" {
-		t.Fatalf("expected task ID 'task-1', got %q", published.ID)
+	if published.TaskID != "task-1" {
+		t.Fatalf("expected task ID 'task-1', got %q", published.TaskID)
 	}
 }
 

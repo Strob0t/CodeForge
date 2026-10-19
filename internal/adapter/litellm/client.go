@@ -45,13 +45,21 @@ type (
 	AddModelRequest        = llm.AddModelRequest
 )
 
+// DefaultCompletionTimeout bounds one chat completion (litellm.completion_timeout).
+const DefaultCompletionTimeout = 10 * time.Minute
+
 // Client talks to the LiteLLM Proxy admin API.
 type Client struct {
-	baseURL    string
-	masterKey  string
-	vault      *secrets.Vault
+	baseURL   string
+	masterKey string
+	vault     *secrets.Vault
+	// httpClient serves the admin calls (models, health): 10 s.
 	httpClient *http.Client
-	breaker    *resilience.Breaker
+	// completionClient serves chat completions, which take minutes on real
+	// and local models (KI-213).
+	completionClient *http.Client
+	breaker          *resilience.Breaker
+	keys             llm.ProviderKeys
 }
 
 // NewClient creates a new LiteLLM admin client.
@@ -62,12 +70,29 @@ func NewClient(baseURL, masterKey string) *Client {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		completionClient: &http.Client{
+			Timeout: DefaultCompletionTimeout,
+		},
 	}
+}
+
+// SetCompletionTimeout sets the timeout of one chat completion, streamed or
+// not (litellm.completion_timeout); the admin calls keep theirs.
+func (c *Client) SetCompletionTimeout(d time.Duration) {
+	c.completionClient = &http.Client{Timeout: d}
 }
 
 // SetBreaker attaches a circuit breaker to all outgoing HTTP calls.
 func (c *Client) SetBreaker(b *resilience.Breaker) {
 	c.breaker = b
+}
+
+// SetProviderKeys tells the model listing which providers have an API key:
+// their wildcard routes list the models LiteLLM expands them to, the others
+// one route row (collapseCatalogueRoutes). Without it no cloud provider
+// counts as keyed.
+func (c *Client) SetProviderKeys(keys llm.ProviderKeys) {
+	c.keys = keys
 }
 
 // SetVault attaches a secrets vault. When set, the master key is read from
@@ -100,13 +125,88 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, fmt.Errorf("unmarshal models: %w", err)
 	}
-	// Infer vision capability from metadata or model name.
+	result.Data = c.collapseCatalogueRoutes(result.Data)
 	for i := range result.Data {
+		// Infer vision capability from metadata or model name.
 		result.Data[i].SupportsVision = inferVisionSupport(
 			result.Data[i].ModelName, result.Data[i].ModelInfo,
 		)
+		if result.Data[i].ModelID == "" {
+			result.Data[i].ModelID = deploymentID(result.Data[i].ModelInfo)
+		}
 	}
 	return result.Data, nil
+}
+
+// deploymentID returns the deployment ID LiteLLM reports in model_info.id
+// (/model/info has no top-level model_id); /model/delete takes this ID.
+func deploymentID(info map[string]any) string {
+	id, _ := info["id"].(string)
+	return id
+}
+
+// collapseCatalogueRoutes lists the wildcard route of a provider without an
+// API key as one row instead of every model LiteLLM expands it to (KI-125).
+// LiteLLM expands a route such as groq/* from its built-in catalogue whether
+// or not the key is set (about 600 models nobody can call without keys), and
+// a route whose provider lists its models (anthropic/*, openai/*, ...) to
+// that list once the key is set. Both kinds of rows share the route's
+// deployment ID (model_info.id) and /model/info strips the keys, so whether
+// a provider has a key comes from c.keys: a keyed provider keeps its rows (a
+// user picks a concrete model, and the default model is one), a keyless one
+// becomes one route row ("groq/*"), which stays usable for a model typed by
+// name and for the worker's router. A route with an api_base (Ollama, LM
+// Studio, OpenAI-compatible services) keeps its rows: LiteLLM lists them
+// from the server itself, which answers only when it can be used.
+func (c *Client) collapseCatalogueRoutes(rows []Model) []Model {
+	counts := make(map[string]int, len(rows))
+	for i := range rows {
+		if id := deploymentID(rows[i].ModelInfo); id != "" {
+			counts[id]++
+		}
+	}
+
+	type route struct{ id, provider string }
+	out := make([]Model, 0, len(rows))
+	listed := make(map[route]bool)
+	for i := range rows {
+		id := deploymentID(rows[i].ModelInfo)
+		provider, _, prefixed := strings.Cut(rows[i].ModelName, "/")
+		if counts[id] < 2 || !prefixed || hasAPIBase(rows[i].Params) || c.keys.HasKey(provider) {
+			out = append(out, rows[i])
+			continue
+		}
+		r := route{id: id, provider: provider}
+		if listed[r] {
+			continue
+		}
+		listed[r] = true
+		out = append(out, routeRow(&rows[i], id, provider+"/*"))
+	}
+	return out
+}
+
+// routeRow is the row of a collapsed wildcard route: the route's parameters
+// (tags, timeout, ...) with the pattern as model, and only the deployment ID
+// as model info (an expanded row's pricing and limits belong to one model).
+func routeRow(row *Model, id, pattern string) Model {
+	params := make(map[string]any, len(row.Params))
+	for k, v := range row.Params {
+		params[k] = v
+	}
+	params["model"] = pattern
+	return Model{
+		ModelName: pattern,
+		Provider:  row.Provider,
+		ModelID:   id,
+		ModelInfo: map[string]any{"id": id},
+		Params:    params,
+	}
+}
+
+func hasAPIBase(params map[string]any) bool {
+	base, _ := params["api_base"].(string)
+	return base != ""
 }
 
 // AddModel adds a new model configuration to LiteLLM.
@@ -136,8 +236,10 @@ func (c *Client) DeleteModel(ctx context.Context, modelID string) error {
 }
 
 // Health checks if LiteLLM is healthy.
+// It asks /health/readiness: /health makes a live model call per checked
+// deployment (KI-213).
 func (c *Client) Health(ctx context.Context) (bool, error) {
-	_, err := c.doRequest(ctx, http.MethodGet, "/health", nil)
+	_, err := c.doRequest(ctx, http.MethodGet, "/health/readiness", nil)
 	return err == nil, err
 }
 
@@ -166,16 +268,12 @@ func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) 
 	}
 
 	var infoResult struct {
-		Data []struct {
-			ModelName string         `json:"model_name"`
-			ModelID   string         `json:"model_id"`
-			ModelInfo map[string]any `json:"model_info"`
-			Params    map[string]any `json:"litellm_params"`
-		} `json:"data"`
+		Data []Model `json:"data"`
 	}
 	if err := json.Unmarshal(infoResp, &infoResult); err != nil {
 		return nil, fmt.Errorf("unmarshal model info: %w", err)
 	}
+	infoResult.Data = c.collapseCatalogueRoutes(infoResult.Data)
 
 	// Also fetch the OpenAI-compatible /v1/models list for ID cross-reference.
 	modelsResp, err := c.doRequest(ctx, http.MethodGet, "/v1/models", nil)
@@ -199,10 +297,15 @@ func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) 
 	}
 
 	discovered := make([]DiscoveredModel, 0, len(infoResult.Data))
-	for _, m := range infoResult.Data {
+	for i := range infoResult.Data {
+		m := &infoResult.Data[i]
+		modelID := m.ModelID
+		if modelID == "" {
+			modelID = deploymentID(m.ModelInfo)
+		}
 		dm := DiscoveredModel{
 			ModelName: m.ModelName,
-			ModelID:   m.ModelID,
+			ModelID:   modelID,
 			Source:    "litellm",
 			ModelInfo: m.ModelInfo,
 		}
@@ -375,7 +478,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 		return nil, fmt.Errorf("marshal completion request: %w", err)
 	}
 
-	data, err := c.doRequest(ctx, http.MethodPost, "/v1/chat/completions", body)
+	data, err := c.doRequestWith(ctx, c.completionClient, http.MethodPost, "/v1/chat/completions", body)
 	if err != nil {
 		return nil, fmt.Errorf("chat completion: %w", err)
 	}
@@ -446,9 +549,7 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 		httpReq.Header.Set("Authorization", "Bearer "+key)
 	}
 
-	// Use a longer timeout for streaming — LLM responses can take minutes.
-	streamClient := &http.Client{Timeout: 10 * time.Minute}
-	resp, err := streamClient.Do(httpReq)
+	resp, err := c.completionClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("stream request: %w", err)
 	}
@@ -583,6 +684,14 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	return c.doRequestWith(ctx, c.httpClient, method, path, body)
+}
+
+// doRequestWith sends one request with the given client through the breaker.
+// A 4xx answer is the request's fault and does not count against LiteLLM
+// (resilience.Neutral), nor does the end of ctx; transport errors, the
+// client's own timeout and 5xx do (KI-213).
+func (c *Client) doRequestWith(ctx context.Context, client *http.Client, method, path string, body []byte) ([]byte, error) {
 	var result []byte
 	call := func() error {
 		var bodyReader io.Reader
@@ -600,7 +709,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("http request: %w", err)
 		}
@@ -612,7 +721,11 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 		}
 
 		if resp.StatusCode >= 400 {
-			return fmt.Errorf("litellm API error %d: %s", resp.StatusCode, string(data))
+			apiErr := fmt.Errorf("litellm API error %d: %s", resp.StatusCode, string(data))
+			if resp.StatusCode < 500 {
+				return resilience.Neutral(apiErr)
+			}
+			return apiErr
 		}
 
 		result = data
@@ -620,7 +733,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 	}
 
 	if c.breaker != nil {
-		if err := c.breaker.Execute(call); err != nil {
+		if err := c.breaker.ExecuteContext(ctx, call); err != nil {
 			return nil, err
 		}
 		return result, nil

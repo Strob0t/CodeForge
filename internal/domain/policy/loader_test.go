@@ -116,6 +116,32 @@ func TestPolicyLoader_LoadFromDirectory(t *testing.T) {
 	}
 }
 
+// Each profile remembers the file that defines it, so changes are written
+// back to that file; two files defining one profile are rejected.
+func TestPolicyLoader_LoadSourcesFromDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "team.yml"), []byte("name: team-policy\nmode: default\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := LoadSourcesFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sources) != 1 || sources[0].Profile.Name != "team-policy" || sources[0].File != "team.yml" {
+		t.Fatalf("unexpected sources: %+v", sources)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "other.yaml"), []byte("name: team-policy\nmode: plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadSourcesFromDirectory(dir); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("expected a duplicate profile error, got %v", err)
+	}
+	if _, err := LoadFromDirectory(dir); err == nil {
+		t.Fatal("LoadFromDirectory accepted a duplicate profile")
+	}
+}
+
 func TestPolicyLoader_LoadFromDirectoryMissing(t *testing.T) {
 	profiles, err := LoadFromDirectory("/nonexistent/dir")
 	if err != nil {

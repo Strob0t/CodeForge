@@ -1,0 +1,33 @@
+# Serena context for Claude Code sessions on this repo (passed by path through
+# --context in .mcp.json). It replaces the built-in `claude-code` context, whose
+# prompt forbids Claude Code's own Read and Edit tools and steers every edit to
+# Serena; that conflicts with AGENTS.md and with this read-only trial.
+# Format: https://oraios.github.io/serena/02-usage/050_configuration.html#contexts
+description: Claude Code, symbol navigation only (CodeForge trial)
+
+prompt: |
+  Serena offers symbol-level navigation of this repository's Go, Python and
+  TypeScript code through language servers. Use it where it beats text search,
+  for example to list every implementation of a Go interface including test
+  mocks, or to find a symbol across languages. Read, search and edit files with
+  your own tools as usual. The server is bound to the checkout it started in: in
+  another git worktree its results describe the main checkout, not yours.
+
+# Navigation tools only; reading, searching, editing, shell and memory stay with
+# Claude Code (AGENTS.md and docs/ are the project memory). Serena's connection
+# prompt always asks for initial_instructions, which returns the prompt above.
+fixed_tools:
+  - initial_instructions
+  - find_symbol
+  - find_referencing_symbols
+  - find_implementations
+  - find_declaration
+  - get_symbols_overview
+  - get_diagnostics_for_file
+
+# Only the project the server started in; no activate_project tool.
+single_project: true
+
+# Same as the built-in claude-code context: Claude Code does not unpack
+# structured tool output.
+structured_tool_output: false

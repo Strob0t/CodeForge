@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import tempfile
-
 import structlog
-
-from codeforge.config import get_settings
 
 logger = structlog.get_logger()
 
@@ -32,25 +28,13 @@ def _dataset_to_task_specs(dataset_path: str) -> list:
 
 
 def _resolve_default_dataset(provider_name: str) -> str:
-    """Map built-in provider names to their default dataset YAML paths."""
-    from pathlib import Path
-
-    settings = get_settings()
-    datasets_dir = settings.benchmark_datasets_dir
+    """Map built-in provider names to their default dataset, a name in the datasets directory."""
     mapping = {
         "codeforge_simple": "basic-coding.yaml",
         "codeforge_tool_use": "tool-use-basic.yaml",
         "codeforge_agent": "agent-coding.yaml",
     }
-    filename = mapping.get(provider_name, "")
-    if not filename:
-        return ""
-    candidate = Path(datasets_dir) / filename
-    if candidate.exists():
-        return str(candidate)
-    workspace = Path(settings.workspace)
-    absolute = workspace / datasets_dir / filename
-    return str(absolute) if absolute.exists() else ""
+    return mapping.get(provider_name, "")
 
 
 async def load_tasks_for_run(req: object) -> list:
@@ -155,13 +139,12 @@ async def run_agent_benchmark(
     )
     registry = build_default_registry()
     runtime = BenchmarkRuntime(run_id=req.run_id)
-    executor = AgentLoopExecutor(
-        llm=llm,
-        tool_registry=registry,
-        runtime=runtime,
-        workspace_path=tempfile.gettempdir(),
-    )
-    runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline, loop_config=config)
+
+    def executor_for(workspace: str) -> AgentLoopExecutor:
+        # One per task: its tools work in the task's own workspace (KI-96 S7).
+        return AgentLoopExecutor(llm=llm, tool_registry=registry, runtime=runtime, workspace_path=workspace)
+
+    runner = AgentBenchmarkRunner(executor_factory=executor_for, pipeline=pipeline, loop_config=config)
     return await run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete, hybrid_pipeline)
 
 

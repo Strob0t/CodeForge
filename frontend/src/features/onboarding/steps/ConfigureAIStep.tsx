@@ -2,6 +2,7 @@ import { createSignal, For, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { DiscoveredModel } from "~/api/types";
+import { useAuth } from "~/components/AuthProvider";
 import { useAsyncAction } from "~/hooks";
 import { Alert, Button, FormField, Input } from "~/ui";
 
@@ -11,6 +12,8 @@ export interface StepProps {
 }
 
 export default function ConfigureAIStep(props: StepProps): JSX.Element {
+  // Adding a model changes the LiteLLM setup all tenants share.
+  const { isPlatformAdmin } = useAuth();
   const [models, setModels] = createSignal<DiscoveredModel[]>([]);
   const [manualModel, setManualModel] = createSignal("");
   const [addedModel, setAddedModel] = createSignal(false);
@@ -74,29 +77,31 @@ export default function ConfigureAIStep(props: StepProps): JSX.Element {
         </div>
       </Show>
 
-      <div class="border-t border-cf-border pt-3">
-        <p class="mb-2 text-xs text-cf-text-muted">Or add a model manually:</p>
-        <div class="flex items-center gap-2">
-          <FormField label="Model name" id="onboard-model-name" class="flex-1">
-            <Input
-              id="onboard-model-name"
-              type="text"
-              value={manualModel()}
-              onInput={(e) => setManualModel(e.currentTarget.value)}
-              placeholder="e.g. openai/gpt-4o"
-            />
-          </FormField>
-          <Button
-            size="sm"
-            class="mt-5"
-            onClick={() => void handleAddModel()}
-            loading={adding()}
-            disabled={!manualModel().trim()}
-          >
-            Add
-          </Button>
+      <Show when={isPlatformAdmin()}>
+        <div class="border-t border-cf-border pt-3">
+          <p class="mb-2 text-xs text-cf-text-muted">Or add a model manually:</p>
+          <div class="flex items-center gap-2">
+            <FormField label="Model name" id="onboard-model-name" class="flex-1">
+              <Input
+                id="onboard-model-name"
+                type="text"
+                value={manualModel()}
+                onInput={(e) => setManualModel(e.currentTarget.value)}
+                placeholder="e.g. openai/gpt-4o"
+              />
+            </FormField>
+            <Button
+              size="sm"
+              class="mt-5"
+              onClick={() => void handleAddModel()}
+              loading={adding()}
+              disabled={!manualModel().trim()}
+            >
+              Add
+            </Button>
+          </div>
         </div>
-      </div>
+      </Show>
 
       <div class="flex items-center gap-3 pt-1">
         <button

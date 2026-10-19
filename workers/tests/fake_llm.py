@@ -125,6 +125,7 @@ class FakeLLM:
         max_tokens: int | None = None,
         on_chunk: Callable[[str], None] | None = None,
         on_tool_call: Callable[[ToolCallPart], None] | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> ChatCompletionResponse:
         """Return the next canned response as a streamed ChatCompletionResponse."""
         prompt = messages[-1].get("content", "") if messages else ""

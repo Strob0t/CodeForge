@@ -1,6 +1,26 @@
 package run
 
-import "hash/fnv"
+import (
+	"hash/fnv"
+	"strings"
+)
+
+// StallMarker starts the error of every run stopped by stall detection: the
+// control plane's (StallDetectedError) and the worker agent loop's ("stall
+// detected: repeated X after N escape attempts",
+// workers/codeforge/stall_detection.py STALL_ERROR_MARKER). The contract
+// both sides test is testdata/stall_contract.json.
+const StallMarker = "stall detected:"
+
+// StallDetectedError is the error of a run the control plane stopped because
+// its agent made no progress; the orchestrator re-plans such a plan step.
+const StallDetectedError = StallMarker + " agent not making progress"
+
+// Stalled reports whether the run failed because stall detection stopped it,
+// in the control plane or in the worker.
+func (r *Run) Stalled() bool {
+	return r.Status == StatusFailed && strings.HasPrefix(r.Error, StallMarker)
+}
 
 // ProgressTools are tools that indicate meaningful work when successful.
 var ProgressTools = map[string]bool{

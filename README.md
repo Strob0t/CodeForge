@@ -2,23 +2,18 @@
 
 # CodeForge
 
-**The only self-hosted platform combining project management, visual roadmapping, intelligent LLM routing, and AI agent orchestration -- across all your repositories.**
+**A self-hosted control plane for AI coding agents: any agent, any model, one set of rules.**
 
-<!-- TODO: Add demo GIF/screenshot (15-20s: Dashboard -> Chat -> Agent working -> Result) -->
-<!-- ![CodeForge Demo](docs/assets/demo.gif) -->
+Run cloud models (Claude, GPT, Gemini, ...) or local ones (Ollama, LM Studio) on your own server, across all your repositories.<br>
+Every tool call an agent makes is checked against your policy, can wait for your approval, counts against a budget and is recorded.
 
 [![CI](https://github.com/Strob0t/CodeForge/actions/workflows/ci.yml/badge.svg?branch=staging)](https://github.com/Strob0t/CodeForge/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.0-green.svg)](VERSION)
-[![GitHub Stars](https://img.shields.io/github/stars/Strob0t/CodeForge?style=social)](https://github.com/Strob0t/CodeForge)
-<!-- TODO: Add Discord badge when server exists -->
-<!-- [![Discord](https://img.shields.io/discord/SERVERID?color=7289da&label=Discord&logo=discord&logoColor=white)](https://discord.gg/INVITE) -->
+[![Version](https://img.shields.io/badge/version-0.9.0-green.svg)](VERSION)
 
-[![127+ LLM Models](https://img.shields.io/badge/LLM_Models-127+-8A2BE2)](#-intelligent-llm-routing)
-[![24 Agent Modes](https://img.shields.io/badge/Agent_Modes-24-FF6B6B)](#-agent-orchestration)
-[![5 Protocols](https://img.shields.io/badge/Protocols-MCP_|_A2A_|_AG--UI_|_LSP_|_OTEL-00B4D8)](#architecture)
+[**Quick Start**](#quick-start) | [**Architecture**](#architecture) | [**Features**](#features) | [**FAQ**](#faq) | [**Documentation**](docs/README.md) | [**Known Issues**](docs/todo.md#known-issues)
 
-[**Quick Start**](#quick-start) | [**Documentation**](docs/README.md) | [**Architecture**](docs/architecture.md) | [**Roadmap**](docs/project-status.md)
+![An agent at work in a CodeForge project conversation](docs/assets/screenshots/agent-chat.png)
 
 </div>
 
@@ -26,140 +21,266 @@
 
 ## What is CodeForge?
 
-Most AI coding tools do one thing well -- Aider for pair programming, Cline for IDE automation, OpenHands for agent orchestration. **CodeForge is the only platform that combines all four pillars** into a single self-hosted Docker stack:
+AI coding agents are good at writing code and bad at knowing when to stop. CodeForge puts a control plane between the agent and your code:
 
-<table>
-<tr>
-<td width="50%" valign="top">
+- **Policy on every tool call.** The agent proposes `bash`, `edit_file` or an MCP tool; the Go Core decides allow, deny or ask, from declarative YAML profiles (deny lists, path rules, shell commands parsed per simple command, unknown cases fail closed).
+- **You approve what matters.** Five autonomy levels per mode, from "ask for everything" to headless. Approval cards appear live in the chat, with approve, deny and allow-always.
+- **Limits that hold.** Budgets per run, maximum steps, stall detection, test and lint gates with rollback, path blocklists and branch isolation.
+- **Everything is recorded.** Trajectories, costs per run and project, an audit trail with replay.
+- **Agents stay apart.** Every tenant's tool processes run under their own Linux user and under Landlock; agents only touch their own workspace.
 
-### :file_folder: Multi-Repo Dashboard
-Manage Git, GitHub, GitLab, SVN, Gitea/Forgejo, and local repos from one place. Stack detection, workspace health monitoring, and project-level cost tracking.
+Around that core, CodeForge brings four things together in one self-hosted Docker stack:
 
-</td>
-<td width="50%" valign="top">
+| Pillar | What you get |
+|---|---|
+| **Projects** | Many repositories in one dashboard: any git URL (GitHub, GitLab, Gitea/Forgejo, self-hosted), SVN and local folders; auto-indexing for code search. |
+| **Roadmap** | Milestones and features per project, imported from OpenSpec, Spec Kit, Autospec or Markdown specs, synced back to spec files; issues from GitHub, GitLab, Plane and Gitea/Forgejo. |
+| **Models** | Any model LiteLLM can reach: 11 provider families configured (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter, Cerebras, ... and local Ollama / LM Studio), picked per task by a routing cascade. |
+| **Agents** | A built-in agent loop with 10 tools plus MCP servers, 24 built-in modes (architect, coder, reviewer, debugger, tester, ...), and adapters for Aider, OpenHands, Goose, OpenCode and Plandex. |
 
-### :world_map: Visual Roadmap
-Drag-and-drop feature planning with OpenSpec, Spec Kit, and Autospec support. Bidirectional sync with GitHub Issues, GitLab, and Plane.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-### :brain: Intelligent LLM Routing
-127+ models through LiteLLM. 3-layer routing cascade: rule-based complexity analysis (<1ms), UCB1 multi-armed bandit, LLM meta-router fallback. Auto-discovery from Ollama and LM Studio.
-
-</td>
-<td width="50%" valign="top">
-
-### :robot: Agent Orchestration
-Coordinate Aider, Goose, OpenHands, OpenCode, and Plandex with 5 autonomy levels, 24 built-in modes, DAG scheduling, and multi-agent teams. Built-in agentic loop with 7 tools + MCP.
-
-</td>
-</tr>
-</table>
-
-<details>
-<summary><strong>More capabilities</strong></summary>
-
-- **Real-Time Chat** -- Streaming, inline diff review, slash commands, full-text search, notification center, channels with threads
-- **Visual Design Canvas** -- SVG canvas with 7 tools, triple export (PNG/ASCII/JSON), multimodal LLM pipeline with vision support
-- **War Room** -- Live multi-agent collaboration view with swim lanes and handoff arrows
-- **Code-RAG** -- BM25 + semantic search, sub-agent search, PostgreSQL GraphRAG, SimHash dedup
-- **Benchmark System** -- LLM Judge, Functional Test, SPARC, Trajectory Verifier; 8 external providers (HumanEval, SWE-bench, etc.); DPO/RLVR export
-- **Safety Layer** -- 8 controls: budget limits, command policies, branch isolation, test/lint gates, stall detection, rollback, path blocklist, max steps
-- **HITL Approval** -- Permission cards with approve/deny/allow-always, countdown timer, persistent policy rules
-- **Plan/Act Mode** -- Two-phase execution: read-only planning, then full tool access
-- **Trust & Quarantine** -- 4-level trust annotations, risk-scored quarantine, persistent agent identity
-- **Contract-First Review** -- Boundary detection, review-refactor pipeline, diff impact scoring
-- **Goal Discovery** -- Auto-detection of project goals from workspace files
-- **Cost Tracking** -- Per-run and per-project monitoring with budget alerts and per-tool token breakdown
-- **Audit Trail** -- Event sourcing, trajectory recording, replay, and inspection
-
-</details>
-
-## Why CodeForge?
-
-| | Aider | Cline | OpenHands | **CodeForge** |
-|---|:---:|:---:|:---:|:---:|
-| Multi-repo dashboard | - | - | - | **Yes** |
-| Visual roadmap & PM sync | - | - | - | **Yes** |
-| Multi-LLM routing (127+ models) | Partial | Partial | Partial | **Yes** |
-| Multi-agent orchestration | - | - | Yes | **Yes** |
-| Built-in benchmarking | - | - | Yes | **Yes** |
-| Self-hosted, single Docker stack | - | - | Yes | **Yes** |
-| MCP + A2A + AG-UI protocols | MCP | MCP | - | **All three** |
-
-No competitor combines all four pillars. [Full market analysis](docs/research/market-analysis.md)
-
-## Quick Start
-
-### Option A: GitHub Codespaces (zero install)
-
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Strob0t/CodeForge)
-
-The Dev Container auto-installs Go 1.25, Python 3.12, Node.js 22, and starts infrastructure. Then run:
-
-```bash
-go run ./cmd/codeforge/ &                                    # API on :8080
-poetry run python -m codeforge.consumer &                    # AI workers
-cd frontend && npm run dev                                   # UI on :3000
-```
-
-### Option B: Run locally
-
-```bash
-git clone https://github.com/Strob0t/CodeForge.git && cd CodeForge
-cp .env.example .env                                         # Add your API keys
-docker compose up -d                                         # PostgreSQL, NATS, LiteLLM
-go run ./cmd/codeforge/ &                                    # API on :8080
-poetry run python -m codeforge.consumer &                    # AI workers
-cd frontend && npm run dev                                   # UI on :3000
-```
-
-Open [http://localhost:3000](http://localhost:3000) -- credentials are configured during initial setup (see [Dev Setup](docs/dev-setup.md))
-
-### Production
-
-```bash
-docker compose -f docker-compose.prod.yml up -d              # All 6 services
-```
+---
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    user([Browser]) -->|HTTPS| fe["Frontend<br/>SolidJS, nginx"]
+    fe -->|REST + WebSocket| core["Go Core<br/>API, state, policies,<br/>approvals, budgets"]
+    core <-->|JetStream| nats[("NATS")]
+    nats <-->|JetStream| worker["Python Worker<br/>agent loop, tools,<br/>code search"]
+    core --> pg[("PostgreSQL 18")]
+    worker --> pg
+    worker -->|OpenAI-compatible API| litellm["LiteLLM proxy"]
+    core -->|model list| litellm
+    litellm --> cloud["Cloud models"]
+    litellm --> local["Ollama / LM Studio"]
+    worker -->|"tool processes<br/>(tenant UID + Landlock)"| ws[("Workspaces")]
+    core -->|"git (hardened)"| ws
+    core --> vcs["GitHub, GitLab,<br/>Gitea, Plane"]
 ```
-SolidJS Frontend (:3000)  --REST/WS/AG-UI-->  Go Core (:8080)  --NATS JetStream-->  Python Workers
+
+- **Go Core** owns all state and every decision: projects, runs, conversations, policies, approvals, budgets, users and tenants. It never runs code from a workspace.
+- **Python Worker** owns the AI work: LLM calls, the agent loop, tools, code search (BM25, embeddings, GraphRAG). It asks the Core before every tool call.
+- **NATS JetStream** carries every message between the two, with defined delivery rules: work that changes a workspace runs at most once, everything else is idempotent, failed messages land in dead-letter queues.
+- **LiteLLM** is the only way out to model providers. In production the worker has no internet access of its own.
+
+### What happens when an agent works
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as You
+    participant UI as Web UI
+    participant C as Go Core
+    participant W as Worker
+    participant L as LiteLLM
+    participant T as Tool process<br/>(tenant user, Landlock)
+
+    U->>UI: Ask for a change
+    UI->>C: Send message
+    C->>C: Check mode, policy profile, budget
+    C->>W: Start the run (NATS)
+    loop Until done or a limit is reached
+        W->>L: Chat completion (routed model)
+        L-->>W: Answer with a tool call
+        W->>C: May I run this tool call?
+        C->>C: Policy: allow, deny or ask
+        opt Approval needed
+            C-->>UI: Approval card
+            U->>UI: Approve or deny
+            UI->>C: Decision
+        end
+        C-->>W: Decision
+        W->>T: Run the tool (only if allowed)
+        T-->>W: Output
+        W-->>C: Live events (NATS)
+        C-->>UI: Stream to the chat
+    end
+    W->>C: Run complete: result and cost
+    C-->>UI: Result, diff, cost, audit trail
 ```
 
-| Layer | Stack | Purpose |
-|-------|-------|---------|
-| Frontend | TypeScript 5.x, SolidJS, Tailwind CSS | Web GUI with real-time updates |
-| Core | Go 1.25, chi v5, pgx v5 | HTTP/WS server, policies, state management |
-| Workers | Python 3.12, LiteLLM, tree-sitter | LLM calls, agent execution, RAG |
-| Infra | Docker, PostgreSQL 18, NATS, LiteLLM | Storage, messaging, LLM proxy |
+| Component | Stack | Port |
+|---|---|---|
+| Frontend | TypeScript, SolidJS, Tailwind CSS (nginx in production) | 80 (production), 3000 (development) |
+| Go Core | Go 1.26, chi, pgx, coder/websocket | 8080 |
+| Python Worker | Python 3.12, LiteLLM client, tree-sitter | 8081 (health, internal) |
+| Messaging | NATS JetStream 2.15 | 4222 (internal) |
+| Database | PostgreSQL 18 | 5432 (internal) |
+| Model proxy | LiteLLM | 4000 (internal) |
 
-**Protocols:** [MCP](https://modelcontextprotocol.io/) (agent-to-tool) | [A2A](https://github.com/a2aproject/a2a-spec) (agent-to-agent) | [AG-UI](https://docs.ag-ui.com/) (agent-to-frontend) | [LSP](https://microsoft.github.io/language-server-protocol/) (code intelligence) | [OpenTelemetry](https://opentelemetry.io/) (tracing)
+More: [Architecture](docs/architecture.md) | [Architecture decisions (ADRs)](docs/architecture/adr/) | [Security model](docs/SECURITY.md)
 
-**Design:** Hexagonal architecture, provider registry pattern, zero-config defaults. [Full architecture docs](docs/architecture.md) | [ADRs](docs/architecture/adr/)
+---
+
+## Quick Start
+
+### Requirements
+
+| | |
+|---|---|
+| **Linux kernel** | 5.19 or newer with Landlock enabled (Debian 12, Ubuntu 24.04; Ubuntu 22.04 with the HWE kernel). Every tool call runs under Landlock; production refuses to start tool processes without it. |
+| **Docker** | Engine 23.0 or newer, Compose v2 |
+| **File system** | POSIX ACLs on the Docker volumes (ext4 and xfs have them) |
+| **Resources** | The compose file caps the services at about 10 GiB RAM in total; a small setup needs much less. Local models need their own RAM or GPU. |
+
+### Run it with Docker Compose
+
+```bash
+git clone https://github.com/Strob0t/CodeForge.git && cd CodeForge
+cp .env.example .env                                   # optional: provider API keys, OLLAMA_BASE_URL, LM_STUDIO_API_BASE
+./scripts/generate-secrets.sh                          # database, NATS, JWT and encryption secrets in ./secrets
+./scripts/validate-env.sh
+docker compose -f docker-compose.prod.yml build        # until the first release tag publishes the images of VERSION
+./scripts/check-host.sh                                # checks Landlock, ACLs and /tmp on this host
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Then open `http://<your-host>/setup` and create the first admin with the one-time setup token from the Core's log or its data volume:
+
+```bash
+docker compose -f docker-compose.prod.yml logs core | grep 'SETUP TOKEN'
+```
+
+The token is also in `/data/setup_token` inside the Core container; the setup uses it up.
+
+**Agent backends and network:** the published worker image includes the Aider, OpenCode and Goose CLIs. Claude Code is proprietary and not redistributed: build your own worker image with `docker build -f Dockerfile.worker --build-arg INSTALL_CLAUDE_CODE=true -t codeforge-worker:claude-code .` and set `CODEFORGE_CLAUDECODE_ENABLED=true` plus its credentials. The worker has no internet access: point backends at LiteLLM (`http://litellm:4000`), or add `-f docker-compose.egress.yml`, which gives every tenant's tool processes a route out.
+
+**Local models:** run Ollama or LM Studio on the host and set `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`) or `LM_STUDIO_API_BASE` in `.env`. Their models show up in the model list, and models with tool support get the agent tools; no API key is needed.
+
+Upgrading an existing installation, backups and the full list of settings: [Dev Setup](docs/dev-setup.md), [Disaster Recovery](docs/disaster-recovery.md).
+
+### Development setup
+
+```bash
+docker compose up -d postgres nats litellm
+export CODEFORGE_INTERNAL_KEY=$(openssl rand -hex 32)      # the Core and the worker need the same key
+
+# terminal 1: the Go Core, API on :8080
+APP_ENV=development CODEFORGE_AUTH_ADMIN_PASS=<a-strong-password> go run ./cmd/codeforge/
+# terminal 2 (same CODEFORGE_INTERNAL_KEY): the worker, started after the Core
+cd workers && poetry install && poetry run python -m codeforge.consumer
+# terminal 3: the UI on :3000
+cd frontend && npm install && npm run dev
+```
+
+The order matters: the Core creates the NATS stream the worker waits for. Log in as `admin@localhost` with the password you set. Details, tests and the dev container: [Dev Setup](docs/dev-setup.md).
+
+---
+
+## Features
+
+### Projects and code
+
+![Projects dashboard](docs/assets/screenshots/dashboard.png)
+
+![A project with its files, the file the agent changed and the chat](docs/assets/screenshots/project.png)
+
+- Add repositories by URL or adopt a local folder; branches, status and stack detection per project.
+- Code search for agents and for you: BM25 and embeddings, a GraphRAG code graph and a repo map, built automatically when a project is added.
+- A finished run's changes are delivered as you choose: left in the workspace, as a patch, a local commit, a pushed branch or a pull request.
+
+### Roadmap and specs
+
+![Roadmap of a project](docs/assets/screenshots/roadmap.png)
+
+- Milestones and features per project, reorderable by drag and drop.
+- Import from spec files (OpenSpec, Spec Kit, Autospec, Markdown) and write back to them; import issues from GitHub, GitLab, Plane, Gitea/Forgejo; per-project webhooks for updates.
+- Goal discovery proposes project goals from the files in the repository.
+
+### Agents, modes and tools
+
+![Built-in agent modes with their tools, denied actions and autonomy level](docs/assets/screenshots/modes.png)
+
+- Chat with an agent inside a project: streaming answers, tool calls with their output, diffs to review, slash commands (`/mode`, `/model`, `/cost`, `/diff`, `/rewind`, ...).
+- **24 built-in modes** with their own prompt, tools and autonomy, plus custom modes per project (`.codeforge/modes/`).
+- **10 built-in tools** (read, write and edit files, bash, search, glob, list, conversation and skill search, skill creation) plus every tool of the MCP servers you assign.
+- Agent backends: Aider, OpenHands, Goose, OpenCode and Plandex through adapters (their CLIs or services must be available to the worker, see the [FAQ](#faq)); Claude Code as a conversation model when the `claude` CLI is installed and enabled.
+- Live multi-agent view (War Room), handoffs between agents, channels with threads.
+
+### Approvals, safety and isolation
+
+![An approval card in the chat](docs/assets/screenshots/approval.png)
+
+- Policy profiles in YAML: five presets and your own, per tenant; per-mode tool lists; deny lists that always win.
+- Approval cards with approve, deny and allow-always; the same approvals can be answered from a link in Slack or email.
+- Safety controls: budget limits with alerts at 80 % and 90 %, maximum steps, stall detection, test and lint gates with rollback, path blocklists (`.env`, `secrets/**`, ...), branch isolation.
+- Isolation: each tenant's tool processes run as their own Linux user with POSIX ACLs on its directories and under Landlock; secrets are never passed on a command line ([ADR-018](docs/architecture/adr/018-per-tenant-tool-identities-and-landlock.md)).
+
+### Models, routing and costs
+
+![Model settings](docs/assets/screenshots/models.png)
+
+- One model list for everything LiteLLM can reach, including local models; per-user provider keys.
+- Routing picks the model per task: a rule-based complexity analysis, then a bandit that learns from results (UCB1), then an LLM meta-router for cold starts.
+- Cost dashboard per project and run, with a token breakdown per tool.
+
+### More
+
+- Audit trail with trajectory replay, checkpoints, fork and rewind of runs.
+- Knowledge bases and prompt templates per scope; MCP server management per tenant (stdio, SSE and streamable HTTP).
+- Optional, off by default: an MCP server of CodeForge itself, A2A agent federation, LSP code intelligence, OpenTelemetry tracing.
+- In development mode: a benchmark system (LLM judge, functional tests, SWE-bench, HumanEval and more) with DPO and RLVR export.
+
+---
+
+## How CodeForge relates to other tools
+
+Aider, OpenHands, Goose and Claude Code are **agents**: they read code, call a model and edit files. CodeForge is the **platform around agents**: it has its own agent loop, can drive several of those agents as backends, and adds what a team needs to let agents work on shared repositories: one place for all projects and roadmaps, one model gateway, and one set of rules, approvals, budgets and records for every agent and every model.
+
+---
+
+## FAQ
+
+**Can I run CodeForge without any cloud model?**
+Yes. Point it at Ollama or LM Studio and use only local models; in production the worker has no internet access of its own and reaches models only through the LiteLLM container. Ollama models that support tool calling get the agent tools out of the box (their capability comes from LiteLLM's model metadata; `CODEFORGE_MODEL_CAPABILITIES` overrides it per model). The screenshots in this README were made with `qwen3:4b-instruct` on four CPU cores and no API key; larger models are faster and better at multi-step work; the live E2E and benchmark default is now `qwen3.5:4b-q4_K_M`. Models without native tool calling use the tools through the worker's text tool protocol (ADR-021).
+
+**What does it cost?**
+CodeForge is free software (AGPL-3.0). You pay only your model providers; local models cost nothing. Every run's cost is tracked, and budgets in the policy profile stop a run that would exceed them.
+
+**How safe is it to let agents run commands?**
+Every tool call needs a policy decision from the Go Core, and destructive calls can require your approval. Tool processes run as a per-tenant Linux user under Landlock, cannot see other processes and never get secrets on their command line. Not yet isolated: network traffic between tool processes of different tenants ([KI-110](docs/todo.md#known-issues)). Details: [Security](docs/SECURITY.md).
+
+**Can I use Claude Code, Aider or OpenHands?**
+Claude Code runs as a conversation model (`claudecode/default`) when the worker image was built with `INSTALL_CLAUDE_CODE=true` and `CODEFORGE_CLAUDECODE_ENABLED=true` is set (without the CLI a run fails with that hint); its tool calls go through the same policy check. Aider, Goose and OpenCode are in the published worker image; Plandex and SWE-agent are not shipped and OpenHands needs its own service ([KI-118](docs/todo.md#known-issues)). The built-in agent loop works out of the box.
+
+**Can several teams share one installation?**
+The backend separates tenants (data, tool processes, MCP servers, policies). The web UI currently works with the default tenant only ([KI-120](docs/todo.md#known-issues)).
+
+**Where is my data?**
+In PostgreSQL and the Docker volumes on your server. Users can export and erase their data through the API (GDPR), and a retention job removes old data on a schedule ([Data retention](docs/data-retention.md)).
+
+**Why Go and Python?**
+Go for the control plane (concurrency, state, policies, a single binary), Python for the AI work, where the libraries are ([ADR-006](docs/architecture/adr/006-agent-execution-approach-c.md)).
+
+---
+
+## Status and roadmap
+
+CodeForge is under active development; version 0.9.0 is on the `staging` branch. Known gaps, with their severity and status, are tracked as Known Issues in [docs/todo.md](docs/todo.md#known-issues), and the plan for fixing them in [docs/known-issues-fix-plan.md](docs/known-issues-fix-plan.md). Next on the roadmap: sub-agents like Claude Code's ([KI-25](docs/plans/ki25-subagents-plan.md)), read-only submodules ([KI-88](docs/plans/ki88-opaque-submodules-plan.md)) and network isolation between tenants ([KI-110](docs/todo.md#known-issues)). Phase history: [Project Status](docs/project-status.md).
+
+---
 
 ## Documentation
 
 | | |
 |---|---|
-| **[Architecture](docs/architecture.md)** | System design, protocols, patterns |
-| **[Dev Setup](docs/dev-setup.md)** | Ports, config, testing, linting, scripts |
-| **[Tech Stack](docs/tech-stack.md)** | Languages, libraries, versions |
-| **[Project Status](docs/project-status.md)** | 32 phases completed |
-| **[Feature Specs](docs/features/)** | Per-pillar design docs (6 specs) |
+| [Architecture](docs/architecture.md) | Components, data flow, patterns |
+| [Security](docs/SECURITY.md) | Threat model, tool isolation, secrets |
+| [Dev Setup](docs/dev-setup.md) | Configuration, ports, environment variables, tests, upgrading |
+| [Feature specs](docs/features/) | One document per pillar |
+| [API](docs/api/openapi.yaml) | OpenAPI specification |
+| [Disaster Recovery](docs/disaster-recovery.md) | Backups and restore |
+| [All docs](docs/README.md) | Index |
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch from `staging`
-3. Run `pre-commit run --all-files` and `./scripts/test.sh all`
-4. Submit a pull request to `staging`
+1. Fork the repository and branch from `staging`.
+2. Follow [AGENTS.md](AGENTS.md) (the rules for humans and coding agents) and write tests first.
+3. Run `pre-commit run --all-files` and the test suites listed there.
+4. Open a pull request against `staging`.
 
-All code, comments, and commits in English. See [Dev Setup](docs/dev-setup.md) for the full development guide.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 

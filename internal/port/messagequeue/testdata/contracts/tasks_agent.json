@@ -1,0 +1,13 @@
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440041",
+  "project_id": "550e8400-e29b-41d4-a716-446655440004",
+  "tenant_id": "00000000-0000-0000-0000-000000000000",
+  "agent_id": "550e8400-e29b-41d4-a716-446655440042",
+  "title": "Fix bug",
+  "prompt": "Fix the null pointer in handler.go",
+  "backend": "aider",
+  "workspace_path": "/data/workspaces/my-project",
+  "heartbeat_seconds": 30,
+  "dispatch_id": "550e8400-e29b-41d4-a716-446655440043",
+  "tool_uid": 20000
+}

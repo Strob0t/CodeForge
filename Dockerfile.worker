@@ -1,5 +1,12 @@
 # syntax=docker/dockerfile:1
 
+# Claude Code is a build option, not part of the published images (owner
+# decision 2026-10-06: its licence is proprietary). A worker image with the
+# pinned, checksummed Claude Code CLI:
+#   docker build -f Dockerfile.worker --build-arg INSTALL_CLAUDE_CODE=true -t codeforge-worker:claude-code .
+# The value must be true or false (it names the stage that provides the CLI).
+ARG INSTALL_CLAUDE_CODE=false
+
 FROM python:3.12-slim AS build
 
 ARG APP_VERSION=dev
@@ -22,6 +29,47 @@ COPY workers/ workers/
 
 RUN poetry install --only main --no-interaction --no-ansi
 
+# --- Agent backend CLIs (KI-118) ---
+# The backends' CLIs, each pinned and verified: Aider from hash-locked wheels
+# (workers/aider-requirements.txt) in a virtual environment of its own below
+# /usr/local; OpenCode and, with INSTALL_CLAUDE_CODE=true only, Claude Code
+# as the native binaries of their npm platform packages (the tarballs'
+# sha256; npm's sha512 integrity matched when the pins were recorded); Goose
+# from Block's multi-arch image by digest (Block publishes no versioned image
+# after 1.29.0; a newer Goose needs its GitHub release archive and checksum).
+# Plandex, SWE-agent and OpenHands are not installed
+# (workers/tests/test_backend_clis.py says why).
+FROM python:3.12-slim AS aider
+RUN --mount=type=bind,source=workers/aider-requirements.txt,target=/tmp/aider-requirements.txt \
+    python -m venv /usr/local/lib/codeforge-backends/aider && \
+    /usr/local/lib/codeforge-backends/aider/bin/python -m pip install --no-cache-dir --disable-pip-version-check \
+        --require-hashes --only-binary=:all: -r /tmp/aider-requirements.txt
+
+FROM ghcr.io/block/goose:1.29.0@sha256:3554583b63d9513d88417922c83a7781fab5b6ae0ec98341dd56e5a3e780d2af AS goose
+
+FROM scratch AS backend-clis-amd64
+ADD --checksum=sha256:585bc53a8ae7e839b8702752a283ba826e1ca2152e8c14188efc5b6a738d9834 https://registry.npmjs.org/opencode-linux-x64-baseline/-/opencode-linux-x64-baseline-1.18.34.tgz /opencode.tgz
+
+FROM scratch AS backend-clis-arm64
+ADD --checksum=sha256:6f212b830b26bf72012f1665559ddb5fd7e928294971d3d1c99a0f9097a3d311 https://registry.npmjs.org/opencode-linux-arm64/-/opencode-linux-arm64-1.18.34.tgz /opencode.tgz
+
+FROM backend-clis-${TARGETARCH} AS backend-clis
+
+# Claude Code: the stage claude-code is the CLI's tarball with
+# INSTALL_CLAUDE_CODE=true and empty with false, so a default build never
+# downloads it.
+FROM scratch AS claude-code-amd64
+ADD --checksum=sha256:50a6eb433422febcfa7b7ac1e78ba795cdf79f1fe58f017fb1d9aeb9491b337d https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.289.tgz /claude-code.tgz
+
+FROM scratch AS claude-code-arm64
+ADD --checksum=sha256:45ad1d2f955ebe14ffdbc651e86ca713063e63b616b41a184c93be89c28e5fb4 https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.289.tgz /claude-code.tgz
+
+FROM claude-code-${TARGETARCH} AS claude-code-true
+
+FROM scratch AS claude-code-false
+
+FROM claude-code-${INSTALL_CLAUDE_CODE} AS claude-code
+
 # --- Runtime stage ---
 FROM python:3.12-slim
 
@@ -31,11 +79,64 @@ ARG GIT_SHA=unknown
 LABEL org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends git && \
-    rm -rf /var/lib/apt/lists/*
+# acl: setfacl/getfacl for operators and scripts/check-host.sh (the worker
+# itself sets ACLs through xattrs, codeforge.posix_acl); libgomp1 for goose. Tool processes run
+# the system interpreter, never the worker's venv (a venv interpreter cannot
+# run under Landlock): the Python tools they need (workers/tool-requirements.txt:
+# pytest and ruff for the default quality gates of Python projects and the
+# auto-agent's workspace test) go into it, pinned with hashes to poetry.lock.
+# The stock image has no .pyc files and the read-only root keeps Python from
+# writing them: the launch helper of every tool process
+# (codeforge/tool_exec.py, run with -I -S) imports ctypes and json, about
+# 80 ms per launch uncompiled, 24 ms compiled.
+RUN --mount=type=bind,source=workers/tool-requirements.txt,target=/tmp/tool-requirements.txt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends git acl libgomp1 && \
+    rm -rf /var/lib/apt/lists/* && \
+    python -m pip install --no-cache-dir --root-user-action=ignore --disable-pip-version-check \
+        --require-hashes --only-binary=:all: -r /tmp/tool-requirements.txt && \
+    python -m compileall -q /usr/local/lib/python3.12
 
-RUN groupadd -r codeforge && useradd -r -g codeforge codeforge
+# Users (KI-71, KI-96 / ADR-018): the worker runs as codeforge (10001, the
+# core image's UID) in codeforge-ws (10010), which owns the shared workspaces
+# volume at /data/workspaces with the Go Core. Every agent tool process runs
+# as its tenant's tool user, 20000-29999 (codeforge-t<uid>), with no
+# supplementary group; tenantless checks run as codeforge-system (19999).
+# Their passwd and group lines are written directly: useradd would give each
+# 65,536 subordinate IDs (it runs out near the 9,156th user) and costs about
+# 14 ms per user. Without an entry git commit, id -un, node's os.userInfo()
+# and ssh fail. 10002, the shared tool user of KI-71, is retired
+# (codeforge-tool-legacy): it still owns files from before the upgrade and
+# runs only the owner steps of their migration, outside the workspace group.
+#
+# The workspace root is 2771: tools can pass through it, not list it (tenant
+# IDs) or create anything in it; tenant directories get POSIX ACLs for their
+# tool UID (the Go Core's workspace.tool_acls: required). /home/codeforge-tools
+# (0711) holds the tools' HOMEs on the tool_homes volume, created here so a
+# fresh volume gets this owner and mode. The canary is world-readable; the
+# isolation check fails when a tool process can read it (Landlock).
+# Tool processes run git in repositories another UID created (safe.directory;
+# the Go Core sets its own per repository, KI-77) and commit with a default
+# identity (global and repository config win).
+RUN groupadd -r -g 10010 codeforge-ws && \
+    groupadd -r -g 10001 codeforge && useradd -r -u 10001 -g codeforge -G codeforge-ws codeforge && \
+    groupadd -r -g 10002 codeforge-tool-legacy && \
+    useradd -r -u 10002 -g codeforge-tool-legacy -d /nonexistent -M -s /usr/sbin/nologin codeforge-tool-legacy && \
+    printf 'codeforge-system:x:19999:19999:CodeForge system tool user:/home/codeforge-tools/19999:/usr/sbin/nologin\n' \
+        >> /etc/passwd && \
+    printf 'codeforge-system:x:19999:\n' >> /etc/group && \
+    seq 20000 29999 | awk '{ printf "codeforge-t%d:x:%d:%d:CodeForge tenant tool user:/home/codeforge-tools/%d:/usr/sbin/nologin\n", $1, $1, $1, $1 }' \
+        >> /etc/passwd && \
+    seq 20000 29999 | awk '{ printf "codeforge-t%d:x:%d:\n", $1, $1 }' >> /etc/group && \
+    mkdir -p /data/workspaces && chown codeforge:codeforge /data && \
+    chown codeforge:codeforge-ws /data/workspaces && chmod 2771 /data/workspaces && \
+    install -d -o 10001 -g 10001 -m 0711 /home/codeforge-tools && \
+    install -d -m 0755 /var/lib/codeforge && \
+    printf 'tool processes must not read this file (Landlock canary, KI-96)\n' > /var/lib/codeforge/landlock-canary && \
+    chmod 0644 /var/lib/codeforge/landlock-canary && \
+    git config --system safe.directory '*' && \
+    git config --system user.name 'CodeForge agent' && \
+    git config --system user.email agent@codeforge.invalid
 
 WORKDIR /app
 
@@ -43,15 +144,68 @@ COPY --from=build /app/.venv /app/.venv
 COPY --from=build /app/workers /app/workers
 COPY --from=build /app/VERSION /app/VERSION
 COPY --from=build /app/pyproject.toml /app/pyproject.toml
+# The fallback price table (codeforge.pricing reads it next to the editable install, KI-196).
+COPY configs/model_pricing.yaml /app/configs/model_pricing.yaml
 COPY scripts/worker-healthcheck.py /app/scripts/worker-healthcheck.py
 
+# Agent backend CLIs (KI-118): on the tool PATH (/usr/local/bin) and below
+# /usr, which Landlock lets tool processes read and execute. Like every tool
+# they start only through codeforge.tool_process, as the tenant's tool user;
+# they write their settings and caches to that user's HOME. Claude Code only
+# with INSTALL_CLAUDE_CODE=true (see the top of this file).
+ARG INSTALL_CLAUDE_CODE
+COPY --from=aider /usr/local/lib/codeforge-backends/aider /usr/local/lib/codeforge-backends/aider
+COPY --from=goose /usr/local/bin/goose /usr/local/bin/goose
+RUN --mount=type=bind,from=backend-clis,target=/tmp/backend-clis \
+    --mount=type=bind,from=claude-code,target=/tmp/claude-code \
+    tar -xzf /tmp/backend-clis/opencode.tgz -C /usr/local/bin --strip-components=2 --no-same-owner package/bin/opencode && \
+    chmod 0755 /usr/local/bin/opencode && \
+    if [ "$INSTALL_CLAUDE_CODE" = true ]; then \
+        tar -xzf /tmp/claude-code/claude-code.tgz -C /usr/local/bin --strip-components=1 --no-same-owner package/claude && \
+        chmod 0755 /usr/local/bin/claude; \
+    fi && \
+    ln -s ../lib/codeforge-backends/aider/bin/aider /usr/local/bin/aider
+
+# The pinned CLIs do not update themselves (the root is read-only, and a
+# tenant's HOME must not get another version), aider sends no analytics (its
+# --yes-always would accept the opt-in question), and goose keeps its
+# secrets in its config file: the container has no keyring. Their executors
+# pass these to the tool processes (AIDER_, OPENCODE_, GOOSE_ prefixes);
+# Claude Code gets DISABLE_AUTOUPDATER from its executor.
+ENV AIDER_ANALYTICS_DISABLE=true \
+    AIDER_CHECK_UPDATE=false \
+    OPENCODE_DISABLE_AUTOUPDATE=true \
+    GOOSE_DISABLE_KEYRING=1
+COPY --chmod=0755 scripts/worker-entrypoint.sh /app/scripts/worker-entrypoint.sh
+
+# The worker's own PATH. Tool processes never get it (a venv interpreter
+# cannot run under Landlock): they get CODEFORGE_TOOL_PATH.
 ENV PATH="/app/.venv/bin:$PATH"
 
-USER codeforge
+# deepeval (evaluation metrics) must not send telemetry or results to third
+# parties (KI-54). codeforge.evaluation forces the same settings before it
+# imports deepeval; the image covers deepeval started any other way.
+ENV DEEPEVAL_TELEMETRY_OPT_OUT=YES \
+    DEEPEVAL_UPDATE_WARNING_OPT_IN=0 \
+    CONFIDENT_METRIC_LOGGING_ENABLED=NO \
+    CONFIDENT_TRACING_ENABLED=NO \
+    DEEPEVAL_DISABLE_DOTENV=1 \
+    DEEPEVAL_DISABLE_LEGACY_KEYFILE=1
 
-# INFRA-015: Sentinel-based healthcheck verifies NATS connection is active,
-# not just that the module is importable.
+# Agent tool processes run as their tenant's tool user under Landlock
+# (codeforge.tool_process; CODEFORGE_TOOL_LANDLOCK follows the isolation
+# mode); a tool call fails when they cannot, and /health/ready answers 503.
+# The container starts as root (no USER): the entrypoint runs the worker as
+# codeforge with only CAP_SETUID, CAP_SETGID and CAP_KILL
+# (docker-compose.prod.yml drops every other capability).
+ENV CODEFORGE_TOOL_ISOLATION=required \
+    CODEFORGE_WORKSPACE_GID=10010
+
+# The worker serves GET /health (liveness) and GET /health/ready (connected to
+# NATS, every consumer loop running, tool isolation ready) on
+# CODEFORGE_WORKER_HEALTH_PORT (8081); the check asks /health/ready.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD python /app/scripts/worker-healthcheck.py || exit 1
 
-ENTRYPOINT ["python", "-m", "codeforge.consumer"]
+ENTRYPOINT ["/app/scripts/worker-entrypoint.sh"]
+CMD ["python", "-m", "codeforge.consumer"]

@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"path/filepath"
+	"log/slog"
+	"path"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -13,7 +14,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/port/database"
-	"github.com/Strob0t/CodeForge/internal/port/filesystem"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 const maxGoalFileSize = 50 * 1024 // 50 KB
@@ -25,14 +26,15 @@ type GoalDiscoveryResult struct {
 }
 
 // GoalDiscoveryService manages project goal discovery, CRUD, and context injection.
+// Goal files are read through workspacefs (KI-95): a symlink that leaves the
+// workspace, a FIFO or a file over maxGoalFileSize is never read.
 type GoalDiscoveryService struct {
 	db database.Store
-	fs filesystem.Provider
 }
 
 // NewGoalDiscoveryService creates a new GoalDiscoveryService.
-func NewGoalDiscoveryService(db database.Store, fs filesystem.Provider) *GoalDiscoveryService {
-	return &GoalDiscoveryService{db: db, fs: fs}
+func NewGoalDiscoveryService(db database.Store) *GoalDiscoveryService {
+	return &GoalDiscoveryService{db: db}
 }
 
 // DetectAndImport scans a workspace for goal files, deletes previous auto-detected
@@ -183,24 +185,31 @@ func (d *DetectedGoal) ToProjectGoal(projectID string) goal.ProjectGoal {
 
 // detectGoalFiles scans a workspace directory for goal-relevant files.
 func (s *GoalDiscoveryService) detectGoalFiles(ctx context.Context, workspacePath string) []DetectedGoal {
+	ws, err := workspacefs.Open(workspacePath)
+	if err != nil {
+		slog.WarnContext(ctx, "goal discovery: cannot open workspace", "path", workspacePath, "error", err)
+		return nil
+	}
+	defer func() { _ = ws.Close() }()
+
 	var goals []DetectedGoal
 
 	// Tier 1: GSD .planning/ directory
-	goals = append(goals, s.detectGSD(ctx, workspacePath)...)
+	goals = append(goals, detectGSD(ws)...)
 
 	// Tier 2: Agent instructions
-	goals = append(goals, s.detectAgentInstructions(ctx, workspacePath)...)
+	goals = append(goals, detectAgentInstructions(ws)...)
 
 	// Tier 3: Project docs
-	goals = append(goals, s.detectProjectDocs(ctx, workspacePath)...)
+	goals = append(goals, detectProjectDocs(ws)...)
 
 	return goals
 }
 
 // detectGSD checks for GSD .planning/ files.
-func (s *GoalDiscoveryService) detectGSD(ctx context.Context, root string) []DetectedGoal {
-	planDir := filepath.Join(root, ".planning")
-	if _, err := s.fs.Stat(ctx, planDir); err != nil {
+func detectGSD(ws *workspacefs.Root) []DetectedGoal {
+	const planDir = ".planning"
+	if info, err := ws.Stat(planDir); err != nil || !info.IsDir() {
 		return nil
 	}
 
@@ -218,7 +227,7 @@ func (s *GoalDiscoveryService) detectGSD(ctx context.Context, root string) []Det
 	}
 
 	for _, p := range patterns {
-		content := s.readGoalFile(ctx, filepath.Join(planDir, p.file))
+		content := readGoalFile(ws, path.Join(planDir, p.file))
 		if content == "" {
 			continue
 		}
@@ -234,7 +243,7 @@ func (s *GoalDiscoveryService) detectGSD(ctx context.Context, root string) []Det
 
 	// Detect numbered context files: NN-CONTEXT.md
 	contextRe := regexp.MustCompile(`^\d+-CONTEXT\.md$`)
-	entries, err := s.fs.ReadDir(ctx, planDir)
+	entries, err := ws.ReadDir(planDir)
 	if err != nil {
 		return goals
 	}
@@ -242,7 +251,7 @@ func (s *GoalDiscoveryService) detectGSD(ctx context.Context, root string) []Det
 		if e.IsDir() || !contextRe.MatchString(e.Name()) {
 			continue
 		}
-		content := s.readGoalFile(ctx, filepath.Join(planDir, e.Name()))
+		content := readGoalFile(ws, path.Join(planDir, e.Name()))
 		if content == "" {
 			continue
 		}
@@ -260,7 +269,7 @@ func (s *GoalDiscoveryService) detectGSD(ctx context.Context, root string) []Det
 }
 
 // detectAgentInstructions checks for CLAUDE.md, .cursorrules, .clinerules.
-func (s *GoalDiscoveryService) detectAgentInstructions(ctx context.Context, root string) []DetectedGoal {
+func detectAgentInstructions(ws *workspacefs.Root) []DetectedGoal {
 	var goals []DetectedGoal
 
 	patterns := []struct {
@@ -275,7 +284,7 @@ func (s *GoalDiscoveryService) detectAgentInstructions(ctx context.Context, root
 	}
 
 	for _, p := range patterns {
-		content := s.readGoalFile(ctx, filepath.Join(root, p.file))
+		content := readGoalFile(ws, p.file)
 		if content == "" {
 			continue
 		}
@@ -293,11 +302,11 @@ func (s *GoalDiscoveryService) detectAgentInstructions(ctx context.Context, root
 }
 
 // detectProjectDocs checks for README.md, CONTRIBUTING.md, docs/architecture.md, docs/requirements.md.
-func (s *GoalDiscoveryService) detectProjectDocs(ctx context.Context, root string) []DetectedGoal {
+func detectProjectDocs(ws *workspacefs.Root) []DetectedGoal {
 	var goals []DetectedGoal
 
 	// README.md — first section only
-	readmeContent := s.readGoalFile(ctx, filepath.Join(root, "README.md"))
+	readmeContent := readGoalFile(ws, "README.md")
 	if readmeContent != "" {
 		first := extractFirstSection(readmeContent)
 		if first != "" {
@@ -313,7 +322,7 @@ func (s *GoalDiscoveryService) detectProjectDocs(ctx context.Context, root strin
 	}
 
 	// CONTRIBUTING.md
-	contribContent := s.readGoalFile(ctx, filepath.Join(root, "CONTRIBUTING.md"))
+	contribContent := readGoalFile(ws, "CONTRIBUTING.md")
 	if contribContent != "" {
 		goals = append(goals, DetectedGoal{
 			Kind:       goal.KindConstraint,
@@ -327,7 +336,7 @@ func (s *GoalDiscoveryService) detectProjectDocs(ctx context.Context, root strin
 
 	// docs/architecture.md or docs/ARCHITECTURE.md
 	for _, name := range []string{"docs/architecture.md", "docs/ARCHITECTURE.md"} {
-		content := s.readGoalFile(ctx, filepath.Join(root, name))
+		content := readGoalFile(ws, name)
 		if content != "" {
 			goals = append(goals, DetectedGoal{
 				Kind:       goal.KindConstraint,
@@ -343,7 +352,7 @@ func (s *GoalDiscoveryService) detectProjectDocs(ctx context.Context, root strin
 
 	// docs/requirements.md or docs/REQUIREMENTS.md
 	for _, name := range []string{"docs/requirements.md", "docs/REQUIREMENTS.md"} {
-		content := s.readGoalFile(ctx, filepath.Join(root, name))
+		content := readGoalFile(ws, name)
 		if content != "" {
 			goals = append(goals, DetectedGoal{
 				Kind:       goal.KindRequirement,
@@ -360,13 +369,10 @@ func (s *GoalDiscoveryService) detectProjectDocs(ctx context.Context, root strin
 	return goals
 }
 
-// readGoalFile reads a file, returning empty string if it doesn't exist, is binary, or exceeds maxGoalFileSize.
-func (s *GoalDiscoveryService) readGoalFile(ctx context.Context, path string) string {
-	info, err := s.fs.Stat(ctx, path)
-	if err != nil || info.IsDir() || info.Size() > maxGoalFileSize {
-		return ""
-	}
-	data, err := s.fs.ReadFile(ctx, path)
+// readGoalFile reads a workspace file, returning empty string if it doesn't exist, leaves the
+// workspace, is not a regular file, is binary, or exceeds maxGoalFileSize.
+func readGoalFile(ws *workspacefs.Root, name string) string {
+	data, _, err := ws.ReadFile(name, maxGoalFileSize)
 	if err != nil {
 		return ""
 	}

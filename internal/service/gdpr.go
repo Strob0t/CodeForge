@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // ConversationExport bundles a conversation with its messages for GDPR export.
@@ -35,7 +37,20 @@ type UserDataExport struct {
 
 // GDPRService provides GDPR data export and deletion operations.
 type GDPRService struct {
-	store database.Store
+	store  database.Store
+	tokens userTokenInvalidator
+}
+
+// userTokenInvalidator ends a user's sessions on this replica
+// (TokenManager): an erased user's tokens stop working here at once and the
+// user's WebSocket connections close (KI-143).
+type userTokenInvalidator interface {
+	EndUserSessions(userID string)
+}
+
+// SetTokenInvalidator sets what erasing a user tells about it.
+func (s *GDPRService) SetTokenInvalidator(inv userTokenInvalidator) {
+	s.tokens = inv
 }
 
 // NewGDPRService creates a new GDPR service backed by the given store.
@@ -49,10 +64,11 @@ func NewGDPRService(store database.Store) *GDPRService {
 // Data is gathered through project ownership: all projects in the tenant are
 // enumerated, then sessions/conversations/runs are collected per project.
 // Audit trail entries are filtered to the specific user (admin_id match).
+// The user must be of the caller's tenant (KI-176).
 func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserDataExport, error) {
-	u, err := s.store.GetUser(ctx, userID)
+	u, err := userInTenant(ctx, s.store, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
+		return nil, err
 	}
 
 	apiKeys, err := s.store.ListAPIKeysByUser(ctx, userID)
@@ -140,22 +156,77 @@ func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserD
 }
 
 // DeleteUserData removes all personal data for the given user (GDPR Article 17
-// — Right to Erasure). Audit log entries are anonymized (PII nulled) before
-// user deletion to preserve the audit trail per ADR-009. The database FK
-// constraints with ON DELETE CASCADE handle dependent rows automatically.
+// - Right to Erasure), see eraseUser. The user's sessions end once the user
+// is erased, so a refused erasure (another tenant's user, KI-176) has no
+// side effect.
 func (s *GDPRService) DeleteUserData(ctx context.Context, userID string) error {
-	// Anonymize audit log entries before deletion so the audit trail is
-	// preserved without PII (admin_email and ip_address set to NULL).
-	// This implements the ADR-009 requirement: "Audit log entries are
-	// anonymized (user ID replaced with a tombstone value) rather than
-	// deleted, preserving the security audit trail while removing PII."
-	anonymized, err := s.store.AnonymizeAuditLogForUser(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("anonymize audit log: %w", err)
+	if err := eraseUser(ctx, s.store, userID); err != nil {
+		return err
 	}
-	slog.Info("gdpr: audit log anonymized", "user_id", userID, "entries_anonymized", anonymized)
+	if s.tokens != nil {
+		s.tokens.EndUserSessions(userID)
+	}
+	return nil
+}
 
-	if err := s.store.DeleteUser(ctx, userID); err != nil {
+// userErasureStore is what erasing a user needs.
+type userErasureStore interface {
+	GetUser(ctx context.Context, id string) (*user.User, error)
+	AnonymizeAuditLogForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeConsentsForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeChannelMessagesForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeQuarantineReviewsForUser(ctx context.Context, userID string) (int64, error)
+	DeleteUser(ctx context.Context, id string) error
+}
+
+// userInTenant reads a user of the caller's tenant; another tenant's user
+// is not found, so an admin acts only within their tenant (KI-176). The
+// store's GetUser is cross-tenant for the authentication path.
+func userInTenant(ctx context.Context, store interface {
+	GetUser(ctx context.Context, id string) (*user.User, error)
+}, userID string) (*user.User, error) {
+	u, err := store.GetUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	if u.TenantID != tenantctx.FromContext(ctx) {
+		return nil, fmt.Errorf("get user %s: %w", userID, domain.ErrNotFound)
+	}
+	return u, nil
+}
+
+// eraseUser is the one way a user is deleted, whether through the GDPR
+// endpoints or account deletion: rows that outlive the user keep their content
+// without the user's personal data (ADR-009) - audit entries lose email and IP
+// address, consent records (proof of consent) lose IP address and user agent,
+// channel messages get a placeholder sender name, quarantine reviews a
+// placeholder reviewer name. These run first, while the rows can still be
+// found by the user's ID; if one fails, the user is not
+// deleted and the erasure can be retried. Deleting the user then removes the
+// dependent rows (ON DELETE CASCADE) and unlinks the kept ones (ON DELETE SET
+// NULL). A user of another tenant is not found and nothing runs (KI-176).
+func eraseUser(ctx context.Context, store userErasureStore, userID string) error {
+	if _, err := userInTenant(ctx, store, userID); err != nil {
+		return err
+	}
+	steps := []struct {
+		name      string
+		anonymize func(ctx context.Context, userID string) (int64, error)
+	}{
+		{"audit_log", store.AnonymizeAuditLogForUser},
+		{"user_consents", store.AnonymizeConsentsForUser},
+		{"channel_messages", store.AnonymizeChannelMessagesForUser},
+		{"quarantine_reviews", store.AnonymizeQuarantineReviewsForUser},
+	}
+	for _, step := range steps {
+		n, err := step.anonymize(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("anonymize %s: %w", step.name, err)
+		}
+		slog.Info("gdpr: personal data anonymized", "user_id", userID, "table", step.name, "rows", n)
+	}
+
+	if err := store.DeleteUser(ctx, userID); err != nil {
 		return fmt.Errorf("delete user data: %w", err)
 	}
 	slog.Info("gdpr: user data deleted", "user_id", userID)

@@ -169,6 +169,9 @@ type Result struct {
 	EvaluatorScores      json.RawMessage `json:"evaluator_scores,omitempty"`
 	FilesChanged         []string        `json:"files_changed,omitempty"`
 	FunctionalTestOutput string          `json:"functional_test_output,omitempty"`
+	// EvaluationErrors names the dimensions an evaluator could not score
+	// (dimension -> error); they are not scores and no average counts them.
+	EvaluationErrors map[string]string `json:"evaluation_errors,omitempty"`
 
 	// Phase 28C: Multi-rollout fields.
 	RolloutID      int     `json:"rollout_id"`

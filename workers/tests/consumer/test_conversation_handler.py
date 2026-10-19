@@ -1,7 +1,7 @@
 """Tests for ConversationHandlerMixin.
 
 Verifies:
-- _handle_conversation_run: valid message processing, invalid JSON nack, duplicate dedup
+- _handle_conversation_run: valid message processing, invalid JSON dead-lettered, duplicate dedup
 - _publish_completion: correct NATS subject and payload structure
 - _build_system_prompt: returns a non-empty string
 """
@@ -9,17 +9,31 @@ Verifies:
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
+from codeforge.loop_config import ModelCapability
 from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
     ConversationRunStartMessage,
+    ModeConfig,
 )
+from codeforge.tools.capability import CapabilityLevel
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+_CAPABILITY = ModelCapability(level=CapabilityLevel.FULL, context_limit=120_000)
+
+# An existing directory: an agentic run needs one (KI-193); no tool runs here.
+_WORKSPACE = str(Path(__file__).resolve().parent)
 
 
 def _make_valid_run_start(
@@ -35,7 +49,12 @@ def _make_valid_run_start(
         messages=[ConversationMessagePayload(role="user", content="Hello")],
         system_prompt="You are a helpful assistant.",
         model="openai/gpt-4o",
+        workspace_path=_WORKSPACE,
     )
+
+
+class _Handler(ConversationHandlerMixin, ConsumerBaseMixin):
+    """The conversation mixin with the shared consumer helpers, as in TaskConsumer."""
 
 
 def _make_handler() -> ConversationHandlerMixin:
@@ -46,7 +65,7 @@ def _make_handler() -> ConversationHandlerMixin:
     _js, _llm, _db_url, _litellm_url, _litellm_key, _experience_pool,
     _stamp_trust (staticmethod from ConsumerBaseMixin).
     """
-    handler = ConversationHandlerMixin()
+    handler = _Handler()
     handler._js = AsyncMock()
     handler._js.publish = AsyncMock()
     handler._llm = AsyncMock()
@@ -60,6 +79,57 @@ def _make_handler() -> ConversationHandlerMixin:
 
     handler._stamp_trust = ConsumerBaseMixin._stamp_trust  # type: ignore[attr-defined]
     return handler
+
+
+async def _run_with_patched_dependencies(
+    handler: ConversationHandlerMixin,
+    msg: MagicMock,
+    fake_execute: Callable[..., Awaitable[AgentLoopResult]],
+) -> MagicMock:
+    """Run _handle_conversation_run with every collaborator patched.
+
+    Returns the patched RuntimeClient class so tests can inspect how it was built.
+    """
+    with (
+        patch(
+            "codeforge.consumer._conversation.build_system_prompt",
+            new_callable=AsyncMock,
+            return_value=("prompt", []),
+        ),
+        patch("codeforge.consumer._conversation.wire_skill_tools"),
+        patch("codeforge.consumer._conversation.register_handoff_tool"),
+        patch("codeforge.consumer._conversation.register_propose_goal_tool"),
+        patch("codeforge.consumer._conversation_routing.get_hybrid_router", new_callable=AsyncMock, return_value=None),
+        patch("codeforge.consumer._conversation_routing.build_fallback_chain", new_callable=AsyncMock, return_value=[]),
+        patch.object(handler, "_execute_conversation_run", side_effect=fake_execute),
+        patch.object(handler, "_publish_completion", new_callable=AsyncMock),
+        patch("codeforge.consumer._conversation.RuntimeClient") as mock_runtime_cls,
+        patch("codeforge.tools.build_default_registry") as mock_registry_fn,
+        patch("codeforge.history.ConversationHistoryManager") as mock_history_cls,
+        patch("codeforge.history.HistoryConfig"),
+        patch("codeforge.consumer._conversation.resolve_model_capability", AsyncMock(return_value=_CAPABILITY)),
+        patch("asyncio.to_thread") as mock_to_thread,
+    ):
+        runtime_instance = AsyncMock()
+        mock_runtime_cls.return_value = runtime_instance
+
+        mock_registry_fn.return_value = MagicMock()
+
+        history_instance = MagicMock()
+        history_instance.build_messages.return_value = [{"role": "system", "content": "prompt"}]
+        mock_history_cls.return_value = history_instance
+
+        mock_routing_result = MagicMock()
+        mock_routing_result.model = "openai/gpt-4o"
+        mock_routing_result.temperature = 0.7
+        mock_routing_result.tags = []
+        mock_routing_result.routing_layer = ""
+        mock_routing_result.complexity_tier = "simple"
+        mock_routing_result.task_type = "code"
+        mock_to_thread.return_value = mock_routing_result
+
+        await handler._handle_conversation_run(msg)
+    return mock_runtime_cls
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +158,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         fake_result = AgentLoopResult(
             final_content="Done",
@@ -103,73 +174,163 @@ class TestHandleConversationRun:
             tracked_during_exec = "run-track-test" in ConversationHandlerMixin._active_runs
             return fake_result
 
-        with (
-            patch(
-                "codeforge.consumer._conversation.build_system_prompt",
-                new_callable=AsyncMock,
-                return_value=("prompt", []),
-            ),
-            patch("codeforge.consumer._conversation.wire_skill_tools"),
-            patch("codeforge.consumer._conversation.register_handoff_tool"),
-            patch("codeforge.consumer._conversation.register_propose_goal_tool"),
-            patch("codeforge.consumer._conversation.get_hybrid_router", new_callable=AsyncMock, return_value=None),
-            patch("codeforge.consumer._conversation.build_fallback_chain", new_callable=AsyncMock, return_value=[]),
-            patch.object(handler, "_execute_conversation_run", side_effect=fake_execute),
-            patch.object(handler, "_publish_completion", new_callable=AsyncMock),
-            patch("codeforge.consumer._conversation.RuntimeClient") as mock_runtime_cls,
-            patch("codeforge.tools.build_default_registry") as mock_registry_fn,
-            patch("codeforge.history.ConversationHistoryManager") as mock_history_cls,
-            patch("codeforge.history.HistoryConfig"),
-            patch("codeforge.tools.capability.classify_model") as mock_classify,
-            patch("asyncio.to_thread") as mock_to_thread,
-        ):
-            runtime_instance = AsyncMock()
-            mock_runtime_cls.return_value = runtime_instance
+        await _run_with_patched_dependencies(handler, msg, fake_execute)
 
-            mock_registry_fn.return_value = MagicMock()
-
-            history_instance = MagicMock()
-            history_instance.build_messages.return_value = [{"role": "system", "content": "prompt"}]
-            mock_history_cls.return_value = history_instance
-
-            from codeforge.tools.capability import CapabilityLevel
-
-            mock_classify.return_value = CapabilityLevel.FULL
-
-            mock_routing_result = MagicMock()
-            mock_routing_result.model = "openai/gpt-4o"
-            mock_routing_result.temperature = 0.7
-            mock_routing_result.tags = []
-            mock_routing_result.routing_layer = ""
-            mock_routing_result.complexity_tier = "simple"
-            mock_routing_result.task_type = "code"
-            mock_to_thread.return_value = mock_routing_result
-
-            await handler._handle_conversation_run(msg)
-
-        msg.ack.assert_called_once()
+        msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
         msg.nak.assert_not_called()
         assert tracked_during_exec, "run_id was not tracked in _active_runs during execution"
         # After completion, the run_id should be cleaned up from _active_runs.
         assert "run-track-test" not in ConversationHandlerMixin._active_runs
 
     @pytest.mark.asyncio
-    async def test_invalid_json_publishes_error_and_acks(self) -> None:
-        """Invalid JSON data should trigger error publishing and ack (not nak)."""
+    async def test_runtime_client_carries_the_run_tenant(self) -> None:
+        """Every message the run sends back must carry its tenant (KI-12)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-tenant-test")
+        run_msg.tenant_id = "aaaaaaaa-0000-0000-0000-000000000001"
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
+        assert runtime_cls.call_args.kwargs["tenant_id"] == "aaaaaaaa-0000-0000-0000-000000000001"
+
+    @pytest.mark.asyncio
+    async def test_spawn_subagent_is_not_offered(self) -> None:
+        """spawn_subagent starts nothing yet, so a run does not offer it (KI-25)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-no-subagent")
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        with patch("codeforge.tools.spawn_subagent.SpawnSubagentExecutor") as executor_cls:
+            await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        msg.ack_sync.assert_awaited_once()
+        executor_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("mode", "expected_mode_id"), [(ModeConfig(id="architect"), "architect"), (None, "")])
+    async def test_runtime_client_reports_mode(self, mode: ModeConfig | None, expected_mode_id: str) -> None:
+        """The RuntimeClient sends the dispatched mode with every tool call (KI-10)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-mode-test")
+        run_msg.mode = mode
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        runtime_cls.assert_called_once()
+        assert runtime_cls.call_args.kwargs["mode_id"] == expected_mode_id
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("turn_id", ["turn-7", ""])
+    async def test_runtime_client_reports_turn(self, turn_id: str) -> None:
+        """The RuntimeClient sends the run's turn with every tool call, so Go can
+        reject calls of a stopped run of the conversation (review finding 11)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-turn-test")
+        run_msg.turn_id = turn_id
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        runtime_cls.assert_called_once()
+        assert runtime_cls.call_args.kwargs["turn_id"] == turn_id
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("approval_timeout", [120, 0])
+    async def test_runtime_client_waits_for_the_go_approval_timeout(self, approval_timeout: int) -> None:
+        """Tool call decisions are awaited longer than Go's HITL approval wait (KI-21)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-approval-test")
+        run_msg.approval_timeout_seconds = approval_timeout
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        runtime_cls.assert_called_once()
+        assert runtime_cls.call_args.kwargs["approval_timeout_seconds"] == approval_timeout
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("heartbeat_seconds", "interval"), [(7, 7.0), (0, 30.0)])
+    async def test_heartbeats_at_the_go_heartbeat_interval(self, heartbeat_seconds: int, interval: float) -> None:
+        """S2-F review, F11: the run beats at Go's runtime.heartbeat_interval (30 s by default)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-heartbeat-test")
+        run_msg.heartbeat_seconds = heartbeat_seconds
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        runtime_cls.return_value.start_heartbeat.assert_awaited_once_with(interval)
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_is_dead_lettered_and_terminated(self) -> None:
+        """Invalid JSON goes to the DLQ and is terminated: never NAK'd, never run."""
         handler = _make_handler()
         msg = MagicMock()
+        msg.subject = "conversation.run.start"
         msg.data = b"not valid json {{"
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+        msg.term = AsyncMock()
 
-        # _handle_conversation_run catches Exception, calls _publish_error_result, then acks.
-        with patch.object(handler, "_publish_error_result", new_callable=AsyncMock):
-            # _publish_error_result in _conversation.py has its own signature: just (msg,)
-            await handler._handle_conversation_run(msg)
+        await handler._handle_conversation_run(msg)
 
-        # The handler catches Exception and acks after publishing error.
-        msg.ack.assert_called_once()
+        handler._js.publish.assert_awaited_once_with("conversation.run.start.dlq", b"not valid json {{", headers=None)
+        msg.term.assert_awaited_once()
+        msg.ack.assert_not_called()
+        msg.nak.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_duplicate_run_id_skipped(self) -> None:
@@ -185,6 +346,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         await handler._handle_conversation_run(msg)
 
@@ -206,6 +368,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         # Without JetStream the handler hits the _js is None guard after dedup,
         # but before that it tries to validate JSON and add to _active_runs.
@@ -281,6 +444,21 @@ class TestPublishCompletion:
         assert payload["step_count"] == 5
         assert payload["model"] == "openai/gpt-4o"
         assert payload["error"] == ""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("turn_id", ["turn-9", ""])
+    async def test_completion_reports_the_turn(self, turn_id: str) -> None:
+        """The completion names the run's turn: Go ends the conversation's run
+        only when the completion belongs to it (review 2, finding 12)."""
+        handler = _make_handler()
+        handler._stamp_trust = staticmethod(lambda p, **kw: p)  # type: ignore[assignment]
+        run_msg = _make_valid_run_start()
+        run_msg.turn_id = turn_id
+
+        await handler._publish_completion(run_msg, AgentLoopResult(final_content="ok", step_count=1, model="m"))
+
+        payload = json.loads(handler._js.publish.call_args.args[1].decode())
+        assert payload["turn_id"] == turn_id
 
     @pytest.mark.asyncio
     async def test_failed_status_on_error(self) -> None:
@@ -363,7 +541,9 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            prompt, _skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
+            prompt, _skills = await build_system_prompt(
+                run_msg, registry, log, "postgresql://fake", capability=_CAPABILITY
+            )
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
@@ -389,7 +569,7 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
+            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", capability=_CAPABILITY)
 
         assert "Microagent Instructions" in prompt
         assert "Do X carefully" in prompt
@@ -416,7 +596,7 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
+            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", capability=_CAPABILITY)
 
         assert "System Reminders" in prompt
         assert "Remember to commit" in prompt
@@ -443,7 +623,7 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            _, skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
+            _, skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", capability=_CAPABILITY)
 
         assert skills == fake_skills
         assert len(skills) == 2
@@ -512,23 +692,19 @@ class TestInjectSessionContext:
 
 
 # ---------------------------------------------------------------------------
-# _publish_error_result (conversation-specific override)
+# _publish_failed_completion (last-resort failed completion)
 # ---------------------------------------------------------------------------
 
 
-class TestPublishErrorResult:
-    """Tests for the conversation-specific _publish_error_result."""
+class TestPublishFailedCompletion:
+    """Tests for the failed completion of a run that could not publish its own."""
 
     @pytest.mark.asyncio
     async def test_publishes_failed_status(self) -> None:
-        """_publish_error_result should publish a failed completion message."""
         handler = _make_handler()
         run_msg = _make_valid_run_start(run_id="run-err-001", conversation_id="conv-err-001")
 
-        msg = MagicMock()
-        msg.data = run_msg.model_dump_json().encode()
-
-        await handler._publish_error_result(msg)
+        await handler._publish_failed_completion(run_msg, "internal worker error")
 
         handler._js.publish.assert_called_once()
         call_args = handler._js.publish.call_args
@@ -539,24 +715,31 @@ class TestPublishErrorResult:
         assert payload["run_id"] == "run-err-001"
 
     @pytest.mark.asyncio
-    async def test_no_crash_without_jetstream(self) -> None:
-        """_publish_error_result should not crash when _js is None."""
+    async def test_reports_the_turn(self) -> None:
         handler = _make_handler()
-        handler._js = None
         run_msg = _make_valid_run_start()
+        run_msg.turn_id = "turn-failed"
 
-        msg = MagicMock()
-        msg.data = run_msg.model_dump_json().encode()
+        await handler._publish_failed_completion(run_msg, "internal worker error")
 
-        # Should not raise.
-        await handler._publish_error_result(msg)
+        payload = json.loads(handler._js.publish.call_args.args[1].decode())
+        assert payload["turn_id"] == "turn-failed"
 
     @pytest.mark.asyncio
-    async def test_no_crash_on_invalid_data(self) -> None:
-        """_publish_error_result should swallow exceptions from invalid data."""
+    async def test_no_crash_without_jetstream(self) -> None:
         handler = _make_handler()
-        msg = MagicMock()
-        msg.data = b"invalid"
+        handler._js = None
 
-        # Should not raise -- the method has its own try/except.
-        await handler._publish_error_result(msg)
+        # Should not raise.
+        await handler._publish_failed_completion(_make_valid_run_start(), "internal worker error")
+
+    @pytest.mark.asyncio
+    async def test_publish_failure_is_logged_not_raised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
+        handler = _make_handler()
+        handler._js.publish = AsyncMock(side_effect=ConnectionError("nats down"))
+
+        # Should not raise: this is the last resort, the error is logged.
+        await handler._publish_failed_completion(_make_valid_run_start(), "internal worker error")
+
+        assert handler._js.publish.await_count == 3

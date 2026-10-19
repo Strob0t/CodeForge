@@ -67,7 +67,7 @@ test.describe("Knowledge Bases", () => {
     await page.getByRole("button", { name: "Create Knowledge Base" }).click();
 
     // Leave name empty, fill content path (also required)
-    await page.locator("#kb-content-path").fill("/tmp/test");
+    await page.locator("#kb-content-path").fill("test");
     await page.getByRole("button", { name: "Create Knowledge Base" }).last().click();
 
     // Form stays visible because name is required (HTML5 validation or silent return)
@@ -79,7 +79,7 @@ test.describe("Knowledge Bases", () => {
     await page.getByRole("button", { name: "Create Knowledge Base" }).click();
 
     await page.locator("#kb-name").fill("E2E Test KB");
-    await page.locator("#kb-content-path").fill("/tmp/e2e-test-kb");
+    await page.locator("#kb-content-path").fill("e2e-test-kb");
     await page.getByRole("button", { name: "Create Knowledge Base" }).last().click();
 
     await expect(page.getByText("E2E Test KB")).toBeVisible({ timeout: 10_000 });
@@ -92,7 +92,7 @@ test.describe("Knowledge Bases", () => {
       description: "Testing badges",
       category: "framework",
       tags: [],
-      content_path: "/tmp/badge-test",
+      content_path: "badge-test",
     });
     await page.goto("/knowledge-bases");
 
@@ -108,7 +108,7 @@ test.describe("Knowledge Bases", () => {
       description: "Will be deleted",
       category: "custom",
       tags: [],
-      content_path: "/tmp/to-delete",
+      content_path: "to-delete",
     });
     await page.goto("/knowledge-bases");
 

@@ -1,0 +1,14 @@
+{
+  "run_id": "550e8400-e29b-41d4-a716-446655440040",
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
+  "workspace_path": "/workspaces/project",
+  "run_tests": true,
+  "run_lint": true,
+  "test_command": "pytest",
+  "lint_command": "ruff check .",
+  "timeout_seconds": 60,
+  "heartbeat_seconds": 30,
+  "tool_uid": 20000,
+  "tool_output_max_chars": 10000
+}

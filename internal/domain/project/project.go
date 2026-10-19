@@ -33,11 +33,11 @@ type CreateRequest struct {
 // UpdateRequest holds the fields for a partial project update.
 // Nil pointer fields are left unchanged.
 type UpdateRequest struct {
-	Name        *string           `json:"name"`
-	Description *string           `json:"description"`
-	RepoURL     *string           `json:"repo_url"`
-	Provider    *string           `json:"provider"`
-	Config      map[string]string `json:"config"`
+	Name        *string     `json:"name"`
+	Description *string     `json:"description"`
+	RepoURL     *string     `json:"repo_url"`
+	Provider    *string     `json:"provider"`
+	Config      ConfigPatch `json:"config"`
 }
 
 // AdoptRequest holds the fields for adopting an existing directory as a workspace.

@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "vectors": [
+    {
+      "name": "tenant_access",
+      "doc": "the tenant directory's access ACL for tool UID 20000: search only",
+      "tool_uid": 20000,
+      "entries": [
+        {
+          "tag": "user_obj",
+          "perm": 7
+        },
+        {
+          "tag": "user",
+          "perm": 1,
+          "id": 20000
+        },
+        {
+          "tag": "group_obj",
+          "perm": 7
+        },
+        {
+          "tag": "mask",
+          "perm": 7
+        },
+        {
+          "tag": "other",
+          "perm": 0
+        }
+      ],
+      "hex": "0200000001000700ffffffff02000100204e000004000700ffffffff10000700ffffffff20000000ffffffff"
+    },
+    {
+      "name": "tenant_default",
+      "doc": "the tenant directory's default ACL for tool UID 20000 and workspace group 10010",
+      "tool_uid": 20000,
+      "workspace_gid": 10010,
+      "entries": [
+        {
+          "tag": "user_obj",
+          "perm": 7
+        },
+        {
+          "tag": "user",
+          "perm": 7,
+          "id": 20000
+        },
+        {
+          "tag": "group_obj",
+          "perm": 7
+        },
+        {
+          "tag": "group",
+          "perm": 7,
+          "id": 10010
+        },
+        {
+          "tag": "mask",
+          "perm": 7
+        },
+        {
+          "tag": "other",
+          "perm": 0
+        }
+      ],
+      "hex": "0200000001000700ffffffff02000700204e000004000700ffffffff080007001a27000010000700ffffffff20000000ffffffff"
+    },
+    {
+      "name": "home_access",
+      "doc": "a tool HOME's access ACL for tool UID 29999",
+      "tool_uid": 29999,
+      "entries": [
+        {
+          "tag": "user_obj",
+          "perm": 7
+        },
+        {
+          "tag": "user",
+          "perm": 7,
+          "id": 29999
+        },
+        {
+          "tag": "group_obj",
+          "perm": 0
+        },
+        {
+          "tag": "mask",
+          "perm": 7
+        },
+        {
+          "tag": "other",
+          "perm": 0
+        }
+      ],
+      "hex": "0200000001000700ffffffff020007002f75000004000000ffffffff10000700ffffffff20000000ffffffff"
+    },
+    {
+      "name": "unsorted",
+      "doc": "entries in any order encode sorted by tag, then id",
+      "entries": [
+        {
+          "tag": "other",
+          "perm": 0
+        },
+        {
+          "tag": "group",
+          "perm": 6,
+          "id": 10010
+        },
+        {
+          "tag": "user",
+          "perm": 6,
+          "id": 20001
+        },
+        {
+          "tag": "mask",
+          "perm": 6
+        },
+        {
+          "tag": "user",
+          "perm": 6,
+          "id": 20000
+        },
+        {
+          "tag": "group_obj",
+          "perm": 6
+        },
+        {
+          "tag": "user_obj",
+          "perm": 6
+        }
+      ],
+      "hex": "0200000001000600ffffffff02000600204e000002000600214e000004000600ffffffff080006001a27000010000600ffffffff20000000ffffffff"
+    }
+  ]
+}

@@ -5,7 +5,9 @@
 .remember/
 
 # -- Secrets (production, generated) ---------------
+# Any secrets/ directory (SECRETS_DIR may live elsewhere), except the Go package.
 secrets/
+!/internal/secrets/
 
 # -- Dependencies ---------------------------------
 .venv/
@@ -41,7 +43,6 @@ test-results/
 **/e2e/.auth/
 
 # -- IDE ------------------------------------------
-.mcp.json
 .idea/
 *.swp
 *.swo
@@ -67,8 +68,19 @@ data/
 backups/
 
 # -- Claude Code ----------------------------------
-.claude/
+# Keep local state (worktrees, settings.local.json, ...) out; share the web
+# session hook and its registration.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 .superpowers/
+
+# -- Serena MCP server (.mcp.json) -----------------
+# Keep the shared project config; ignore caches, logs, memories and
+# project.local.yml.
+.serena/*
+!.serena/project.yml
+!.serena/claude-code-context.yml
 
 # -- DeepEval (runtime telemetry) ------------------
 .deepeval/
@@ -83,3 +95,7 @@ __debug_bin*
 
 # -- Test artifacts (agent test run outputs) ------
 tmp/
+
+# Written by scripts/deploy-blue-green.sh (the active color's Traefik routes)
+/traefik/dynamic/active-color.yaml
+/traefik/dynamic/active-color.yaml.tmp

@@ -1,4 +1,10 @@
-"""Agent tool for spawning sub-agents to handle research, debate, and implementation."""
+"""Agent tool for spawning sub-agents to handle research, debate, and implementation.
+
+Planned, not offered (KI-25): the executor only records an
+``agent.subagent_requested`` trajectory event; Go starts no sub-agent and
+returns no result, so conversation runs do not register the tool
+(``register_spawn_subagent_tool``).
+"""
 
 from __future__ import annotations
 

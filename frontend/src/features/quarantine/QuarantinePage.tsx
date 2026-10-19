@@ -1,10 +1,12 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Project, QuarantineMessage, QuarantineStats, QuarantineStatus } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
+import { coalesce } from "~/lib/coalesce";
 import { extractErrorMessage } from "~/lib/errorUtils";
 import {
   Badge,
@@ -13,7 +15,6 @@ import {
   EmptyState,
   ErrorBanner,
   FormField,
-  Input,
   LoadingState,
   Modal,
   PageLayout,
@@ -60,7 +61,6 @@ export default function QuarantinePage() {
     id: string;
     action: "approve" | "reject";
   } | null>(null);
-  const [reviewerName, setReviewerName] = createSignal("");
   const [reviewNote, setReviewNote] = createSignal("");
 
   // -- Data fetching --------------------------------------------------------
@@ -82,13 +82,11 @@ export default function QuarantinePage() {
 
   function startReview(id: string, action: "approve" | "reject") {
     setReviewTarget({ id, action });
-    setReviewerName("");
     setReviewNote("");
   }
 
   function cancelReview() {
     setReviewTarget(null);
-    setReviewerName("");
     setReviewNote("");
   }
 
@@ -101,7 +99,8 @@ export default function QuarantinePage() {
     const target = reviewTarget();
     if (!target) return;
 
-    const data = { reviewed_by: reviewerName().trim(), note: reviewNote().trim() };
+    // The server records the logged-in user as the reviewer.
+    const data = { note: reviewNote().trim() };
 
     if (target.action === "approve") {
       await api.quarantine.approve(target.id, data);
@@ -116,6 +115,39 @@ export default function QuarantinePage() {
     refetchMessages();
     refetchStats();
   });
+
+  // -- Live updates (KI-142) -----------------------------------------------
+
+  // Messages quarantined or resolved elsewhere (another admin, the expiry
+  // sweep, a sender's withdrawal) show without a reload. A withdrawal names
+  // no project, so a message the page shows also counts by its id. An
+  // expiry sweep sends up to 100 events: one refresh at a time, and one more
+  // after it.
+  const refreshQuarantine = coalesce(() => Promise.all([refetchMessages(), refetchStats()]));
+  /** Whether the page shows the message; a list that failed to load shows none. */
+  const isShown = (id: string | undefined): boolean =>
+    !messages.error && (messages() ?? []).some((m) => m.id === id);
+  const { onMessage } = useWebSocket();
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const offQuarantineEvents = onMessage((msg) => {
+    if (msg.type !== "quarantine.alert" && msg.type !== "quarantine.resolved") return;
+    const pid = selectedProjectId();
+    if (!pid) return;
+    const id = msg.payload.id as string | undefined;
+    if (msg.payload.project_id !== pid && !isShown(id)) return;
+    refreshQuarantine();
+    if (msg.type === "quarantine.resolved") {
+      showResolved(id, resolvedStatus(msg.payload.action as string | undefined));
+    }
+  });
+  onCleanup(offQuarantineEvents);
+
+  /** An open detail or review of a message resolved elsewhere no longer offers a decision. */
+  function showResolved(id: string | undefined, status: QuarantineStatus) {
+    const open = selectedMessage();
+    if (open && open.id === id) setSelectedMessage({ ...open, status });
+    if (reviewTarget()?.id === id && !submitting()) cancelReview();
+  }
 
   // -- Table columns --------------------------------------------------------
 
@@ -255,7 +287,7 @@ export default function QuarantinePage() {
         <LoadingState message={t("common.loading")} />
       </Show>
       <Show when={messages.error}>
-        <ErrorBanner error={extractErrorMessage(messages.error, String(messages.error))} />
+        <ErrorBanner error={() => extractErrorMessage(messages.error, String(messages.error))} />
       </Show>
 
       {/* Messages table */}
@@ -282,15 +314,7 @@ export default function QuarantinePage() {
                 : t("quarantine.action.reject")}
             </h3>
             <ErrorBanner error={reviewError} onDismiss={clearReviewError} />
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FormField label={t("quarantine.action.reviewerName")} id="q-reviewer">
-                <Input
-                  id="q-reviewer"
-                  type="text"
-                  value={reviewerName()}
-                  onInput={(e) => setReviewerName(e.currentTarget.value)}
-                />
-              </FormField>
+            <div class="grid grid-cols-1 gap-3">
               <FormField label={t("quarantine.action.note")} id="q-note">
                 <Textarea
                   id="q-note"
@@ -482,6 +506,20 @@ export default function QuarantinePage() {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * The status a quarantine.resolved action leaves: a withdrawal by its
+ * sender is stored as a rejection.
+ */
+function resolvedStatus(action: string | undefined): QuarantineStatus {
+  switch (action) {
+    case "approved":
+    case "expired":
+      return action;
+    default:
+      return "rejected";
+  }
+}
 
 /** Try to pretty-print JSON payloads, fall back to raw string. */
 function formatPayload(payload: string): string {

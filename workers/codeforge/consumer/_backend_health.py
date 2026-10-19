@@ -20,8 +20,12 @@ class BackendHealthHandlerMixin:
 
     async def _handle_backend_health(self, msg: nats.aio.msg.Msg) -> None:
         """Check health of all registered backends and publish result."""
+        payload: dict[str, object] | None = {}
+        if msg.data:
+            payload = await self._parse_json_object(msg)
+            if payload is None:
+                return
         try:
-            payload = json.loads(msg.data) if msg.data else {}
             request_id = payload.get("request_id", "")
 
             log = logger.bind(request_id=request_id)
@@ -51,4 +55,4 @@ class BackendHealthHandlerMixin:
 
         except Exception as exc:
             logger.exception("failed to process backend health request", error=str(exc))
-            await msg.nak()
+            await self._retry_or_dead_letter(msg)

@@ -12,6 +12,9 @@ _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
 class OpenCodeExecutor(CLIBackendExecutor):
     """Execute tasks using the OpenCode CLI."""
 
+    # OpenCode reads OPENCODE_CONFIG, ...
+    env_prefixes = ("OPENCODE_",)
+
     def __init__(self, cli_path: str | None = None) -> None:
         super().__init__(cli_path, "CODEFORGE_OPENCODE_PATH", "opencode")
 
@@ -32,11 +35,13 @@ class OpenCodeExecutor(CLIBackendExecutor):
         )
 
     def _build_command(self, prompt: str, config: ExecutorConfig) -> list[str]:
-        cmd = [self._cli_path, "run", "--prompt", prompt]
+        """``opencode run [options] -- <prompt>``: the message is positional (KI-118), after ``--`` never an option."""
+        cmd = [self._cli_path, "run"]
 
         model = config.get("model")
         if model:
             cmd.extend(["--model", model])
 
         cmd.extend(parse_extra_args(config))
+        cmd.extend(["--", prompt])
         return cmd

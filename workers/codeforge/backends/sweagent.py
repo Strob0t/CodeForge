@@ -12,6 +12,10 @@ _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
 class SweagentExecutor(CLIBackendExecutor):
     """Execute tasks using the SWE-agent CLI."""
 
+    # SWE-agent reads SWE_AGENT_* and runs its tasks in Docker.
+    env_prefixes = ("SWE_AGENT_",)
+    env_names = ("DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
+
     def __init__(self, cli_path: str | None = None) -> None:
         super().__init__(cli_path, "CODEFORGE_SWEAGENT_PATH", "sweagent")
 

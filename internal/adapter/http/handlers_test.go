@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	neturl "net/url"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +20,6 @@ import (
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
@@ -41,6 +42,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
+	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -62,11 +64,14 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // mockStore implements database.Store for testing.
 type mockStore struct {
 	mu                  sync.Mutex
+	consentPurposes     []database.ConsentPurpose
+	tenants             []tenant.Tenant
 	projects            []project.Project
 	agents              []agent.Agent
 	tasks               []task.Task
@@ -246,7 +251,7 @@ func (m *mockStore) UpdateTaskStatus(_ context.Context, _ string, _ task.Status)
 	return nil
 }
 
-func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result, _ float64) error {
+func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Status, _ task.Result, _ float64) error {
 	return nil
 }
 
@@ -302,9 +307,57 @@ func (m *mockStore) CompleteRun(_ context.Context, req *run.CompletionRequest) e
 	return errNotFound
 }
 
+func (m *mockStore) EnterQualityGate(_ context.Context, req *run.CompletionRequest) error {
+	for i := range m.runs {
+		if m.runs[i].ID == req.ID {
+			m.runs[i].Status = run.StatusQualityGate
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) CountRunStep(_ context.Context, id string) error {
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			m.runs[i].StepCount++
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) AddRunUsage(_ context.Context, id string, usage *run.Usage) (*run.Run, error) {
+	for i := range m.runs {
+		if m.runs[i].ID != id {
+			continue
+		}
+		m.runs[i].CostUSD += usage.CostUSD
+		m.runs[i].TokensIn += usage.TokensIn
+		m.runs[i].TokensOut += usage.TokensOut
+		r := m.runs[i]
+		return &r, nil
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) RaiseRunUsage(_ context.Context, id string, _ *run.Usage) error {
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			return nil
+		}
+	}
+	return errNotFound
+}
+
 func (m *mockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
 	return nil
 }
+
+func (m *mockStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (m *mockStore) TouchRun(_ context.Context, _ string, _ run.Status) error { return nil }
 
 func (m *mockStore) ListRunsByTask(_ context.Context, taskID string) ([]run.Run, error) {
 	var result []run.Run
@@ -335,6 +388,9 @@ func (m *mockStore) GetPlanStepByRunID(_ context.Context, _ string) (*plan.Step,
 	return nil, errNotFound
 }
 func (m *mockStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
+func (m *mockStore) ReplanStalledStep(_ context.Context, _, _ string, _ int) (plan.ReplanOutcome, error) {
+	return plan.ReplanBudgetUsedUp, nil
+}
 
 // --- Agent Team stub methods (satisfy database.Store interface) ---
 
@@ -433,10 +489,6 @@ func (m *mockStore) DashboardCostTrend(_ context.Context, _ int) ([]cost.DailyCo
 }
 
 // Project repo lookup
-func (m *mockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
-	return nil, nil
-}
-
 // Review Policy stubs
 func (m *mockStore) CreateReviewPolicy(_ context.Context, _ *review.ReviewPolicy) error {
 	return nil
@@ -669,16 +721,47 @@ func (m *mockStore) DeleteFeature(_ context.Context, id string) error {
 	}
 	return errNotFound
 }
+func (m *mockStore) GetSpecFile(_ context.Context, _, _ string) (*roadmap.SpecFile, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) SetSpecFile(_ context.Context, _ *roadmap.SpecFile) error { return nil }
 
 // Tenant stubs
-func (m *mockStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {
-	return nil, nil
+func (m *mockStore) CreateTenant(_ context.Context, req tenant.CreateRequest) (*tenant.Tenant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := tenant.Tenant{ID: fmt.Sprintf("tenant-%d", len(m.tenants)+1), Name: req.Name, Slug: req.Slug, Enabled: true}
+	m.tenants = append(m.tenants, t)
+	return &t, nil
 }
-func (m *mockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, error) {
-	return nil, nil
+func (m *mockStore) GetTenant(_ context.Context, id string) (*tenant.Tenant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.tenants {
+		if m.tenants[i].ID == id {
+			t := m.tenants[i]
+			return &t, nil
+		}
+	}
+	// The default tenant always exists (a migration seeds it), enabled
+	// unless a test lists it otherwise.
+	if id == tenantctx.DefaultTenantID {
+		return &tenant.Tenant{ID: id, Name: "Default", Slug: "default", Enabled: true}, nil
+	}
+	return nil, errNotFound
 }
-func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
+func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]tenant.Tenant(nil), m.tenants...), nil
+}
 func (m *mockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
+func (m *mockStore) AllocateToolUID(_ context.Context, _ string) (int, error) {
+	return tenant.ToolUIDMin, nil
+}
+func (m *mockStore) AdvanceToolUIDSequence(_ context.Context, _ int) (bool, error) {
+	return false, nil
+}
 
 // Branch Protection Rule stubs
 func (m *mockStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {
@@ -750,6 +833,29 @@ func (m *mockStore) CreateUser(_ context.Context, u *user.User) error {
 	u.UpdatedAt = now
 	m.users = append(m.users, *u)
 	return nil
+}
+
+func (m *mockStore) GetUserTokenEpoch(_ context.Context, userID, tenantID string) (int64, error) {
+	for i := range m.users {
+		if m.users[i].ID == userID && m.users[i].TenantID == tenantID {
+			return m.users[i].TokenEpoch, nil
+		}
+	}
+	return 0, errNotFound
+}
+
+func (m *mockStore) UpdateUserInvalidatingTokens(ctx context.Context, u *user.User) error {
+	for i := range m.users {
+		if m.users[i].ID == u.ID {
+			epoch := m.users[i].TokenEpoch + 1
+			if err := m.UpdateUser(ctx, u); err != nil {
+				return err
+			}
+			m.users[i].TokenEpoch, u.TokenEpoch = epoch, epoch
+			return nil
+		}
+	}
+	return errNotFound
 }
 
 func (m *mockStore) CreateFirstUser(_ context.Context, u *user.User) error {
@@ -1118,7 +1224,7 @@ func (m *mockStore) DeleteVCSAccount(_ context.Context, id string) error {
 func (m *mockStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
 	return nil
 }
-func (m *mockStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+func (m *mockStore) ConsumeOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
 	return nil, errNotFound
 }
 func (m *mockStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }
@@ -1520,7 +1626,7 @@ func (m *mockStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarant
 func (m *mockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+func (m *mockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _ *quarantine.Review) error {
 	return nil
 }
 
@@ -1532,6 +1638,13 @@ func (m *mockStore) UpdateAgentState(_ context.Context, _ string, _ map[string]s
 	return nil
 }
 func (m *mockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error { return nil }
+
+func (m *mockStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
+	return orchestration.HandoffClaim{Claimed: true}, nil
+}
+func (m *mockStore) FinishHandoff(_ context.Context, _, _ string) error     { return nil }
+func (m *mockStore) SetHandoffTask(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) ReleaseHandoff(_ context.Context, _, _ string) error    { return nil }
 func (m *mockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
 	return nil, nil
 }
@@ -1552,7 +1665,28 @@ func (m *mockStore) ClaimTask(_ context.Context, taskID, agentID string, version
 	}
 	return &task.ClaimResult{Claimed: false, Reason: "task already claimed or version mismatch"}, nil
 }
-func (m *mockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+func (m *mockStore) TouchRunHeartbeat(_ context.Context, _ string) error { return nil }
+func (m *mockStore) ListRunsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (m *mockStore) BeginConversationTurn(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) ProjectHasOtherActiveWork(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) EndConversationTurn(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) ClaimConversationTurnCompletion(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+func (m *mockStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockStore) ListConversationTurnsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]conversation.ActiveTurn, error) {
+	return nil, nil
+}
+func (m *mockStore) TouchTaskHeartbeat(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) ListTasksWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }
 
@@ -1616,11 +1750,27 @@ func newTestRouter() chi.Router {
 	return newTestRouterWithStore(&mockStore{})
 }
 
+// mountTestRoutes wires the domain handler groups from the flat service fields
+// the same way cmd/codeforge/main.go does, then mounts all routes.
+func mountTestRoutes(r chi.Router, h *cfhttp.Handlers, opts ...cfhttp.RouteOption) {
+	h.WireGroups()
+	cfhttp.MountRoutes(r, h, opts...)
+}
+
 func newTestRouterWithStore(store *mockStore) chi.Router {
+	return newTestRouterWithPolicies(store, service.NewPolicyService("headless-safe-sandbox", nil))
+}
+
+func newTestRouterWithPolicies(store *mockStore, policySvc *service.PolicyService) chi.Router {
+	return newTestRouterWithLLM(store, policySvc, "http://localhost:4000")
+}
+
+// newTestRouterWithLLM is newTestRouterWithPolicies with the LiteLLM proxy at
+// llmURL; mods adjust the handlers before the routes are mounted.
+func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, llmURL string, mods ...func(*cfhttp.Handlers)) chi.Router {
 	queue := &mockQueue{}
 	bc := &mockBroadcaster{}
 	es := &mockEventStore{}
-	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	runtimeSvc := service.NewRuntimeService(store, queue, bc, es, policySvc, &config.Runtime{})
 	orchCfg := &config.Orchestrator{
 		MaxParallel:       4,
@@ -1631,7 +1781,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	pipelineSvc := service.NewPipelineService(modeSvc)
@@ -1642,6 +1792,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 	vcsAccountSvc := service.NewVCSAccountService(store, []byte("test-encryption-key-32bytes!!!!!"))
 	conversationSvc := service.NewConversationService(store, bc, "", nil)
 	conversationSvc.SetQueue(queue)
+	conversationSvc.SetRunTracker(runtimeSvc) // as in main.go
 	authCfg := &config.Auth{
 		Enabled:            true,
 		JWTSecret:          "test-secret-key-32bytes-handler!",
@@ -1650,22 +1801,27 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		BcryptCost:         4,
 	}
 	authSvc := service.NewAuthService(store, authCfg)
-	filesSvc := service.NewFileService(store, osfs.New())
+	// Arm the one-time setup token as main.go does on a first start (KI-119).
+	setupToken, err := authSvc.PrepareSetupToken(context.Background(), middleware.DefaultTenantID)
+	if err != nil {
+		panic(err)
+	}
+	filesSvc := service.NewFileService(store)
 	roadmapSvc := service.NewRoadmapService(store, bc, nil, nil)
 	autoAgentSvc := service.NewAutoAgentService(store, bc, queue, conversationSvc)
 	microagentSvc := service.NewMicroagentService(store)
 	skillSvc := service.NewSkillService(store)
 	memorySvc := service.NewMemoryService(store, queue)
 	experiencePoolSvc := service.NewExperiencePoolService(store)
-	kbSvc := service.NewKnowledgeBaseService(store)
+	kbSvc := service.NewKnowledgeBaseService(store, filepath.Join(os.TempDir(), "codeforge-test-knowledge"))
 	sessionSvc := service.NewSessionService(store, es)
-	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
-	mcpSvc.SetStore(store)
+	mcpSvc := newTestMCPService(store)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
+		Tenants:          service.NewTenantService(store),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
-		LLM:              litellm.NewClient("http://localhost:4000", ""),
+		LLM:              litellm.NewClient(llmURL, ""),
 		Policies:         policySvc,
 		Runtime:          runtimeSvc,
 		Orchestrator:     orchSvc,
@@ -1705,7 +1861,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		}(),
 		ActiveWork:    service.NewActiveWorkService(store, bc),
 		Routing:       service.NewRoutingService(store),
-		GoalDiscovery: service.NewGoalDiscoveryService(store, osfs.New()),
+		GoalDiscovery: service.NewGoalDiscoveryService(store),
 		AppEnv:        os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
@@ -1724,18 +1880,38 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
 				if middleware.UserFromContext(r.Context()) == nil {
+					// The admin of the default tenant: also a platform admin.
 					r = r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
-						ID:   "test-admin",
-						Name: "Test Admin",
-						Role: user.RoleAdmin,
+						ID:       "test-admin",
+						Name:     "Test Admin",
+						Role:     user.RoleAdmin,
+						TenantID: tenantctx.DefaultTenantID,
 					}))
 				}
 			}
 			next.ServeHTTP(w, r)
 		})
 	})
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	for _, mod := range mods {
+		mod(handlers)
+	}
+	mountTestRoutes(r, handlers)
+	testSetupTokens.Store(r, setupToken)
 	return r
+}
+
+// testSetupTokens maps a test router to the setup token its auth service
+// armed (empty when the store had users already).
+var testSetupTokens sync.Map
+
+func testSetupToken(t *testing.T, router chi.Router) string {
+	t.Helper()
+	v, ok := testSetupTokens.Load(router)
+	if !ok {
+		t.Fatal("router has no setup token: build it with newTestRouterWithLLM")
+	}
+	token, _ := v.(string)
+	return token
 }
 
 func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
@@ -1753,7 +1929,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	pipelineSvc := service.NewPipelineService(modeSvc)
@@ -1764,6 +1940,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 	vcsAccountSvc := service.NewVCSAccountService(store, []byte("test-encryption-key-32bytes!!!!!"))
 	conversationSvc := service.NewConversationService(store, bc, model, nil)
 	conversationSvc.SetQueue(queue)
+	conversationSvc.SetRunTracker(runtimeSvc) // as in main.go
 	authCfg := &config.Auth{
 		Enabled:            true,
 		JWTSecret:          "test-secret-key-32bytes-handler!",
@@ -1772,17 +1949,16 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		BcryptCost:         4,
 	}
 	authSvc := service.NewAuthService(store, authCfg)
-	filesSvc := service.NewFileService(store, osfs.New())
+	filesSvc := service.NewFileService(store)
 	roadmapSvc := service.NewRoadmapService(store, bc, nil, nil)
 	autoAgentSvc := service.NewAutoAgentService(store, bc, queue, conversationSvc)
 	microagentSvc := service.NewMicroagentService(store)
 	skillSvc := service.NewSkillService(store)
 	memorySvc := service.NewMemoryService(store, queue)
 	experiencePoolSvc := service.NewExperiencePoolService(store)
-	kbSvc := service.NewKnowledgeBaseService(store)
+	kbSvc := service.NewKnowledgeBaseService(store, filepath.Join(os.TempDir(), "codeforge-test-knowledge"))
 	sessionSvc := service.NewSessionService(store, es)
-	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
-	mcpSvc.SetStore(store)
+	mcpSvc := newTestMCPService(store)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
@@ -1827,7 +2003,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		}(),
 		ActiveWork:    service.NewActiveWorkService(store, bc),
 		Routing:       service.NewRoutingService(store),
-		GoalDiscovery: service.NewGoalDiscoveryService(store, osfs.New()),
+		GoalDiscovery: service.NewGoalDiscoveryService(store),
 		AppEnv:        os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
@@ -1844,17 +2020,19 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
 				if middleware.UserFromContext(r.Context()) == nil {
+					// The admin of the default tenant: also a platform admin.
 					r = r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
-						ID:   "test-admin",
-						Name: "Test Admin",
-						Role: user.RoleAdmin,
+						ID:       "test-admin",
+						Name:     "Test Admin",
+						Role:     user.RoleAdmin,
+						TenantID: tenantctx.DefaultTenantID,
 					}))
 				}
 			}
 			next.ServeHTTP(w, r)
 		})
 	})
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	mountTestRoutes(r, handlers)
 	return r
 }
 
@@ -2453,33 +2631,6 @@ func TestAddLLMModelInvalidBody(t *testing.T) {
 	}
 }
 
-func TestDeleteLLMModelMissingID(t *testing.T) {
-	r := newTestRouter()
-
-	body, _ := json.Marshal(map[string]string{})
-	req := httptest.NewRequest("POST", "/api/v1/llm/models/delete", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestDeleteLLMModelInvalidBody(t *testing.T) {
-	r := newTestRouter()
-
-	req := httptest.NewRequest("POST", "/api/v1/llm/models/delete", bytes.NewReader([]byte("{")))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
 // --- Policy Endpoints ---
 
 func TestListPolicyProfiles(t *testing.T) {
@@ -2500,6 +2651,12 @@ func TestListPolicyProfiles(t *testing.T) {
 	profiles := result["profiles"]
 	if len(profiles) != 5 {
 		t.Fatalf("expected 5 profiles (5 presets), got %d: %v", len(profiles), profiles)
+	}
+	// KI-129: the UI tells built-in presets (no delete) from custom profiles
+	// by this list, not by a copy of the names that went stale.
+	presets := result["presets"]
+	if !slices.Equal(presets, policy.PresetNames()) {
+		t.Fatalf("presets = %v, want %v", presets, policy.PresetNames())
 	}
 }
 
@@ -2721,7 +2878,7 @@ func TestGenerateRepoMap(t *testing.T) {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
@@ -2747,9 +2904,10 @@ func TestGenerateRepoMap(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	mountTestRoutes(r, handlers)
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/repomap", http.NoBody)
+	req = withUserContext(req, &user.User{ID: "ed", Role: user.RoleEditor, TenantID: tenantctx.DefaultTenantID})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -2779,7 +2937,7 @@ func TestIndexProject(t *testing.T) {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
@@ -2805,9 +2963,10 @@ func TestIndexProject(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	mountTestRoutes(r, handlers)
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/index", http.NoBody)
+	req = withUserContext(req, &user.User{ID: "ed", Role: user.RoleEditor, TenantID: tenantctx.DefaultTenantID})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -3450,7 +3609,18 @@ func (m *mockStore) CreateChannel(_ context.Context, _ *channel.Channel) (*chann
 func (m *mockStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
 	return nil, nil
 }
-func (m *mockStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+func (m *mockStore) ListChannels(_ context.Context, _, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+
+func (m *mockStore) SetChannelWebhookKeyHash(_ context.Context, _ string, _ []byte) error { return nil }
+func (m *mockStore) GetChannelWebhookKeyHash(_ context.Context, _ string) (tenantID string, hash []byte, err error) {
+	return "", nil, domain.ErrNotFound
+}
+func (m *mockStore) MarkChannelRead(_ context.Context, _, _, _ string) (*channel.ReadState, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) ListChannelReadStates(_ context.Context, _ string) ([]channel.ReadState, error) {
 	return nil, nil
 }
 func (m *mockStore) DeleteChannel(_ context.Context, _ string) error { return nil }
@@ -3478,9 +3648,6 @@ func (m *mockStore) DeleteProjectBoundaries(_ context.Context, _ string) error {
 func (m *mockStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *mockStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
-	return false, nil
-}
 func (m *mockStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
 	return nil
 }
@@ -3490,23 +3657,46 @@ func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]d
 func (m *mockStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
 func (m *mockStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
-func (m *mockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
+
+// GDPR erasure and retention stubs
+
+// WithRetentionLock reports the lock as held by another replica: no test
+// here sweeps.
+func (m *mockStore) WithRetentionLock(context.Context, func(context.Context, database.RetentionPurger)) (bool, error) {
+	return false, nil
+}
+
+func (m *mockStore) TouchSession(_ context.Context, _ string) error { return nil }
+
+func (m *mockStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockStore) UnconsumedQuarantineRelease(_ context.Context, _ string, _ []byte) (string, error) {
+	return "", domain.ErrNotFound
+}
+
+func (m *mockStore) ConsumeQuarantineRelease(_ context.Context, _ string) error {
+	return domain.ErrNotFound
+}
+
+func (m *mockStore) ListExpiredQuarantineMessages(_ context.Context, _ int) ([]*quarantine.Message, error) {
+	return nil, nil
+}
+
+func (m *mockStore) ExpireQuarantineMessage(_ context.Context, _, _ string, _ *quarantine.Review) (database.QuarantineExpiry, error) {
+	return database.QuarantineExpiry{}, nil
 }
 
 // Consent stubs (GDPR)
@@ -3520,8 +3710,14 @@ func (m *mockStore) ListUserConsents(_ context.Context, _ string) ([]database.Co
 func (m *mockStore) ListConsentPurposes(_ context.Context) ([]database.ConsentPurpose, error) {
 	return nil, nil
 }
-func (m *mockStore) GetConsentPurpose(_ context.Context, _ string) (*database.ConsentPurpose, error) {
-	return nil, nil
+func (m *mockStore) GetConsentPurpose(_ context.Context, purposeID string) (*database.ConsentPurpose, error) {
+	for i := range m.consentPurposes {
+		if m.consentPurposes[i].ID == purposeID {
+			p := m.consentPurposes[i]
+			return &p, nil
+		}
+	}
+	return nil, errNotFound
 }
 
 func TestListRemoteBranches_URLValidation(t *testing.T) {
@@ -3653,4 +3849,17 @@ func TestGetTrajectory_LoadOK_StatsError_Returns200(t *testing.T) {
 	if _, ok := resp["stats"]; !ok {
 		t.Fatal("response missing 'stats' key")
 	}
+}
+
+func (m *mockStore) QueueTask(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) EndTaskDispatch(_ context.Context, _, _ string, _ task.Status, _ task.Result) error {
+	return nil
+}
+
+func (m *mockStore) RecordTaskResult(_ context.Context, _, _ string, _ task.Status, _ task.Result, _ float64) (bool, error) {
+	return true, nil
+}
+
+func (m *mockStore) ListTasksNeverAccepted(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
+	return nil, nil
 }

@@ -117,7 +117,6 @@ func (s *Store) ListVariants(ctx context.Context, modeID, status string) ([]prom
 	if status != "" {
 		query += fmt.Sprintf(" AND promotion_status = $%d", argIdx)
 		args = append(args, status)
-		argIdx++
 	}
 
 	query += " ORDER BY mode_id, version DESC"

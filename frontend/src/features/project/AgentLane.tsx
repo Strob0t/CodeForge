@@ -1,61 +1,20 @@
-import { createEffect, createSignal, For, onCleanup } from "solid-js";
+import { For } from "solid-js";
 
 import type { Agent } from "~/api/types";
-import { useWebSocket } from "~/components/WebSocketProvider";
 
-interface ToolCall {
-  callId: string;
-  tool: string;
-  phase: string;
-}
+import type { AgentWork, LaneOutputLine, LaneToolCall } from "./liveEvents";
 
-interface OutputLine {
-  line: string;
-  stream: string;
-}
-
-export default function AgentLane(props: { agent: Agent }) {
-  const { onMessage } = useWebSocket();
-  const [toolCalls, setToolCalls] = createSignal<ToolCall[]>([]);
-  const [outputs, setOutputs] = createSignal<OutputLine[]>([]);
-  const [stepCount, setStepCount] = createSignal(0);
-  const [costUsd, setCostUsd] = createSignal(0);
-
-  createEffect(() => {
-    const agentId = props.agent.id;
-    const unsub = onMessage((msg) => {
-      const p = msg.payload;
-
-      switch (msg.type) {
-        case "run.toolcall": {
-          if ((p.agent_id as string) !== agentId) {
-            break;
-          }
-          setToolCalls((prev) => [
-            ...prev.slice(-19),
-            { callId: p.call_id as string, tool: p.tool as string, phase: p.phase as string },
-          ]);
-          break;
-        }
-        case "run.status": {
-          if ((p.agent_id as string) === agentId) {
-            setStepCount(p.step_count as number);
-            setCostUsd((p.cost_usd as number) ?? 0);
-          }
-          break;
-        }
-        case "task.output": {
-          setOutputs((prev) => [
-            ...prev.slice(-49),
-            { line: p.line as string, stream: p.stream as string },
-          ]);
-          break;
-        }
-      }
-    });
-    onCleanup(unsub);
-  });
-
+/**
+ * One agent's live lane: the output of the task and the tool calls of the run
+ * the agent works on (WarRoom follows both from the project's events and
+ * passes them in), and the run's progress.
+ */
+export default function AgentLane(props: {
+  agent: Agent;
+  work: AgentWork;
+  outputs: readonly LaneOutputLine[];
+  toolCalls: readonly LaneToolCall[];
+}) {
   const statusColor = () => {
     switch (props.agent.status) {
       case "running":
@@ -84,10 +43,10 @@ export default function AgentLane(props: { agent: Agent }) {
 
       {/* Output stream */}
       <div class="flex-1 overflow-y-auto px-3 py-1 font-mono text-xs text-cf-text-secondary">
-        <For each={outputs()}>
+        <For each={props.outputs}>
           {(o) => <div class={o.stream === "stderr" ? "text-cf-danger-fg" : ""}>{o.line}</div>}
         </For>
-        <For each={toolCalls()}>
+        <For each={props.toolCalls}>
           {(tc) => (
             <div class="my-1 px-2 py-1 bg-cf-bg-tertiary rounded text-xs">
               <span class="text-cf-accent font-medium">{tc.tool}</span>
@@ -99,8 +58,8 @@ export default function AgentLane(props: { agent: Agent }) {
 
       {/* Footer */}
       <div class="flex items-center justify-between px-3 py-1.5 border-t border-cf-border text-xs text-cf-text-muted flex-shrink-0">
-        <span>Steps: {stepCount()}</span>
-        <span>${costUsd().toFixed(4)}</span>
+        <span>Steps: {props.work.steps}</span>
+        <span>${props.work.costUsd.toFixed(4)}</span>
       </div>
     </div>
   );

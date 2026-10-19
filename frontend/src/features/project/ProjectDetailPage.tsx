@@ -1,4 +1,4 @@
-import { useParams } from "@solidjs/router";
+import { useParams, useSearchParams } from "@solidjs/router";
 import {
   createEffect,
   createResource,
@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 
 import { api } from "~/api/client";
+import { useToast } from "~/components/Toast";
 import {
   DEFAULT_SPLIT,
   MAX_SPLIT,
@@ -21,6 +22,8 @@ import {
 } from "~/config/constants";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
+import { firstParam } from "~/lib/searchParams";
 import { Alert, Badge, Button, ErrorBanner, LoadingState } from "~/ui";
 
 import { CanvasModal } from "../canvas/CanvasModal";
@@ -34,6 +37,7 @@ import CostBreakdown from "./CostBreakdown";
 import FeatureMapPanel from "./FeatureMapPanel";
 import FilePanel from "./FilePanel";
 import GoalsPanel from "./GoalsPanel";
+import { conversationInProject } from "./linkedConversation";
 import LiveOutput from "./LiveOutput";
 import MultiTerminal from "./MultiTerminal";
 import OnboardingProgress from "./OnboardingProgress";
@@ -47,6 +51,7 @@ import RunPanel from "./RunPanel";
 import SessionPanel from "./SessionPanel";
 import TaskPanel from "./TaskPanel";
 import { useProjectDetail } from "./useProjectDetail";
+import WebhooksPanel from "./WebhooksPanel";
 
 // Lazy-loaded panels: infrequently used, heavy, or deeply nested
 const AuditTable = lazy(() => import("../audit/AuditTable"));
@@ -149,6 +154,7 @@ function TrajectoryTabContent(props: {
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
+  const { show: toast } = useToast();
   const params = useParams<{ id: string }>();
 
   // Extract data-fetching, WS events, and state into a custom hook
@@ -157,11 +163,11 @@ export default function ProjectDetailPage() {
   // Destructure for template readability
   const {
     project,
-    refetchProject,
     tasks,
     refetchTasks,
     gitStatus,
     agents,
+    refetchAgents,
     onboardGoals,
     onboardRoadmap,
     onboardSessions,
@@ -203,10 +209,31 @@ export default function ProjectDetailPage() {
     | "retrieval"
     | "plans"
     | "tasks"
-    | "policy";
+    | "policy"
+    | "webhooks";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
   const [switchToConversation, setSwitchToConversation] = createSignal<string | null>(null);
+
+  // A link can open a conversation in the chat: ?conversation=<id> (search
+  // hits). It opens only when it belongs to this project.
+  const [searchParams] = useSearchParams();
+  onMount(() => {
+    const conversationId = firstParam(searchParams.conversation);
+    if (!conversationId) return;
+    void (async () => {
+      try {
+        if (!(await conversationInProject(params.id, conversationId))) {
+          toast("warning", t("detail.chat.linkedElsewhere"));
+          return;
+        }
+        setSwitchToConversation(conversationId);
+        if (isMobile()) setMobileView("chat");
+      } catch (err) {
+        toast("error", extractErrorMessage(err, t("detail.chat.linkedFailed")));
+      }
+    })();
+  });
 
   // Prefill message for deep-link from panels to chat input
   const [prefillMessage, setPrefillMessage] = createSignal("");
@@ -411,12 +438,13 @@ export default function ProjectDetailPage() {
                   </Button>
                   <CompactSettingsPopover
                     projectId={params.id}
-                    config={p().config ?? {}}
                     open={settingsOpen()}
                     onClose={() => setSettingsOpen(false)}
-                    onSaved={() => {
-                      refetchProject();
+                    onOpenWebhooks={() => {
                       setSettingsOpen(false);
+                      if (roadmapCollapsed()) toggleRoadmap();
+                      handleNavigate("webhooks");
+                      if (isMobile()) setMobileView("panels");
                     }}
                   />
                 </div>
@@ -467,7 +495,7 @@ export default function ProjectDetailPage() {
               <Show when={!isMobile() || mobileView() === "panels"}>
                 <Show when={!roadmapCollapsed()}>
                   <div
-                    class={`flex flex-col min-h-0 overflow-hidden ${["plan", "execute", "govern", "featuremap", "files", "warroom", "goals", "audit", "sessions", "trajectory", "boundaries", "agents", "code", "retrieval", "plans", "tasks", "policy"].includes(leftTab()) ? "" : "overflow-y-auto"}`}
+                    class={`flex flex-col min-h-0 overflow-hidden ${["plan", "execute", "govern", "featuremap", "files", "warroom", "goals", "audit", "sessions", "trajectory", "boundaries", "agents", "code", "retrieval", "plans", "tasks", "policy", "webhooks"].includes(leftTab()) ? "" : "overflow-y-auto"}`}
                     style={
                       isMobile()
                         ? { height: "100%" }
@@ -685,7 +713,9 @@ export default function ProjectDetailPage() {
                         <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
                           <AgentPanel
                             projectId={params.id}
+                            agents={agents() ?? []}
                             tasks={tasks() ?? []}
+                            onAgentsChanged={refetchAgents}
                             onError={setError}
                           />
                           <RunPanel
@@ -783,6 +813,15 @@ export default function ProjectDetailPage() {
                         </div>
                       </ErrorBoundary>
                     </Show>
+                    <Show when={leftTab() === "webhooks"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                          <WebhooksPanel projectId={params.id} />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
                   </div>
 
                   {/* Draggable Divider */}
@@ -840,13 +879,14 @@ export default function ProjectDetailPage() {
                       activeTab={leftTab()}
                       switchToConversation={switchToConversation}
                       prefillMessage={prefillMessage()}
+                      onWorkspaceActivity={pd.refreshGitStatus}
                     />
                   </ErrorBoundary>
                 </div>
               </Show>
 
               {/* Global overlay: refactor approval dialog */}
-              <RefactorApproval />
+              <RefactorApproval projectId={params.id} />
 
               {/* Design Canvas modal overlay */}
               <CanvasModal

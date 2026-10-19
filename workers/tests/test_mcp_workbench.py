@@ -203,3 +203,64 @@ def test_recommender_returns_mcp_tool_instances() -> None:
     assert len(results) == 1
     assert isinstance(results[0], MCPTool)
     assert results[0].name == "search"
+
+
+# --- A failed connection closes what it opened (KI-71 review, finding 8) ---
+
+
+def _failing_handshake(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """A stdio server whose MCP handshake fails; returns what was opened and closed, in order."""
+    from contextlib import asynccontextmanager
+
+    events: list[object] = []
+
+    @asynccontextmanager
+    async def stdio_client(_command: str, _args: list[str], *, declared_env: object, errlog: object):  # type: ignore[no-untyped-def]
+        events.append(("server started", errlog))
+        try:
+            yield (object(), object())
+        finally:
+            events.append("server stopped")
+
+    class Session:
+        def __init__(self, *_streams: object) -> None:
+            pass
+
+        async def __aenter__(self) -> Session:
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            events.append("session closed")
+
+        async def initialize(self) -> None:
+            raise RuntimeError("handshake failed")
+
+    monkeypatch.setattr("codeforge.mcp_workbench.tool_stdio_client", stdio_client)
+    monkeypatch.setattr("codeforge.mcp_workbench.ClientSession", Session)
+    return events
+
+
+@pytest.mark.asyncio
+async def test_a_failed_connect_closes_the_server_and_its_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    events = _failing_handshake(monkeypatch)
+    conn = McpServerConnection(MCPServerDef(id="s1", name="S1", transport="stdio", command="srv"))
+
+    with pytest.raises(RuntimeError, match="handshake failed"):
+        await conn.connect()
+
+    started, errlog = events[0]  # type: ignore[misc]
+    assert started == "server started"
+    assert events[1:] == ["session closed", "server stopped"]
+    assert errlog.closed, "the /dev/null handle leaked"  # type: ignore[attr-defined]
+    assert not conn.connected
+
+
+@pytest.mark.asyncio
+async def test_connect_servers_closes_failed_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+    events = _failing_handshake(monkeypatch)
+    wb = McpWorkbench()
+
+    await wb.connect_servers([MCPServerDef(id="s1", name="S1", transport="stdio", command="srv")])
+
+    assert wb._connections == {}
+    assert "server stopped" in events, "the server process of a failed connection leaked"

@@ -1,0 +1,9 @@
+# The tool_homes volume on a file system without POSIX ACLs (ramfs has no
+# extended attributes, like ZFS with acltype=off or NFSv4): the worker is
+# not ready (KI-96 D4, D12).
+volumes:
+  tool_homes:
+    driver: local
+    driver_opts:
+      type: ramfs
+      device: ramfs

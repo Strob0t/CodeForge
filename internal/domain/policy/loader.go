@@ -46,15 +46,24 @@ func LoadFromFS(fsys fs.FS, name string) (*PolicyProfile, error) {
 	return &p, nil
 }
 
-// LoadAllFromFS reads all .yaml/.yml files from the given filesystem
-// and returns a slice of PolicyProfiles.
-func LoadAllFromFS(fsys fs.FS) ([]PolicyProfile, error) {
+// ProfileSource is a custom policy profile and the name of the file in its
+// directory that defines it.
+type ProfileSource struct {
+	Profile PolicyProfile
+	File    string
+}
+
+// LoadSourcesFromFS reads all .yaml/.yml files from the given filesystem.
+// Profile names come from the file content; two files that define the same
+// profile are rejected, because either could silently win.
+func LoadSourcesFromFS(fsys fs.FS) ([]ProfileSource, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return nil, fmt.Errorf("read policy directory: %w", err)
 	}
 
-	var profiles []PolicyProfile
+	var sources []ProfileSource
+	files := make(map[string]string)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -68,10 +77,32 @@ func LoadAllFromFS(fsys fs.FS) ([]PolicyProfile, error) {
 		if err != nil {
 			return nil, err
 		}
-		profiles = append(profiles, *p)
+		if other, dup := files[p.Name]; dup {
+			return nil, fmt.Errorf("duplicate policy profile %q in %s and %s", p.Name, other, entry.Name())
+		}
+		files[p.Name] = entry.Name()
+		sources = append(sources, ProfileSource{Profile: *p, File: entry.Name()})
 	}
 
-	return profiles, nil
+	return sources, nil
+}
+
+// LoadAllFromFS reads all .yaml/.yml files from the given filesystem
+// and returns a slice of PolicyProfiles (see LoadSourcesFromFS).
+func LoadAllFromFS(fsys fs.FS) ([]PolicyProfile, error) {
+	sources, err := LoadSourcesFromFS(fsys)
+	if err != nil {
+		return nil, err
+	}
+	return profilesOf(sources), nil
+}
+
+func profilesOf(sources []ProfileSource) []PolicyProfile {
+	var profiles []PolicyProfile
+	for i := range sources {
+		profiles = append(profiles, sources[i].Profile)
+	}
+	return profiles
 }
 
 // LoadFromFile reads a single PolicyProfile from a YAML file on disk.
@@ -80,17 +111,27 @@ func LoadFromFile(path string) (*PolicyProfile, error) {
 	return LoadFromFS(os.DirFS(filepath.Dir(path)), filepath.Base(path))
 }
 
-// LoadFromDirectory reads all .yaml/.yml files from a directory on disk
-// and returns a slice of PolicyProfiles. Missing directories return
+// LoadSourcesFromDirectory reads all .yaml/.yml files from a directory on
+// disk with the file that defines each profile. A missing directory returns
 // an empty slice (not an error), matching the existing config pattern.
-func LoadFromDirectory(dir string) ([]PolicyProfile, error) {
+func LoadSourcesFromDirectory(dir string) ([]ProfileSource, error) {
 	if _, err := os.Stat(dir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("read policy directory %s: %w", dir, err)
 	}
-	return LoadAllFromFS(os.DirFS(dir))
+	return LoadSourcesFromFS(os.DirFS(dir))
+}
+
+// LoadFromDirectory reads all .yaml/.yml files from a directory on disk
+// and returns a slice of PolicyProfiles (see LoadSourcesFromDirectory).
+func LoadFromDirectory(dir string) ([]PolicyProfile, error) {
+	sources, err := LoadSourcesFromDirectory(dir)
+	if err != nil {
+		return nil, err
+	}
+	return profilesOf(sources), nil
 }
 
 // SaveToFile writes a PolicyProfile to a YAML file using the provided writer.

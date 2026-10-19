@@ -183,7 +183,9 @@ async def test_tool_permission_denied() -> None:
     """When a tool call is denied, LLM gets denial message and continues."""
     call_count = 0
 
-    async def _request_tool_call(tool: str, command: str = "", path: str = "") -> ToolCallDecision:
+    async def _request_tool_call(
+        tool: str, command: str = "", path: str = "", arguments_preview: str = ""
+    ) -> ToolCallDecision:
         nonlocal call_count
         call_count += 1
         if tool == "echo":
@@ -368,7 +370,9 @@ async def test_cancellation_appends_placeholder_results() -> None:
     runtime = _make_runtime()
     execution_count = 0
 
-    async def _cancel_after_first(tool: str, command: str = "", path: str = "") -> ToolCallDecision:
+    async def _cancel_after_first(
+        tool: str, command: str = "", path: str = "", arguments_preview: str = ""
+    ) -> ToolCallDecision:
         nonlocal execution_count
         execution_count += 1
         if execution_count > 1:

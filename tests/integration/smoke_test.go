@@ -247,35 +247,77 @@ func TestSmoke_NATSConnection(t *testing.T) {
 
 // --- Authentication helper ---
 
-// loginAndGetToken authenticates with the backend and returns a JWT token.
-// It uses the seeded admin credentials (admin@localhost / Changeme123).
+// Seeded admin credentials: the backend creates this admin only when
+// CODEFORGE_AUTH_ADMIN_PASS is set (the CI smoke job sets it).
+const (
+	smokeAdminEmail = "admin@localhost"
+	smokeAdminPass  = "Changeme123"
+)
+
+// loginAndGetToken authenticates as the seeded admin and returns a JWT token.
+// A freshly seeded admin must change its password before the API accepts its
+// token (403 otherwise), so the first login re-sets the same password and logs
+// in again, like frontend/e2e/global-setup.ts.
 func loginAndGetToken(t *testing.T) string {
 	t.Helper()
 
-	client := httpClient()
-	body := fmt.Sprintf(`{"email":"admin@localhost","password":"Changeme123"}`)
-	resp, err := client.Post(
-		baseURL()+"/api/v1/auth/login",
-		"application/json",
-		stringReader(body),
-	)
+	token, mustChange := login(t)
+	if !mustChange {
+		return token
+	}
+	changePassword(t, token)
+	token, mustChange = login(t)
+	if mustChange {
+		t.Fatal("admin still must change its password after changing it")
+	}
+	return token
+}
+
+func login(t *testing.T) (token string, mustChangePassword bool) {
+	t.Helper()
+
+	body := fmt.Sprintf(`{"email":%q,"password":%q}`, smokeAdminEmail, smokeAdminPass)
+	resp, err := httpClient().Post(baseURL()+"/api/v1/auth/login", "application/json", stringReader(body))
 	if err != nil {
 		t.Fatalf("login request failed: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("login: expected 200, got %d", resp.StatusCode)
+		t.Fatalf("login: expected 200, got %d (is CODEFORGE_AUTH_ADMIN_PASS set on the backend?)", resp.StatusCode)
 	}
 
-	var result map[string]any
+	var result struct {
+		AccessToken string `json:"access_token"`
+		User        struct {
+			MustChangePassword bool `json:"must_change_password"`
+		} `json:"user"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("decode login response: %v", err)
 	}
-
-	token, ok := result["access_token"].(string)
-	if !ok || token == "" {
+	if result.AccessToken == "" {
 		t.Fatal("login response missing or empty 'access_token'")
 	}
-	return token
+	return result.AccessToken, result.User.MustChangePassword
+}
+
+func changePassword(t *testing.T, token string) {
+	t.Helper()
+
+	body := fmt.Sprintf(`{"old_password":%q,"new_password":%q}`, smokeAdminPass, smokeAdminPass)
+	req, err := http.NewRequest(http.MethodPost, baseURL()+"/api/v1/auth/change-password", stringReader(body))
+	if err != nil {
+		t.Fatalf("build change-password request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := httpClient().Do(req)
+	if err != nil {
+		t.Fatalf("change-password request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("change-password: expected 200/204, got %d", resp.StatusCode)
+	}
 }

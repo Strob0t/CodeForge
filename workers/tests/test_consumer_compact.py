@@ -82,20 +82,22 @@ async def test_compact_success() -> None:
 
 
 async def test_compact_no_conversation_id() -> None:
-    """Missing conversation_id returns early and acks."""
+    """A request without conversation_id is invalid: dead-lettered and terminated."""
     mixin = _TestMixin()
     msg = _make_msg({"conversation_id": "", "tenant_id": "t"})
+    msg.subject = "conversation.compact.request"
+    msg.term = AsyncMock()
 
     await mixin._handle_conversation_compact(msg)
 
     assert mixin._js is not None
-    mixin._js.publish.assert_not_called()
-    # ack is called in both the early return and the finally block
-    assert msg.ack.call_count >= 1
+    mixin._js.publish.assert_awaited_once_with("conversation.compact.request.dlq", msg.data, headers=None)
+    msg.term.assert_awaited_once()
+    msg.ack.assert_not_called()
 
 
 async def test_compact_no_messages() -> None:
-    """When fetch returns no messages, acks without publishing."""
+    """When fetch returns no messages, acks once without publishing."""
     mixin = _TestMixin()
     mixin._fetch_conversation_messages = AsyncMock(return_value=[])
     msg = _make_msg(_compact_payload())
@@ -104,7 +106,8 @@ async def test_compact_no_messages() -> None:
 
     assert mixin._js is not None
     mixin._js.publish.assert_not_called()
-    assert msg.ack.call_count >= 1
+    # A second ack of a real JetStream message raises MsgAlreadyAckdError.
+    msg.ack.assert_called_once()
 
 
 async def test_compact_llm_failure() -> None:
@@ -161,15 +164,33 @@ async def test_compact_api_fetch_failure() -> None:
     assert msg.ack.call_count >= 1
 
 
-async def test_compact_always_acks() -> None:
-    """Even if everything fails, the message is acked (via finally block)."""
+async def test_compact_invalid_json_is_dead_lettered() -> None:
+    """Invalid JSON goes to the DLQ and is terminated (never NAK'd, never acked)."""
     mixin = _TestMixin()
     msg = MagicMock()
+    msg.subject = "conversation.compact.request"
     msg.data = b"{{invalid"
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.term = AsyncMock()
     msg.headers = {}
 
     await mixin._handle_conversation_compact(msg)
 
+    assert mixin._js is not None
+    mixin._js.publish.assert_awaited_once_with("conversation.compact.request.dlq", b"{{invalid", headers=None)
+    msg.term.assert_awaited_once()
+    msg.ack.assert_not_called()
+    msg.nak.assert_not_called()
+
+
+async def test_compact_failure_is_acked_once() -> None:
+    """A failure after a valid request is logged and acked exactly once (not retried)."""
+    mixin = _TestMixin()
+    mixin._fetch_conversation_messages = AsyncMock(side_effect=RuntimeError("core down"))
+    msg = _make_msg(_compact_payload())
+
+    await mixin._handle_conversation_compact(msg)
+
     msg.ack.assert_called_once()
+    msg.nak.assert_not_called()

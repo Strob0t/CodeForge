@@ -67,10 +67,13 @@ type Feature struct {
 	Labels      []string          `json:"labels"`
 	SpecRef     string            `json:"spec_ref,omitempty"`
 	ExternalIDs map[string]string `json:"external_ids,omitempty"`
-	SortOrder   int               `json:"sort_order"`
-	Version     int               `json:"version"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	// Result is how the auto-agent's verification ended (KI-152): what was
+	// checked, or why the feature failed; "" until the auto-agent ran it.
+	Result    string    `json:"result,omitempty"`
+	SortOrder int       `json:"sort_order"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // CreateRoadmapRequest is the input for creating a roadmap.
@@ -131,4 +134,18 @@ type AIRoadmapView struct {
 	Content     string          `json:"content"`
 	RawData     json.RawMessage `json:"raw_data,omitempty"`
 	GeneratedAt time.Time       `json:"generated_at"`
+}
+
+// SpecFile is what a roadmap last saw of a workspace spec file, recorded
+// each time it imports the file or writes its checkbox markers back
+// (KI-203).
+type SpecFile struct {
+	RoadmapID string
+	Path      string
+	// ContentSHA256 is the hex SHA-256 of the file's content.
+	ContentSHA256 string
+	// Checked is the state of each imported feature's checkbox, by feature
+	// ID: an import takes a box's state from the file only when it differs
+	// (a three-way merge with the roadmap's status).
+	Checked map[string]bool
 }

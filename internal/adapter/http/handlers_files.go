@@ -4,7 +4,18 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Strob0t/CodeForge/internal/middleware"
 )
+
+// editorID is the user a file change is made for ("" without one): a change
+// made while a review pipeline refactors is recorded under it (KI-94).
+func editorID(r *http.Request) string {
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		return u.ID
+	}
+	return ""
+}
 
 // ListFiles handles GET /api/v1/projects/{id}/files?path=.
 func (h *Handlers) ListFiles(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +88,7 @@ func (h *Handlers) WriteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Files.WriteFile(r.Context(), projectID, req.Path, req.Content); err != nil {
+	if err := h.Files.WriteFile(r.Context(), projectID, req.Path, req.Content, editorID(r)); err != nil {
 		writeDomainError(w, err, "write file failed")
 		return
 	}
@@ -93,7 +104,7 @@ func (h *Handlers) DeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Files.DeleteFile(r.Context(), projectID, path); err != nil {
+	if err := h.Files.DeleteFile(r.Context(), projectID, path, editorID(r)); err != nil {
 		writeDomainError(w, err, "delete file failed")
 		return
 	}
@@ -117,7 +128,7 @@ func (h *Handlers) RenameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Files.RenameFile(r.Context(), projectID, body.OldPath, body.NewPath); err != nil {
+	if err := h.Files.RenameFile(r.Context(), projectID, body.OldPath, body.NewPath, editorID(r)); err != nil {
 		writeDomainError(w, err, "rename file failed")
 		return
 	}

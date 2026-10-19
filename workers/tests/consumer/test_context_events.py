@@ -3,7 +3,7 @@
 Verifies:
 - SUBJECT_SHARED_UPDATED constant matches Go side
 - _handle_shared_context_updated acks message and parses payload
-- Handler handles missing/invalid JSON gracefully
+- Handler dead-letters and terminates invalid JSON (never NAKs it)
 """
 
 from __future__ import annotations
@@ -13,15 +13,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._context_events import ContextEventsHandlerMixin
 from codeforge.consumer._subjects import SUBJECT_SHARED_UPDATED
 
 
-class _FakeHandler(ContextEventsHandlerMixin):
+class _FakeHandler(ContextEventsHandlerMixin, ConsumerBaseMixin):
     """Minimal concrete class satisfying mixin dependencies."""
 
     def __init__(self) -> None:
-        self._processed_ids: set[str] = set()
+        self._js = AsyncMock()
 
 
 @pytest.fixture
@@ -68,14 +69,18 @@ class TestHandleSharedContextUpdated:
         await handler._handle_shared_context_updated(msg)
         msg.ack.assert_awaited_once()
 
-    async def test_acks_on_invalid_json(self, handler: _FakeHandler) -> None:
-        """Handler must ack (not nak) on invalid JSON to prevent redelivery loops."""
+    async def test_dead_letters_invalid_json(self, handler: _FakeHandler) -> None:
+        """Invalid JSON goes to the DLQ and is terminated (never NAK'd, so no redelivery loop)."""
         msg = AsyncMock()
+        msg.subject = SUBJECT_SHARED_UPDATED
         msg.data = b"not json"
         msg.headers = None
 
         await handler._handle_shared_context_updated(msg)
-        msg.ack.assert_awaited_once()
+        handler._js.publish.assert_awaited_once_with(f"{SUBJECT_SHARED_UPDATED}.dlq", b"not json", headers=None)
+        msg.term.assert_awaited_once()
+        msg.ack.assert_not_awaited()
+        msg.nak.assert_not_awaited()
 
     async def test_acks_on_empty_payload(self, handler: _FakeHandler) -> None:
         """Handler must ack on empty payload."""

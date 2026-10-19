@@ -1,13 +1,18 @@
 package plane
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
@@ -568,3 +573,36 @@ func TestListItems_ContextCanceled(t *testing.T) {
 
 // TestProviderImplementsInterface verifies at compile time that *Provider satisfies pmprovider.Provider.
 var _ pmprovider.Provider = (*Provider)(nil)
+
+// KI-149: a malformed reference is the caller's input (400) and a project
+// Plane does not know is a reference that was not found (404).
+func TestListItems_RefErrorsCarryDomainSentinels(t *testing.T) {
+	p := &Provider{apiToken: "tok", baseURL: "http://localhost", httpClient: &http.Client{}}
+	if _, err := p.ListItems(context.Background(), "bad-ref"); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("malformed ref: err = %v, want ErrValidation", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+	logged := captureWarnings(t)
+	if _, err := newTestProvider(t, srv.URL).ListItems(context.Background(), "ws/no-such-project"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("unknown project: err = %v, want ErrNotFound", err)
+	}
+	// The operator still sees what Plane answered (KI-149 review).
+	if !strings.Contains(logged.String(), "level=WARN") || !strings.Contains(logged.String(), "404") {
+		t.Errorf("warning log %q, want the upstream status", logged.String())
+	}
+}
+
+// captureWarnings records what is logged at warn and above while the test
+// runs (the tests of this package do not run in parallel).
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}

@@ -27,6 +27,8 @@ interface AuthContextValue {
   /** Change password and re-login to get a fresh token without the mcp flag. */
   changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
   hasRole: (...roles: UserRole[]) => boolean;
+  /** True for platform admins, who alone may change what all tenants share. */
+  isPlatformAdmin: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue>();
@@ -123,6 +125,8 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
 
   const isAuthenticated = (): boolean => user() !== null;
 
+  const isPlatformAdmin = (): boolean => user()?.is_platform_admin === true;
+
   // Try to restore session via refresh cookie on mount.
   onMount(async () => {
     try {
@@ -151,6 +155,7 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
     logout,
     changePassword,
     hasRole,
+    isPlatformAdmin,
   };
 
   return <AuthContext.Provider value={value}>{props.children}</AuthContext.Provider>;

@@ -9,17 +9,20 @@ import (
 	"testing"
 )
 
+// newTenantAdmin returns a fresh test tenant and the access token of its
+// admin, so a test sees only its own projects in the shared database.
+func newTenantAdmin(t *testing.T) (tenantID, token string) {
+	t.Helper()
+	tenantID = newTestTenant(t)
+	lr, _ := setupAdmin(t, tenantID, "projects-admin@test.com")
+	return tenantID, lr.AccessToken
+}
+
 func TestProjectCRUDLifecycle(t *testing.T) {
-	// Clean before this test
-	cleanDB(testPool)
+	tenantID, token := newTenantAdmin(t)
 
 	// 1. List projects — should be empty
-	resp, err := http.Get(testServer.URL + "/api/v1/projects")
-	if err != nil {
-		t.Fatalf("list projects: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
+	resp := doRequest(t, tenantRequest(t, http.MethodGet, "/api/v1/projects", tenantID, token, nil))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list: expected 200, got %d", resp.StatusCode)
 	}
@@ -41,12 +44,7 @@ func TestProjectCRUDLifecycle(t *testing.T) {
 		"config":      map[string]string{},
 	})
 
-	resp2, err := http.Post(testServer.URL+"/api/v1/projects", "application/json", bytes.NewReader(createBody))
-	if err != nil {
-		t.Fatalf("create project: %v", err)
-	}
-	defer func() { _ = resp2.Body.Close() }()
-
+	resp2 := doRequest(t, tenantRequest(t, http.MethodPost, "/api/v1/projects", tenantID, token, createBody))
 	if resp2.StatusCode != http.StatusCreated {
 		t.Fatalf("create: expected 201, got %d", resp2.StatusCode)
 	}
@@ -65,12 +63,7 @@ func TestProjectCRUDLifecycle(t *testing.T) {
 	}
 
 	// 3. Get the project by ID
-	resp3, err := http.Get(testServer.URL + "/api/v1/projects/" + projectID)
-	if err != nil {
-		t.Fatalf("get project: %v", err)
-	}
-	defer func() { _ = resp3.Body.Close() }()
-
+	resp3 := doRequest(t, tenantRequest(t, http.MethodGet, "/api/v1/projects/"+projectID, tenantID, token, nil))
 	if resp3.StatusCode != http.StatusOK {
 		t.Fatalf("get: expected 200, got %d", resp3.StatusCode)
 	}
@@ -84,12 +77,7 @@ func TestProjectCRUDLifecycle(t *testing.T) {
 	}
 
 	// 4. List projects — should have 1
-	resp4, err := http.Get(testServer.URL + "/api/v1/projects")
-	if err != nil {
-		t.Fatalf("list after create: %v", err)
-	}
-	defer func() { _ = resp4.Body.Close() }()
-
+	resp4 := doRequest(t, tenantRequest(t, http.MethodGet, "/api/v1/projects", tenantID, token, nil))
 	var listed []map[string]any
 	if err := json.NewDecoder(resp4.Body).Decode(&listed); err != nil {
 		t.Fatalf("decode listed: %v", err)
@@ -99,24 +87,13 @@ func TestProjectCRUDLifecycle(t *testing.T) {
 	}
 
 	// 5. Delete the project
-	req, _ := http.NewRequest(http.MethodDelete, testServer.URL+"/api/v1/projects/"+projectID, http.NoBody)
-	resp5, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("delete project: %v", err)
-	}
-	defer func() { _ = resp5.Body.Close() }()
-
+	resp5 := doRequest(t, tenantRequest(t, http.MethodDelete, "/api/v1/projects/"+projectID, tenantID, token, nil))
 	if resp5.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete: expected 204, got %d", resp5.StatusCode)
 	}
 
 	// 6. Get deleted project — should be 404
-	resp6, err := http.Get(testServer.URL + "/api/v1/projects/" + projectID)
-	if err != nil {
-		t.Fatalf("get deleted: %v", err)
-	}
-	defer func() { _ = resp6.Body.Close() }()
-
+	resp6 := doRequest(t, tenantRequest(t, http.MethodGet, "/api/v1/projects/"+projectID, tenantID, token, nil))
 	if resp6.StatusCode != http.StatusNotFound {
 		t.Fatalf("get deleted: expected 404, got %d", resp6.StatusCode)
 	}
@@ -152,7 +129,7 @@ func TestGetNonexistentProject(t *testing.T) {
 }
 
 func TestTaskCRUDLifecycle(t *testing.T) {
-	cleanDB(testPool)
+	tenantID, token := newTenantAdmin(t)
 
 	// Create a project first
 	projBody, _ := json.Marshal(map[string]any{
@@ -160,34 +137,38 @@ func TestTaskCRUDLifecycle(t *testing.T) {
 		"provider": "local",
 		"config":   map[string]string{},
 	})
-	resp, err := http.Post(testServer.URL+"/api/v1/projects", "application/json", bytes.NewReader(projBody))
-	if err != nil {
-		t.Fatalf("create project: %v", err)
+	resp := doRequest(t, tenantRequest(t, http.MethodPost, "/api/v1/projects", tenantID, token, projBody))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create project: expected 201, got %d", resp.StatusCode)
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	var proj map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&proj)
-	projectID := proj["id"].(string)
+	if err := json.NewDecoder(resp.Body).Decode(&proj); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+	projectID, ok := proj["id"].(string)
+	if !ok || projectID == "" {
+		t.Fatal("expected non-empty project ID")
+	}
 
 	// Create a task
 	taskBody, _ := json.Marshal(map[string]any{
 		"title":  "Fix the bug",
 		"prompt": "Find and fix the null pointer exception",
 	})
-	resp2, err := http.Post(testServer.URL+"/api/v1/projects/"+projectID+"/tasks", "application/json", bytes.NewReader(taskBody))
-	if err != nil {
-		t.Fatalf("create task: %v", err)
-	}
-	defer func() { _ = resp2.Body.Close() }()
-
+	resp2 := doRequest(t, tenantRequest(t, http.MethodPost, "/api/v1/projects/"+projectID+"/tasks", tenantID, token, taskBody))
 	if resp2.StatusCode != http.StatusCreated {
 		t.Fatalf("create task: expected 201, got %d", resp2.StatusCode)
 	}
 
 	var createdTask map[string]any
-	_ = json.NewDecoder(resp2.Body).Decode(&createdTask)
-	taskID := createdTask["id"].(string)
+	if err := json.NewDecoder(resp2.Body).Decode(&createdTask); err != nil {
+		t.Fatalf("decode task: %v", err)
+	}
+	taskID, ok := createdTask["id"].(string)
+	if !ok || taskID == "" {
+		t.Fatal("expected non-empty task ID")
+	}
 
 	if createdTask["title"] != "Fix the bug" {
 		t.Fatalf("expected title 'Fix the bug', got %v", createdTask["title"])
@@ -197,25 +178,17 @@ func TestTaskCRUDLifecycle(t *testing.T) {
 	}
 
 	// Get the task by ID
-	resp3, err := http.Get(testServer.URL + "/api/v1/tasks/" + taskID)
-	if err != nil {
-		t.Fatalf("get task: %v", err)
-	}
-	defer func() { _ = resp3.Body.Close() }()
-
+	resp3 := doRequest(t, tenantRequest(t, http.MethodGet, "/api/v1/tasks/"+taskID, tenantID, token, nil))
 	if resp3.StatusCode != http.StatusOK {
 		t.Fatalf("get task: expected 200, got %d", resp3.StatusCode)
 	}
 
 	// List tasks for project
-	resp4, err := http.Get(testServer.URL + "/api/v1/projects/" + projectID + "/tasks")
-	if err != nil {
-		t.Fatalf("list tasks: %v", err)
-	}
-	defer func() { _ = resp4.Body.Close() }()
-
+	resp4 := doRequest(t, tenantRequest(t, http.MethodGet, "/api/v1/projects/"+projectID+"/tasks", tenantID, token, nil))
 	var tasks []map[string]any
-	_ = json.NewDecoder(resp4.Body).Decode(&tasks)
+	if err := json.NewDecoder(resp4.Body).Decode(&tasks); err != nil {
+		t.Fatalf("decode tasks: %v", err)
+	}
 	if len(tasks) != 1 {
 		t.Fatalf("expected 1 task, got %d", len(tasks))
 	}

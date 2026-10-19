@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from codeforge.a2a_protocol import A2ATaskState
 from codeforge.consumer._a2a import A2AHandlerMixin
 from codeforge.consumer._base import ConsumerBaseMixin
@@ -21,14 +19,7 @@ from codeforge.models import A2ATaskCreatedMessage
 class _TestMixin(A2AHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js: AsyncMock | None = AsyncMock()
-        self._processed_ids: set[str] = set()
-        self._processed_ids_max = 10_000
         self._executor = MagicMock()
-
-
-@pytest.fixture(autouse=True)
-def _fresh_state() -> None:
-    ConsumerBaseMixin._processed_ids = set()
 
 
 def _make_msg(data: dict) -> MagicMock:
@@ -148,18 +139,30 @@ async def test_a2a_trust_stamped() -> None:
     assert "trust" in last_payload
 
 
-async def test_a2a_invalid_json_acks() -> None:
-    """Invalid JSON data is caught and message is acked."""
-    mixin = _TestMixin()
+def _invalid_msg(subject: str, data: bytes) -> MagicMock:
     msg = MagicMock()
-    msg.data = b"{{bad json"
+    msg.subject = subject
+    msg.data = data
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.term = AsyncMock()
     msg.headers = {}
+    return msg
+
+
+async def test_a2a_invalid_json_is_dead_lettered() -> None:
+    """Invalid JSON goes to the DLQ and is terminated (never NAK'd, never run)."""
+    mixin = _TestMixin()
+    msg = _invalid_msg("a2a.task.created", b"{{bad json")
 
     await mixin._handle_a2a_task_created(msg)
 
-    msg.ack.assert_called_once()
+    assert mixin._js is not None
+    mixin._js.publish.assert_awaited_once_with("a2a.task.created.dlq", b"{{bad json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.ack.assert_not_called()
+    msg.nak.assert_not_called()
+    mixin._executor.execute_a2a_task.assert_not_called()
 
 
 async def test_a2a_cancel_acks() -> None:
@@ -172,18 +175,18 @@ async def test_a2a_cancel_acks() -> None:
     msg.ack.assert_called_once()
 
 
-async def test_a2a_cancel_invalid_json_acks() -> None:
-    """Cancel handler with invalid JSON still acks."""
+async def test_a2a_cancel_invalid_json_is_dead_lettered() -> None:
+    """Cancel handler dead-letters invalid JSON and terminates it (never NAK'd)."""
     mixin = _TestMixin()
-    msg = MagicMock()
-    msg.data = b"not json"
-    msg.ack = AsyncMock()
-    msg.nak = AsyncMock()
-    msg.headers = {}
+    msg = _invalid_msg("a2a.task.cancel", b"not json")
 
     await mixin._handle_a2a_task_cancel(msg)
 
-    msg.ack.assert_called_once()
+    assert mixin._js is not None
+    mixin._js.publish.assert_awaited_once_with("a2a.task.cancel.dlq", b"not json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.ack.assert_not_called()
+    msg.nak.assert_not_called()
 
 
 async def test_a2a_no_js_handling() -> None:

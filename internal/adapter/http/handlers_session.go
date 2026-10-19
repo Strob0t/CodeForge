@@ -2,10 +2,12 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -222,10 +224,20 @@ func (h *Handlers) GetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
-// GetConversationSession handles GET /api/v1/conversations/{id}/session
+// GetConversationSession handles GET /api/v1/conversations/{id}/session.
+// A conversation of the caller's tenant without a session (never forked or
+// resumed) is the normal case: 204, so the chat's load logs no 404 (KI-148).
 func (h *Handlers) GetConversationSession(w http.ResponseWriter, r *http.Request) {
 	conversationID := chi.URLParam(r, "id")
+	if _, err := h.Conversations.Get(r.Context(), conversationID); err != nil {
+		writeDomainError(w, err, "conversation not found")
+		return
+	}
 	sess, err := h.Sessions.GetSessionByConversation(r.Context(), conversationID)
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && sess == nil) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err != nil {
 		writeDomainError(w, err, "session not found")
 		return

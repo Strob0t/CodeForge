@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -579,6 +580,9 @@ func TestA2AService_DispatchPushNotifications_WithWebhook(t *testing.T) {
 		},
 	}
 	svc := NewA2AService(ms, nil)
+	// The default webhook client refuses private IPs (SSRF protection) and the
+	// httptest server listens on loopback, so deliver through its own client.
+	svc.webhookClient = webhookSrv.Client()
 
 	svc.DispatchPushNotifications(context.Background(), "t-1")
 
@@ -586,7 +590,28 @@ func TestA2AService_DispatchPushNotifications_WithWebhook(t *testing.T) {
 	select {
 	case <-received:
 		// Success.
-	case <-context.Background().Done():
+	case <-time.After(10 * time.Second):
 		t.Fatal("webhook not received")
+	}
+}
+
+func TestNewA2AService_WebhookClientBlocksPrivateIPs(t *testing.T) {
+	webhookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer webhookSrv.Close()
+
+	svc := NewA2AService(&mockStoreForA2A{}, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, webhookSrv.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := svc.webhookClient.Do(req)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected the default webhook client to refuse a loopback address")
+	}
+	if !strings.Contains(err.Error(), "private IP") {
+		t.Errorf("expected a private IP error, got %v", err)
 	}
 }

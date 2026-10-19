@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import structlog
+
+if TYPE_CHECKING:
+    from codeforge.tools.create_skill import SaveFn
 
 logger = structlog.get_logger()
 
@@ -13,8 +18,14 @@ def wire_skill_tools(
     project_id: str,
     log: structlog.stdlib.BoundLogger,
     db_url: str,
+    *,
+    tenant_id: str,
 ) -> None:
-    """Populate search_skills and create_skill tools with loaded data."""
+    """Populate search_skills and create_skill tools with loaded data.
+
+    create_skill saves drafts in the conversation's tenant and project;
+    without a tenant it gets no storage and fails when called.
+    """
     from codeforge.tools.create_skill import CreateSkillTool
     from codeforge.tools.search_skills import SearchSkillsTool
 
@@ -23,12 +34,18 @@ def wire_skill_tools(
             executor.set_skills(skills)
             log.debug("search_skills tool populated", skill_count=len(skills))
         elif isinstance(executor, CreateSkillTool) and executor._save_fn is None:
-            executor._save_fn = make_skill_save_fn(project_id, db_url)
+            if not tenant_id:
+                log.warning("create_skill has no storage: the conversation carries no tenant")
+                continue
+            executor._save_fn = make_skill_save_fn(project_id, db_url, tenant_id=tenant_id)
             log.debug("create_skill tool save_fn wired")
 
 
-def make_skill_save_fn(project_id: str, db_url: str) -> object:
-    """Create an async callback that saves a skill draft to the database."""
+def make_skill_save_fn(project_id: str, db_url: str, *, tenant_id: str) -> SaveFn:
+    """Create an async callback that saves a skill draft of the tenant's project to the database."""
+    if not tenant_id:
+        msg = "skill drafts need a tenant_id"
+        raise ValueError(msg)
     import psycopg
 
     async def save_fn(skill_data: dict) -> str:
@@ -43,7 +60,7 @@ def make_skill_save_fn(project_id: str, db_url: str) -> object:
                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                     (
                         skill_id,
-                        "",  # tenant_id set by trigger or default
+                        tenant_id,
                         project_id,
                         skill_data["name"],
                         skill_data["type"],
@@ -64,8 +81,19 @@ def make_skill_save_fn(project_id: str, db_url: str) -> object:
     return save_fn
 
 
-def register_handoff_tool(registry: object, run_id: str, js: object) -> None:
-    """Register the handoff tool in the tool registry if NATS is available."""
+def register_handoff_tool(
+    registry: object,
+    run_id: str,
+    js: object,
+    tenant_id: str = "",
+    project_id: str = "",
+    approval_timeout_seconds: int = 0,
+) -> None:
+    """Register the handoff tool in the tool registry if NATS is available.
+
+    The handoff run gets the workspace the tool is called in and the source
+    run's approval timeout.
+    """
     if js is None:
         return
 
@@ -83,7 +111,15 @@ def register_handoff_tool(registry: object, run_id: str, js: object) -> None:
         async def execute(self, arguments: dict, workspace_path: str) -> _ToolResult:
             from codeforge.tools.handoff import execute_handoff
 
-            result = await execute_handoff(self._run_id, arguments, self._js.publish)
+            result = await execute_handoff(
+                self._run_id,
+                arguments,
+                self._js.publish,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                workspace_path=workspace_path,
+                approval_timeout_seconds=approval_timeout_seconds,
+            )
             return _ToolResult(output=result)
 
     registry.register(
@@ -107,7 +143,14 @@ def register_propose_roadmap_tool(registry: object, runtime: object) -> None:
 
 
 def register_spawn_subagent_tool(registry: object, runtime: object) -> None:
-    """Register the spawn_subagent tool for sub-agent delegation."""
+    """Register the spawn_subagent tool for sub-agent delegation.
+
+    Planned, not wired (KI-25): the tool only emits an
+    ``agent.subagent_requested`` trajectory event, and Go starts no sub-agent
+    and returns no result, so conversation runs do not register it. Register
+    it again once Go runs the requested sub-agent and feeds its result back
+    into the calling loop.
+    """
     from codeforge.tools.spawn_subagent import SPAWN_SUBAGENT_DEFINITION, SpawnSubagentExecutor
 
     registry.register(SPAWN_SUBAGENT_DEFINITION, SpawnSubagentExecutor(runtime))

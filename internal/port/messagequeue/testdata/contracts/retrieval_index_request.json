@@ -6,5 +6,6 @@
     ".go",
     ".py",
     ".ts"
-  ]
+  ],
+  "knowledge_path": "go-patterns"
 }

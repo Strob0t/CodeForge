@@ -93,7 +93,7 @@ export function CommandPalette(): JSX.Element {
   cleanups.push(
     // eslint-disable-next-line solid/reactivity -- callback reads signal at invocation time
     registerAction("nav.models", () => {
-      if (!open()) navigate("/models");
+      if (!open()) navigate("/ai");
     }),
   );
   cleanups.push(registerAction("sidebar.toggle", () => toggleSidebar()));
@@ -125,7 +125,7 @@ export function CommandPalette(): JSX.Element {
       label: t("palette.cmd.models"),
       shortcut: comboLabel("nav.models"),
       section: "navigation",
-      action: () => navigate("/models"),
+      action: () => navigate("/ai"),
     },
     {
       id: "theme-toggle",

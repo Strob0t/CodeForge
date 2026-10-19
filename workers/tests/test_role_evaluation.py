@@ -5,7 +5,7 @@ from __future__ import annotations
 from codeforge.executor import AgentExecutor
 from codeforge.models import ModeConfig, TaskMessage, TaskStatus
 from tests.conftest import load_scenario
-from tests.evaluation import EvaluationMetrics
+from tests.eval_metrics import EvaluationMetrics
 from tests.fake_llm import FakeLLM
 from tests.role_matrix import ROLE_MATRIX
 

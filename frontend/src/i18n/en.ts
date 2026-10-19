@@ -103,17 +103,10 @@ const en = {
   "dashboard.form.path": "Project Path",
   "dashboard.form.pathPlaceholder": "/path/to/your/project",
   "dashboard.form.descriptionPlaceholder": "A brief description...",
-  "dashboard.form.advanced": "Advanced Settings",
-  "dashboard.form.autonomyLevel": "Autonomy Level",
-  "dashboard.form.autonomy.1": "1: Supervised",
-  "dashboard.form.autonomy.2": "2: Semi-Auto",
-  "dashboard.form.autonomy.3": "3: Auto-Edit",
-  "dashboard.form.autonomy.4": "4: Full-Auto",
-  "dashboard.form.autonomy.5": "5: Headless",
-  "dashboard.form.autonomyPlaceholder": "Select level...",
   "dashboard.form.branch": "Branch",
   "dashboard.form.branchPlaceholder": "Default branch",
   "dashboard.form.branchLoading": "Loading branches...",
+  "dashboard.health.noRuns": "No runs in the last 7 days",
   "dashboard.loading": "Loading projects...",
   "dashboard.loadError": "Failed to load projects.",
   "dashboard.empty": "No projects yet. Create one to get started.",
@@ -184,6 +177,10 @@ const en = {
   "search.filterProjects": "Filter projects",
   "search.allProjects": "All Projects",
   "search.noResults": "No results found.",
+  "search.indexBm25Only":
+    "{{project}}: the index ranks by keywords only (no usable embedding model).",
+  "search.indexError": "{{project}}: the index failed: {{error}}",
+  "search.indexBuilding": "{{project}}: the index is still being built.",
   "search.error": "Search failed.",
   "search.results": "{{count}} results",
   "search.line": "L{{line}}",
@@ -230,6 +227,7 @@ const en = {
   // -- Models ---------------------------------------------------------------
   "models.title": "LLM Models",
   "models.addModel": "Add Model",
+  "models.platformAdminOnly": "Only platform admins can add or remove models.",
   "models.form.displayName": "Display Name",
   "models.form.litellmModel": "LiteLLM Model",
   "models.form.apiBase": "API Base (optional)",
@@ -455,6 +453,7 @@ const en = {
   "policy.storage": "Storage:",
   "policy.network": "Network:",
   "policy.testEval": "Test Evaluation",
+  "policy.allowAlwaysFailed": "Allowed once, but the allow-always rule was not saved: {{error}}",
   "policy.toolPlaceholder": "Tool (e.g. Bash)",
   "policy.commandPlaceholder": "Command (optional)",
   "policy.pathPlaceholder": "Path (optional)",
@@ -527,6 +526,8 @@ const en = {
   "retrieval.files": "Files",
   "retrieval.chunks": "Chunks",
   "retrieval.model": "Model",
+  "retrieval.bm25Only":
+    "Semantic search is off: no embedding model can be used, so the index ranks by keywords (BM25) only.",
   "retrieval.indexError": "Index error:",
   "retrieval.searchPlaceholder": "Search code...",
   "retrieval.agentSearchPlaceholder": "Describe what you're looking for...",
@@ -563,6 +564,7 @@ const en = {
   "roadmap.form.titlePlaceholder": "Roadmap title",
   "roadmap.form.descriptionPlaceholder": "Description (optional)",
   "roadmap.createRoadmap": "Create Roadmap",
+  "roadmap.proposalApproveFailed": "The proposal could not be applied.",
   "roadmap.detecting": "Detecting...",
   "roadmap.autoDetect": "Auto-Detect",
   "roadmap.importSpecs": "Import Specs",
@@ -606,6 +608,26 @@ const en = {
   "roadmap.markTodo": "Mark as todo",
   "roadmap.syncToFile": "Sync to file",
   "roadmap.syncing": "Syncing...",
+  "roadmap.syncPM": "Sync with PM",
+  "roadmap.sync.title": "Sync with a PM tool",
+  "roadmap.sync.direction": "Direction",
+  "roadmap.sync.direction.pull": "Pull: PM tool → CodeForge",
+  "roadmap.sync.direction.push": "Push: CodeForge → PM tool",
+  "roadmap.sync.direction.bidi": "Both directions: pull, then push",
+  "roadmap.sync.readOnlyProvider":
+    "{{provider}} cannot create or update items, so only pull is possible.",
+  "roadmap.sync.createNew": "Create items that exist on one side only",
+  "roadmap.sync.updateExisting": "Update items that exist on both sides",
+  "roadmap.sync.dryRun": "Preview only: count the changes, change nothing",
+  "roadmap.sync.token": "Access token (optional)",
+  "roadmap.sync.tokenHint": "Used for this sync only, never stored.",
+  "roadmap.sync.preview": "Preview",
+  "roadmap.sync.run": "Sync now",
+  "roadmap.sync.result":
+    "{{direction}}: {{created}} created, {{updated}} updated, {{skipped}} skipped",
+  "roadmap.sync.previewNote": "Preview only: nothing was changed.",
+  "roadmap.sync.done": "Roadmap synced",
+  "roadmap.sync.failed": "Sync failed",
   "roadmap.toast.synced": "Synced to file",
   "roadmap.toast.syncFailed": "Sync failed",
   "roadmap.toast.aiFailed": "Failed to load AI view",
@@ -615,7 +637,6 @@ const en = {
   "featuremap.empty": "No roadmap data. Create a roadmap first.",
   "featuremap.addMilestone": "+ Add Milestone",
   "featuremap.addFeature": "+ Add Feature",
-  "featuremap.editFeature": "Edit",
   "featuremap.deleteFeature": "Delete",
   "featuremap.featurePlaceholder": "Feature title...",
   "featuremap.descriptionPlaceholder": "Feature description (optional)...",
@@ -696,16 +717,114 @@ const en = {
   "trajectory.noRuns": "No runs found for this project.",
   "trajectory.runLabel": "Run",
   "detail.settings.title": "Project Settings",
-  "detail.settings.autonomyLevel": "Autonomy Level",
-  "detail.settings.autonomyPlaceholder": "Select level...",
-  "detail.settings.save": "Save Settings",
-  "detail.settings.saving": "Saving...",
+  "detail.settings.autonomyFromMode":
+    "Autonomy comes from the selected mode (see Modes), not from the project.",
   "detail.settings.gearTooltip": "Project Settings",
   "detail.roadmap.collapse": "Collapse Roadmap",
   "detail.roadmap.expand": "Expand Roadmap",
   "detail.settings.costSummary": "Cost Summary",
-  "detail.toast.settingsSaved": "Project settings saved",
-  "detail.toast.settingsFailed": "Failed to save project settings",
+  "detail.chat.linkedElsewhere":
+    "The linked conversation belongs to another project and was not opened.",
+  "detail.chat.linkedFailed": "The linked conversation could not be opened.",
+  "detail.settings.mcpAdminOnly": "Only admins assign MCP servers to a project.",
+  "detail.settings.mcpNoneAssigned": "No MCP server is assigned to this project.",
+  "detail.settings.webhooks": "Webhooks",
+  "detail.settings.webhooksHelp": "Inbound webhooks from GitHub, GitLab and Plane.",
+  "detail.settings.webhooksManage": "Manage webhooks",
+
+  // -- Project webhooks (KI-109) --------------------------------------------
+  "webhooks.title": "Webhooks",
+  "webhooks.description":
+    "GitHub, GitLab and Plane deliver events to these URLs. Each webhook has its own secret.",
+  "webhooks.add": "Add webhook",
+  "webhooks.loading": "Loading webhooks...",
+  "webhooks.loadError": "The webhooks could not be loaded.",
+  "webhooks.retry": "Retry",
+  "webhooks.empty": "No webhooks yet",
+  "webhooks.emptyDescription": "Register a webhook, then enter its URL and secret at the provider.",
+  "webhooks.emptyDescriptionReadOnly": "An admin registers the webhooks of this project.",
+  "webhooks.adminOnly": "Only admins register, rotate and delete webhooks.",
+  "webhooks.viewerHidden": "Only admins and editors see a project's webhooks.",
+  "webhooks.kind.vcs": "VCS events",
+  "webhooks.kind.pm": "Roadmap sync",
+  "webhooks.kindHelp.vcs": "Push and pull request events of the project's repository.",
+  "webhooks.kindHelp.pm": "Issue events that sync the project's roadmap.",
+  "webhooks.name": "{{provider}} {{kind}}",
+  "webhooks.field.url": "URL",
+  "webhooks.field.created": "Created",
+  "webhooks.field.secretSince": "Secret since",
+  "webhooks.field.apiToken": "API token",
+  "webhooks.apiToken.own": "Own token",
+  "webhooks.apiToken.none": "None",
+  "webhooks.urlHint":
+    "The URLs use this page's address ({{origin}}). If the provider reaches CodeForge at another address, use that address with the same path.",
+  "webhooks.copyURL": "Copy the URL of the {{name}} webhook",
+  "webhooks.copy": "Copy",
+  "webhooks.copied": "Copied to the clipboard",
+  "webhooks.copyFailed": "Copying failed: select the text and copy it yourself.",
+  "webhooks.form.title": "Register a webhook",
+  "webhooks.form.kind": "Kind",
+  "webhooks.form.provider": "Provider",
+  "webhooks.form.planeSecret": "Plane's signing secret",
+  "webhooks.form.planeSecretHelp":
+    "Plane generates the secret: create the webhook in Plane first, paste its secret here, then set the webhook's URL in Plane to the URL shown after registering.",
+  "webhooks.form.apiToken": "API token (optional)",
+  "webhooks.form.apiTokenHelp":
+    "The sync's own token for the provider's API. Without one, only the default organization syncs, with the server's token.",
+  "webhooks.form.submit": "Register",
+  "webhooks.form.secretTooShort": "Plane's secret has at least {{min}} characters.",
+  "webhooks.toast.created": "Webhook registered",
+  "webhooks.toast.createdPlane": "Webhook registered. Set its URL in Plane now.",
+  "webhooks.toast.createFailed": "The webhook could not be registered.",
+  "webhooks.secret.title": "Copy the secret now",
+  "webhooks.secret.once":
+    "You will not see this secret again. Enter the URL and the secret at {{provider}} now; if the secret is lost, rotate it.",
+  "webhooks.secret.label": "Secret",
+  "webhooks.secret.copy": "Copy the secret",
+  "webhooks.secret.done": "I have saved it",
+  "webhooks.rotate": "Rotate secret",
+  "webhooks.rotateLabel": "Rotate the secret of the {{name}} webhook",
+  "webhooks.rotate.title": "Rotate the secret?",
+  "webhooks.rotate.message":
+    "The current secret stops working at once. Enter the new secret at {{provider}} right away, or its deliveries are refused.",
+  "webhooks.rotate.planeMessage":
+    "Regenerate the secret in Plane first and paste the new secret here. The old secret stops working at once.",
+  "webhooks.rotate.planeSecret": "Plane's new signing secret",
+  "webhooks.rotate.confirm": "Rotate",
+  "webhooks.toast.rotated": "Secret rotated",
+  "webhooks.toast.rotateFailed": "The secret could not be rotated.",
+  "webhooks.delete": "Delete",
+  "webhooks.deleteLabel": "Delete the {{name}} webhook",
+  "webhooks.delete.title": "Delete the webhook?",
+  "webhooks.delete.message":
+    "Deliveries to its URL are refused afterwards. Remove the webhook at {{provider}} too.",
+  "webhooks.toast.deleted": "Webhook deleted",
+  "webhooks.toast.deleteFailed": "The webhook could not be deleted.",
+  "webhooks.apiToken.edit": "API token",
+  "webhooks.apiTokenLabel": "Set the API token of the {{name}} webhook",
+  "webhooks.apiToken.title": "API token of the {{name}} webhook",
+  "webhooks.apiToken.new": "New API token",
+  "webhooks.apiToken.help":
+    "Replaces the stored token. It is stored encrypted and never shown again.",
+  "webhooks.apiToken.save": "Save token",
+  "webhooks.apiToken.remove": "Remove token",
+  "webhooks.apiToken.required": "Enter a token, or remove the stored one.",
+  "webhooks.toast.apiTokenSaved": "API token saved",
+  "webhooks.toast.apiTokenRemoved": "API token removed",
+  "webhooks.toast.apiTokenFailed": "The API token could not be changed.",
+  "webhooks.form.exists": "This project already has a {{name}} webhook; rotate its secret instead.",
+  "webhooks.error.createNoAnswer":
+    "No answer arrived. The webhook may have been registered anyway: if it is listed after a reload, rotate its secret to get a new one.",
+  "webhooks.error.rotateNoAnswer":
+    "No answer arrived. The secret may have been rotated anyway, and then the old one no longer works: rotate it again to get a new one.",
+  "webhooks.toast.createdElsewhere":
+    "The {{name}} webhook of the previous project was registered, but its secret could not be shown here. Rotate its secret there to get a new one.",
+  "webhooks.toast.createdClosed":
+    "The {{name}} webhook was registered after the Webhooks panel closed, so its secret could not be shown. Rotate its secret to get a new one.",
+  "webhooks.toast.rotatedElsewhere":
+    "The secret of the {{name}} webhook of the previous project was rotated, but the new secret could not be shown here. Rotate it there again to get a new one.",
+  "webhooks.toast.rotatedClosed":
+    "The secret of the {{name}} webhook was rotated after the Webhooks panel closed, so the new secret could not be shown. Rotate it again to get a new one.",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live Output",
@@ -833,6 +952,9 @@ const en = {
   "auth.setup.namePlaceholder": "Admin",
   "auth.setup.password": "Password",
   "auth.setup.confirmPassword": "Confirm Password",
+  "auth.setup.token": "Setup Token",
+  "auth.setup.tokenHelp":
+    "The one-time token the server created on its first start. Find it in the server log (the line starting with SETUP TOKEN) or in the file data/setup_token next to the server (/data/setup_token in the production containers).",
   "auth.setup.submit": "Create Account",
   "auth.setup.creating": "Creating...",
   "auth.setup.mismatch": "Passwords do not match.",
@@ -1058,6 +1180,7 @@ const en = {
   "reviews.status.completed": "Completed",
   "reviews.status.failed": "Failed",
   // Knowledge Bases (Phase 12K)
+  "kb.adminOnly": "Only admins of your organization create, index and delete knowledge bases.",
   "kb.title": "Knowledge Bases",
   "kb.description": "Curated knowledge modules for agent context",
   "kb.empty": "No knowledge bases available",
@@ -1078,6 +1201,7 @@ const en = {
   "kb.form.category": "Category",
   "kb.form.tags": "Tags",
   "kb.form.contentPath": "Content Path",
+  "kb.index.indexing": "Indexing...",
   "kb.index.button": "Index",
   "kb.index.reindex": "Re-index",
   "kb.toast.created": "Knowledge base created",
@@ -1136,6 +1260,7 @@ const en = {
   "settings.vcs.orOAuth": "or",
   "settings.vcs.connectGitHub": "Connect GitHub",
   "settings.vcs.oauthFailed": "GitHub OAuth failed",
+  "settings.vcs.oauthConnected": "GitHub account connected",
   "settings.vcs.test": "Test",
   "settings.vcs.testing": "Testing...",
   "settings.vcs.testSuccess": "Connection successful",
@@ -1160,6 +1285,7 @@ const en = {
   "project.editAria": "Edit project {{name}}",
 
   // -- Chat -----------------------------------------------------------------
+  "chat.diffTruncated": "Only the start of this diff is shown.",
   "chat.tab": "Chat",
   "chat.new": "New Chat",
   "chat.newConversation": "New Conversation",
@@ -1187,6 +1313,8 @@ const en = {
   // -- Subscription Providers ---------------------------------------------------
   "settings.subscriptionProviders.title": "Subscription Providers",
   "settings.subscriptionProviders.subtitle": "Connect existing subscriptions to use their models",
+  "settings.subscriptionProviders.platformAdminOnly":
+    "Only platform admins can connect or disconnect providers.",
   "settings.subscriptionProviders.connect": "Connect",
   "settings.subscriptionProviders.disconnect": "Disconnect",
   "settings.subscriptionProviders.connected": "Connected",
@@ -1254,12 +1382,26 @@ const en = {
   "mcp.form.commandPlaceholder": "e.g. npx -y @modelcontextprotocol/server-filesystem",
   "mcp.form.args": "Arguments (one per line)",
   "mcp.form.argsPlaceholder": "/path/to/allowed/dir",
+  "mcp.form.argsHint":
+    "Use env variables for secrets; arguments are visible to all users of the tenant.",
   "mcp.form.url": "Server URL",
-  "mcp.form.urlPlaceholder": "http://localhost:3001/sse",
+  "mcp.form.urlPlaceholder": "https://mcp.example.com/sse",
   "mcp.form.env": "Environment Variables",
   "mcp.form.envKey": "Key",
   "mcp.form.envValue": "Value",
   "mcp.form.addEnv": "Add Variable",
+  "mcp.form.removeEnv": "Remove variable {{n}}",
+  "mcp.form.headers": "HTTP Headers",
+  "mcp.form.headerKey": "Header name",
+  "mcp.form.headerValue": "Header value",
+  "mcp.form.addHeader": "Add Header",
+  "mcp.form.removeHeader": "Remove header {{n}}",
+  "mcp.form.storedUnchanged": "Stored, unchanged: *** keeps the saved value.",
+  "mcp.form.storedNotKept":
+    "Enter it again: a stored value is kept only while transport, URL, command and arguments are unchanged.",
+  "mcp.toast.storedNotKept":
+    "Stored secrets (***) are kept only while transport, URL, command and arguments are unchanged. Enter them again.",
+  "mcp.adminOnly": "Only admins of your organization add, change, test and assign MCP servers.",
   "mcp.form.enabled": "Enabled",
   "mcp.form.create": "Create Server",
   "mcp.form.update": "Update Server",
@@ -1279,6 +1421,8 @@ const en = {
   "mcp.testFailedTitle": "Connection Test Failed",
   "mcp.testFailedMessage": "Connection test failed: {{error}}. Save anyway?",
   "mcp.testFailedSaveAnyway": "Save Anyway",
+  "mcp.stdioNoTest":
+    "stdio servers run in the worker as the tool user and cannot be tested here; they start with the first run that uses them.",
   "mcp.toast.createdWithTools": "MCP server created — {{count}} tools discovered",
   "mcp.testAria": "Test connection for {{name}}",
   "mcp.editAria": "Edit server {{name}}",
@@ -1293,6 +1437,19 @@ const en = {
   "mcp.tools.inputSchema": "Input Schema",
 
   // -- Not Found / Error pages ------------------------------------------------
+  "approval.title": "Tool approval",
+  "approval.notPending":
+    "This tool call is no longer waiting for a decision (answered, timed out or the run ended), or it is not yours to decide.",
+  "approval.run": "Run",
+  "approval.tool": "Tool",
+  "approval.command": "Command",
+  "approval.path": "Path",
+  "approval.profile": "Policy profile",
+  "approval.arguments": "Arguments",
+  "approval.approve": "Approve",
+  "approval.deny": "Deny",
+  "approval.approved": "Approved.",
+  "approval.denied": "Denied.",
   "notFound.title": "Page not found",
   "notFound.message": "The page you are looking for does not exist or has been moved.",
   "notFound.backToDashboard": "Back to Dashboard",
@@ -1359,6 +1516,7 @@ const en = {
   "a2a.tasks.all": "All",
   "a2a.pushConfigs.url": "Webhook URL",
   "a2a.pushConfigs.token": "Token",
+  "a2a.pushConfigs.tokenSet": "set",
   "a2a.pushConfigs.selectTask": "Select a task",
   "a2a.pushConfigs.create": "Create Push Config",
   "a2a.pushConfigs.empty": "No push configs for this task.",
@@ -1445,9 +1603,13 @@ const en = {
   "benchmark.metrics": "Metrics",
   "benchmark.benchmarkType": "Benchmark Type",
   "benchmark.execMode": "Execution Mode",
+  "benchmark.execModeUnavailable": "not available yet",
+  "benchmark.execModeUnavailableHelp":
+    "Sandbox and hybrid are not available yet: tools would run without isolation (KI-13).",
   "benchmark.startRun": "Start Run",
   "benchmark.taskName": "Task",
   "benchmark.scores": "Scores",
+  "benchmark.evaluationError": "evaluation error",
   "benchmark.cost": "Cost",
   "benchmark.duration": "Duration",
   "benchmark.noResults": "No results recorded for this run.",
@@ -1630,6 +1792,19 @@ const en = {
   "session.createdAt": "Created {{date}}",
   "session.forkedNote": "Conversation forked. Send a message to continue.",
 
+  // -- Review refactoring approval (KI-94) -----------------------------------
+  "reviewApproval.userEdits.title": "These files were changed by users while the refactorer ran:",
+  "reviewApproval.userEdits.hint":
+    "Their changes count as part of the refactoring: undoing it sets them back too.",
+  "reviewApproval.userEdits.more": "... and {{count}} more",
+  "reviewApproval.userEdits.by": "{{operation}} by {{user}}, {{time}}",
+  "reviewApproval.userEdits.unknownUser": "unknown user",
+  "reviewApproval.userEdits.op.write": "edited",
+  "reviewApproval.userEdits.op.delete": "deleted",
+  "reviewApproval.userEdits.op.rename": "renamed",
+  "reviewApproval.userEdits.unavailable":
+    "The files users changed while the refactorer ran could not be loaded: undoing may set their changes back too.",
+
   // -- Files ------------------------------------------------------------------
   "files.createFile": "New File",
   "files.fileName": "File path",
@@ -1672,6 +1847,9 @@ const en = {
   "chat.attachFile": "Attach file",
   "chat.attachSuccess": "File written to workspace",
   "chat.attachFailed": "Failed to attach file",
+  "chat.runInProgress":
+    "A run is still in progress. Wait for it to finish or stop it, then send again.",
+  "chat.sendFailed": "The message could not be sent.",
 
   // -- Onboarding progress ---------------------------------------------------
   "onboarding.repoCloned": "Repo cloned",
@@ -1743,7 +1921,6 @@ const en = {
   "quarantine.detail.reviewedAt": "Reviewed At",
   "quarantine.action.approve": "Approve",
   "quarantine.action.reject": "Reject",
-  "quarantine.action.reviewerName": "Your name",
   "quarantine.action.note": "Review note",
   "quarantine.toast.approved": "Message approved and dispatched.",
   "quarantine.toast.rejected": "Message rejected.",
@@ -1809,6 +1986,8 @@ const en = {
   "routing.stats.empty": "No routing stats available",
   "routing.stats.emptyDescription":
     "Seed data from benchmarks or wait for routing decisions to accumulate.",
+  "routing.stats.removed": "removed",
+  "routing.stats.removedHint": "This model is no longer configured; the router does not pick it.",
   "routing.stats.refresh": "Refresh Stats",
   "routing.stats.seed": "Seed from Benchmarks",
   "routing.stats.seeded": "Seeded {{count}} outcomes from benchmark data.",
@@ -1836,6 +2015,128 @@ const en = {
   "routing.error.refreshFailed": "Failed to refresh stats.",
   "routing.error.seedFailed": "Failed to seed from benchmarks.",
   "routing.error.recordFailed": "Failed to record outcome.",
+  // -- Settings navigation ----------------------------------------------------
+  "settings.nav.general": "General",
+  "settings.nav.shortcuts": "Shortcuts",
+  "settings.nav.vcs": "VCS",
+  "settings.nav.providers": "Providers",
+  "settings.nav.proxy": "LLM Proxy",
+  "settings.nav.subscriptions": "Subscriptions",
+  "settings.nav.apiKeys": "API Keys",
+  "settings.nav.privacy": "Privacy",
+  "settings.nav.users": "Users",
+  "settings.nav.devTools": "Dev Tools",
+  // -- Settings > Privacy (GDPR self-service) ---------------------------------
+  "settings.privacy.title": "Privacy",
+  "settings.privacy.description":
+    "Your rights under the GDPR: get a copy of your data, delete your account and decide what you consent to.",
+  "settings.privacy.policyLink": "Privacy policy",
+  "settings.privacy.export.title": "Export my data",
+  "settings.privacy.export.description":
+    "Downloads a JSON file with your account, your API keys and LLM keys (names and prefixes, never the keys), the sessions, conversations and runs of your organization's projects, and your audit trail.",
+  "settings.privacy.export.button": "Download my data",
+  "settings.privacy.export.done": "Your data was downloaded.",
+  "settings.privacy.export.failed": "The export failed.",
+  "settings.privacy.delete.title": "Delete my account and data",
+  "settings.privacy.delete.description":
+    "Erases your account at once. You are signed out and cannot sign in with it again.",
+  "settings.privacy.delete.button": "Delete my account...",
+  "settings.privacy.delete.dialogTitle": "Delete your account?",
+  "settings.privacy.delete.irreversible":
+    "This cannot be undone. Your account is erased at once, you are signed out and cannot sign in with it again.",
+  "settings.privacy.delete.deletedTitle": "Deleted",
+  "settings.privacy.delete.deleted.account": "Your account: name, email address, password and role",
+  "settings.privacy.delete.deleted.keys": "Your API keys and LLM keys",
+  "settings.privacy.delete.deleted.sessions": "Your sign-in sessions and password reset links",
+  "settings.privacy.delete.deleted.channels": "Your channel memberships and read markers",
+  "settings.privacy.delete.keptTitle": "Kept, without your personal data",
+  "settings.privacy.delete.kept.audit":
+    "Audit log entries of your actions (your email address and IP address are removed)",
+  "settings.privacy.delete.kept.consent":
+    "Your consent records, as proof of consent (IP address and browser are removed)",
+  "settings.privacy.delete.kept.channels":
+    'Your channel messages (the sender becomes "Deleted user")',
+  "settings.privacy.delete.kept.quarantine":
+    'Your quarantine reviews (the reviewer becomes "Deleted user")',
+  "settings.privacy.delete.notDeleted":
+    "Projects, conversations, runs and costs belong to your organization and are not deleted.",
+  "settings.privacy.delete.backups":
+    "Database backups that still contain your data are rotated out after about five weeks.",
+  "settings.privacy.delete.confirmLabel": "Type your email address {{email}} to confirm",
+  "settings.privacy.delete.confirm": "Delete my account",
+  "settings.privacy.delete.done": "Your account and data were deleted.",
+  "settings.privacy.delete.failed": "The deletion failed.",
+  "settings.privacy.consent.title": "Consent",
+  "settings.privacy.consent.description":
+    "What this instance processes with your consent. You can withdraw a consent at any time, except for a required purpose.",
+  "settings.privacy.consent.empty": "This instance asks for no consent.",
+  "settings.privacy.consent.loadFailed": "The consent settings could not be loaded.",
+  "settings.privacy.consent.required": "Required",
+  "settings.privacy.consent.requiredHint": "A required purpose cannot be withdrawn.",
+  "settings.privacy.consent.toggle": "I consent",
+  "settings.privacy.consent.toggleAria": "Consent to {{label}}",
+  "settings.privacy.consent.saved": "Consent saved.",
+  "settings.privacy.consent.failed": "The consent could not be saved.",
+  "settings.privacy.consent.basis.consent": "Consent (Art. 6(1)(a) GDPR)",
+  "settings.privacy.consent.basis.legitimate_interest": "Legitimate interest (Art. 6(1)(f) GDPR)",
+  "settings.privacy.consent.basis.contract": "Contract (Art. 6(1)(b) GDPR)",
+  // -- Privacy policy page --------------------------------------------------
+  "privacy.title": "Privacy Policy",
+  "privacy.controller.title": "Data Controller",
+  "privacy.controller.body":
+    "This CodeForge instance is self-hosted. The operator of this instance is the data controller responsible for your personal data under GDPR Art. 4(7).",
+  "privacy.collect.title": "Data We Collect",
+  "privacy.collect.account": "Account information (email address, name, role)",
+  "privacy.collect.auth": "Authentication tokens and session data",
+  "privacy.collect.projects": "Project and repository metadata",
+  "privacy.collect.conversations": "Conversation history with AI agents",
+  "privacy.collect.usage": "Usage metrics and cost tracking data",
+  "privacy.dpo.title": "Data Protection Officer",
+  "privacy.dpo.body":
+    "Contact the instance operator's Data Protection Officer for privacy inquiries. Self-hosted operators should configure DPO contact details in the instance settings.",
+  "privacy.basis.title": "Purpose & Legal Basis",
+  "privacy.basis.service":
+    "Service delivery (account, projects, conversations) -- GDPR Art. 6(1)(b) contract",
+  "privacy.basis.llm":
+    "External LLM processing (prompts sent to providers) -- GDPR Art. 6(1)(a) consent",
+  "privacy.basis.security":
+    "System security (audit logs, rate limiting) -- GDPR Art. 6(1)(f) legitimate interest",
+  "privacy.basis.cost": "Cost tracking and billing -- GDPR Art. 6(1)(b) contract",
+  "privacy.processors.title": "Subprocessors",
+  "privacy.processors.body":
+    "When external LLM providers are configured, user prompts and code context may be transmitted to these subprocessors. Local models process data entirely on-premises.",
+  "privacy.processors.openai": "OpenAI (Microsoft) -- LLM inference, US (EU DPA + SCCs)",
+  "privacy.processors.anthropic": "Anthropic -- LLM inference, US (EU DPA + SCCs)",
+  "privacy.processors.google": "Google (Vertex AI) -- LLM inference, EU (Frankfurt)",
+  "privacy.processors.local": "Ollama / LM Studio -- local inference, no data transfer",
+  "privacy.processors.note":
+    "Active providers depend on instance configuration. Consent is required before external processing (see consent settings).",
+  "privacy.retention.title": "Data Retention",
+  "privacy.retention.account":
+    "Account data -- kept while the account exists; erased immediately when you request erasure or the account is deleted. Database backups that still contain it are rotated out after about five weeks.",
+  "privacy.retention.conversations":
+    "Conversations and their messages -- 1 year after last activity (configurable)",
+  "privacy.retention.sessions": "Agent sessions -- 30 days after last activity (configurable)",
+  "privacy.retention.runs":
+    "Agent runs with their cost/usage data -- 1 year after last activity (configurable)",
+  "privacy.retention.audit":
+    "Audit log entries -- 7 years (action/resource preserved, PII anonymized)",
+  "privacy.retention.auditIp": "IP addresses in audit logs -- 180 days (per CNIL guidance)",
+  "privacy.retention.consent":
+    "Consent records -- indefinite (proof-of-consent per GDPR Art. 7(1))",
+  "privacy.retention.consentIp":
+    "IP addresses and browser user agents in consent records -- 180 days",
+  "privacy.rights.title": "Your Rights",
+  "privacy.rights.settingsLink": "Settings > Privacy",
+  "privacy.rights.access": "Right of access (Art. 15) -- export your data under",
+  "privacy.rights.rectification":
+    "Right to rectification (Art. 16) -- update your profile in Settings",
+  "privacy.rights.erasure": "Right to erasure (Art. 17) -- delete your account and data under",
+  "privacy.rights.portability":
+    "Right to data portability (Art. 20) -- JSON export of all your data",
+  "privacy.rights.object":
+    "Right to object (Art. 21) -- withdraw consent for external LLM processing under",
+  "privacy.rights.complaint": "Right to lodge a complaint with a supervisory authority (Art. 77)",
 } as const;
 
 export type TranslationKey = keyof typeof en;

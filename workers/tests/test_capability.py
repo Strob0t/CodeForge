@@ -26,7 +26,7 @@ class TestToolsByCapability:
 
     def test_api_with_tools_includes_handoff(self) -> None:
         allowed = TOOLS_BY_CAPABILITY[CapabilityLevel.API_WITH_TOOLS]
-        assert "handoff" in allowed
+        assert "handoff_to" in allowed  # the registered name (KI-38)
         assert "transition_to_act" in allowed
 
     def test_pure_completion_filters_tools(self) -> None:
@@ -73,7 +73,11 @@ class TestClassifyModel:
         assert classify_model("ollama/llama3") == CapabilityLevel.PURE_COMPLETION
 
     def test_lm_studio_is_pure_completion(self) -> None:
-        assert classify_model("lm_studio/qwen/qwen3-30b") == CapabilityLevel.PURE_COMPLETION
+        assert classify_model("lm_studio/google/gemma-3-12b") == CapabilityLevel.PURE_COMPLETION
+
+    def test_lm_studio_fc_capable_model_is_api_with_tools(self) -> None:
+        """Whitelisted local models (_LOCAL_FC_CAPABLE_PATTERNS, e.g. qwen3) override the prefix."""
+        assert classify_model("lm_studio/qwen/qwen3-30b") == CapabilityLevel.API_WITH_TOOLS
 
     def test_deepseek_is_api_with_tools(self) -> None:
         assert classify_model("deepseek/deepseek-chat") == CapabilityLevel.API_WITH_TOOLS
@@ -98,7 +102,7 @@ class TestFilterToolsForCapability:
             "list_directory",
             "create_skill",
             "search_skills",
-            "handoff",
+            "handoff_to",
             "propose_goal",
             "transition_to_act",
         ]
@@ -122,7 +126,7 @@ class TestFilterToolsForCapability:
         assert "bash" in names
         assert "edit_file" not in names
         assert "create_skill" not in names
-        assert "handoff" not in names
+        assert "handoff_to" in names  # always offered when registered (S6-G review, item 2)
 
     def test_api_with_tools_filters(self, sample_tools: list[dict]) -> None:
         from codeforge.agent_loop import AgentLoopExecutor
@@ -131,7 +135,7 @@ class TestFilterToolsForCapability:
         names = {t["function"]["name"] for t in result}
         assert "read_file" in names
         assert "edit_file" in names
-        assert "handoff" in names
+        assert "handoff_to" in names
         assert "create_skill" not in names
         assert "search_skills" not in names
 
@@ -164,7 +168,8 @@ class TestFilterToolsForCapability:
             selected_tools=["read_file", "edit_file", "bash"],
         )
         names = {t["function"]["name"] for t in result}
-        assert names == {"read_file", "edit_file", "bash"}
+        # handoff_to is registered here and always offered (S6-G review, item 2).
+        assert names == {"read_file", "edit_file", "bash", "handoff_to"}
 
     def test_selected_tools_with_mode_tools(self, sample_tools: list[dict]) -> None:
         """Mode tools are always merged even with selected_tools."""
@@ -182,7 +187,7 @@ class TestFilterToolsForCapability:
         assert "bash" in names
 
     def test_selected_tools_empty_list_filters_all_except_mode(self, sample_tools: list[dict]) -> None:
-        """Empty selected_tools list means no base tools selected (only mode tools)."""
+        """Empty selected_tools list means no base tools selected (only mode tools and handoff_to)."""
         from codeforge.agent_loop import AgentLoopExecutor
 
         result = AgentLoopExecutor._filter_tools_for_capability(
@@ -192,7 +197,7 @@ class TestFilterToolsForCapability:
             selected_tools=[],
         )
         names = {t["function"]["name"] for t in result}
-        assert names == {"bash"}
+        assert names == {"bash", "handoff_to"}
 
     def test_selected_tools_none_uses_capability(self, sample_tools: list[dict]) -> None:
         """When selected_tools is None, falls back to capability-based filtering."""
@@ -227,3 +232,8 @@ class TestFilterToolsForCapability:
         assert "read_file" in names
         assert "mcp__docs__search_docs" in names
         assert "mcp__docs__scrape_docs" not in names
+
+
+def test_spawn_subagent_is_not_offered_to_tool_models() -> None:
+    """spawn_subagent starts nothing yet and is not offered (KI-25)."""
+    assert "spawn_subagent" not in TOOLS_BY_CAPABILITY[CapabilityLevel.API_WITH_TOOLS]

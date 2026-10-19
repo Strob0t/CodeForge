@@ -6,12 +6,13 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import os
 import pathlib
 import re
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, cast
 
 import httpx
@@ -38,13 +39,28 @@ _LLM_REQUEST_LOG_DIR = pathlib.Path(
 # Override via CODEFORGE_DEFAULT_MODEL env var or codeforge.yaml if needed.
 DEFAULT_MODEL: str = get_settings().default_model
 
-# Regex to strip <think>...</think> blocks from final LLM output.
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
 
 
-def _strip_think_blocks(text: str) -> str:
-    """Remove <think>...</think> reasoning blocks from assembled LLM output."""
-    return _THINK_RE.sub("", text).lstrip()
+def strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks from assembled LLM output.
+
+    Each block ends at the first closing tag after its opening tag; an
+    unterminated block is kept. Linear in the text (a regex with ``.*?``
+    was quadratic for many unterminated tags).
+    """
+    parts: list[str] = []
+    pos = 0
+    while True:
+        start = text.find(_THINK_OPEN, pos)
+        end = text.find(_THINK_CLOSE, start + len(_THINK_OPEN)) if start >= 0 else -1
+        if end < 0:
+            parts.append(text[pos:])
+            break
+        parts.append(text[pos:start])
+        pos = end + len(_THINK_CLOSE)
+    return "".join(parts).lstrip()
 
 
 def _log_request_metadata(
@@ -180,6 +196,14 @@ class ToolCallPart:
 
 
 @dataclass(frozen=True)
+class TokenLogprob:
+    """A candidate token and its log probability."""
+
+    token: str
+    logprob: float
+
+
+@dataclass(frozen=True)
 class ChatCompletionResponse:
     """Parsed response from a chat completion with tool-calling support."""
 
@@ -190,6 +214,13 @@ class ChatCompletionResponse:
     tokens_out: int
     model: str
     cost_usd: float = 0.0
+    # The most likely candidates for the first output token, when requested
+    # with chat_completion(logprobs=True, top_logprobs=n).
+    top_logprobs: list[TokenLogprob] = field(default_factory=list)
+    # The reply text as the model sent it: content has every <think> block
+    # removed, also inside JSON strings, which the text tool protocol parses
+    # itself ("" when a client or test double does not set it).
+    raw_content: str = ""
 
 
 @dataclass(frozen=True)
@@ -316,42 +347,70 @@ def resolve_model_with_routing(
     return RoutingResult(model="", temperature=scenario_cfg.temperature, tags=tags)
 
 
-async def query_model_context_window(
-    client: httpx.AsyncClient,
-    model: str,
-    api_key: str = "",
-) -> int | None:
-    """Query the actual context window size for a model from the LiteLLM proxy.
+@dataclass(frozen=True)
+class ModelMetadata:
+    """What LiteLLM's ``/model/info`` reports for a model; None where it reports nothing."""
 
-    Returns max_input_tokens if available, None if unknown.
-    Uses the /model/info endpoint (same as benchmark consumer).
+    max_input_tokens: int | None = None
+    supports_function_calling: bool | None = None
+    # USD per token, from LiteLLM's cost map (KI-196).
+    input_cost_per_token: float | None = None
+    output_cost_per_token: float | None = None
+    # USD per prompt token read from the provider's prompt cache.
+    cache_read_cost_per_token: float | None = None
+
+
+# How long a LiteLLMClient reuses the /model/info table.
+MODEL_INFO_TTL_SECONDS = 60.0
+
+
+def _price(value: object) -> float | None:
+    """A per-token price as /model/info reports it; None for anything but a finite number >= 0."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    price = float(value)
+    return price if math.isfinite(price) and price >= 0 else None
+
+
+def _listed_cost(metadata: ModelMetadata, tokens_in: int, tokens_out: int, cached: int) -> float:
+    """The cost of a call at the per-token prices of *metadata*; *cached* of the prompt tokens were
+    read from the provider's cache (its own price when LiteLLM lists one)."""
+    input_price = metadata.input_cost_per_token or 0.0
+    cached = min(max(cached, 0), tokens_in)
+    cache_price = input_price if metadata.cache_read_cost_per_token is None else metadata.cache_read_cost_per_token
+    return (
+        (tokens_in - cached) * input_price + cached * cache_price + tokens_out * (metadata.output_cost_per_token or 0.0)
+    )
+
+
+def _model_info_table(data: object) -> dict[str, ModelMetadata]:
+    """Map the model names of a ``/model/info`` response to their metadata.
+
+    A row is found by its public name and by its LiteLLM model; the first row
+    of a name wins. Values of the wrong type count as unreported.
     """
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    try:
-        resp = await client.get("/model/info", headers=headers, timeout=5.0)
-        if resp.status_code != 200:
-            return None
-        data = resp.json().get("data", [])
-        for entry in data:
-            if not isinstance(entry, dict):
-                continue
-            info = entry.get("model_info", {})
-            model_name = entry.get("model_name", "")
-            litellm_model = entry.get("litellm_params", {}).get("model", "")
-            if model in (model_name, litellm_model):
-                max_input = info.get("max_input_tokens") or info.get("max_tokens")
-                if max_input and isinstance(max_input, (int, float)):
-                    return int(max_input)
-        return None
-    except (httpx.TimeoutException, httpx.ConnectError) as exc:
-        logger.debug("model info endpoint unreachable for %s: %s", model, exc)
-        return None
-    except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
-        logger.warning("model info response malformed for %s: %s", model, exc)
-        return None
-    except httpx.HTTPStatusError as exc:
-        logger.debug("model info endpoint returned %d for %s", exc.response.status_code, model)
-        return None
+    rows = data.get("data", []) if isinstance(data, dict) else []
+    table: dict[str, ModelMetadata] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        info = row.get("model_info")
+        info = info if isinstance(info, dict) else {}
+        window = info.get("max_input_tokens") or info.get("max_tokens")
+        fc = info.get("supports_function_calling")
+        metadata = ModelMetadata(
+            max_input_tokens=int(window) if isinstance(window, (int, float)) and not isinstance(window, bool) else None,
+            supports_function_calling=fc if isinstance(fc, bool) else None,
+            input_cost_per_token=_price(info.get("input_cost_per_token")),
+            output_cost_per_token=_price(info.get("output_cost_per_token")),
+            cache_read_cost_per_token=_price(info.get("cache_read_input_token_cost")),
+        )
+        params = row.get("litellm_params")
+        litellm_model = params.get("model") if isinstance(params, dict) else None
+        for name in (row.get("model_name"), litellm_model):
+            if isinstance(name, str) and name:
+                table.setdefault(name, metadata)
+    return table
 
 
 def load_routing_config() -> object | None:
@@ -425,6 +484,23 @@ def _parse_duration(value: str) -> float | None:
     return total if total > 0 else None
 
 
+def _parse_top_logprobs(logprobs: object) -> list[TokenLogprob]:
+    """Return the top candidates of the first output token from an OpenAI logprobs object."""
+    if not isinstance(logprobs, dict):
+        return []
+    content = logprobs.get("content")
+    if not isinstance(content, list) or not content or not isinstance(content[0], dict):
+        return []
+    candidates = content[0].get("top_logprobs")
+    if not isinstance(candidates, list):
+        return []
+    return [
+        TokenLogprob(token=str(c["token"]), logprob=float(c["logprob"]))
+        for c in candidates
+        if isinstance(c, dict) and "token" in c and isinstance(c.get("logprob"), (int, float))
+    ]
+
+
 class LiteLLMClient:
     """HTTP client for the LiteLLM Proxy (OpenAI-compatible API)."""
 
@@ -449,6 +525,7 @@ class LiteLLMClient:
                 pool=self._config.connect_timeout,
             ),
         )
+        self._model_info: tuple[float, dict[str, ModelMetadata]] | None = None
 
     # -- retry / resilience helpers -----------------------------------------
 
@@ -493,7 +570,18 @@ class LiteLLMClient:
             return min(hint + 5.0, self._config.backoff_max)
         return min(self._config.backoff_base ** (attempt + 1), self._config.backoff_max)
 
-    async def _with_retry(self, fn: Callable[..., Awaitable[object]], *args: object, **kwargs: object) -> object:
+    async def _with_retry(
+        self,
+        fn: Callable[..., Awaitable[object]],
+        *args: object,
+        may_retry: Callable[[], bool] | None = None,
+        **kwargs: object,
+    ) -> object:
+        """Await *fn*, retrying transient errors; never once *may_retry* says no (KI-196).
+
+        A stream whose text the caller already received must not run again:
+        the caller would get the text twice.
+        """
         last_exc: LLMError | None = None
         for attempt in range(self._config.max_retries + 1):
             try:
@@ -504,7 +592,7 @@ class LiteLLMClient:
                 # in the retry + fallback logic instead of bubbling uncaught.
                 wrapped = LLMError(408, "unknown", str(exc))
                 last_exc = wrapped
-                if attempt == self._config.max_retries:
+                if attempt == self._config.max_retries or (may_retry is not None and not may_retry()):
                     raise wrapped from exc
                 wait = self._compute_backoff(wrapped, attempt)
                 logger.warning(
@@ -523,7 +611,11 @@ class LiteLLMClient:
                         _extract_provider(exc.model),
                         error_type=err_type,
                     )
-                if not self._is_retryable(exc) or attempt == self._config.max_retries:
+                if (
+                    not self._is_retryable(exc)
+                    or attempt == self._config.max_retries
+                    or (may_retry is not None and not may_retry())
+                ):
                     raise
                 wait = self._compute_backoff(exc, attempt)
                 logger.warning(
@@ -603,9 +695,9 @@ class LiteLLMClient:
     ) -> CompletionResponse:
         """Send a chat completion request to LiteLLM with automatic retry."""
         if not model:
-            from codeforge.model_resolver import resolve_model
+            from codeforge.model_resolver import resolve_model_async
 
-            model = resolve_model()
+            model = await resolve_model_async()
 
         async def _inner() -> CompletionResponse:
             messages: list[dict[str, str]] = []
@@ -678,12 +770,18 @@ class LiteLLMClient:
         max_tokens: int | None = None,
         response_format: dict[str, object] | None = None,
         provider_api_key: str = "",
+        logprobs: bool = False,
+        top_logprobs: int | None = None,
     ) -> ChatCompletionResponse:
-        """Send a chat completion with tool-calling support and automatic retry."""
-        if not model:
-            from codeforge.model_resolver import resolve_model
+        """Send a chat completion with tool-calling support and automatic retry.
 
-            model = resolve_model()
+        With *logprobs* the response carries the *top_logprobs* most likely
+        candidates for the first output token.
+        """
+        if not model:
+            from codeforge.model_resolver import resolve_model_async
+
+            model = await resolve_model_async()
 
         async def _inner() -> ChatCompletionResponse:
             payload: dict[str, object] = {
@@ -703,6 +801,10 @@ class LiteLLMClient:
                 payload["response_format"] = response_format
             if provider_api_key:
                 payload["api_key"] = provider_api_key
+            if logprobs:
+                payload["logprobs"] = True
+                if top_logprobs is not None:
+                    payload["top_logprobs"] = top_logprobs
 
             logger.debug(
                 "chat_completion model=%s tools=%d temperature=%.2f",
@@ -752,13 +854,15 @@ class LiteLLMClient:
         tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
         tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
         return ChatCompletionResponse(
-            content=_strip_think_blocks(str(content)),
+            content=strip_think_blocks(str(content)),
             tool_calls=tool_calls,
             finish_reason=str(finish_reason),
             tokens_in=int(tokens_in),
             tokens_out=int(tokens_out),
             model=model,
             cost_usd=cost,
+            top_logprobs=_parse_top_logprobs(choice.get("logprobs") if isinstance(choice, dict) else None),
+            raw_content=str(content),
         )
 
     async def chat_completion_stream(
@@ -775,12 +879,28 @@ class LiteLLMClient:
         provider_api_key: str = "",
         top_p: float | None = None,
         extra_body: dict[str, object] | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> ChatCompletionResponse:
-        """Stream a chat completion with automatic retry on transient errors."""
-        if not model:
-            from codeforge.model_resolver import resolve_model
+        """Stream a chat completion with automatic retry on transient errors.
 
-            model = resolve_model()
+        *response_format* constrains the reply (the text tool protocol sends
+        a ``json_schema`` grammar); None sends none.
+        """
+        if not model:
+            from codeforge.model_resolver import resolve_model_async
+
+            model = await resolve_model_async()
+
+        # Whether the caller received text of this request: then it is not retried.
+        shown = False
+        # Every attempt: one that failed after its usage arrived was billed too (KI-196 review).
+        attempts: list[_StreamAccumulator] = []
+
+        def _show(text: str) -> None:
+            nonlocal shown
+            shown = True
+            if on_chunk is not None:
+                on_chunk(text)
 
         async def _inner() -> ChatCompletionResponse:
             payload = _build_stream_payload(
@@ -794,6 +914,7 @@ class LiteLLMClient:
                 provider_api_key=provider_api_key,
                 top_p=top_p,
                 extra_body=extra_body,
+                response_format=response_format,
             )
 
             logger.debug(
@@ -811,7 +932,8 @@ class LiteLLMClient:
                 streaming=True,
             )
 
-            acc = _StreamAccumulator()
+            acc = _StreamAccumulator(model=model)
+            attempts.append(acc)
 
             async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
                 self._report_rate_info(self._extract_rate_info(resp.headers, model))
@@ -833,21 +955,45 @@ class LiteLLMClient:
                     raw = line[6:]
                     if raw.strip() == "[DONE]":
                         break
-                    acc.process_chunk(raw, on_chunk)
+                    acc.process_chunk(raw, _show if on_chunk is not None else None)
 
             tool_calls = acc.build_tool_calls(on_tool_call)
+            raw_content = "".join(acc.content_parts)
 
             return ChatCompletionResponse(
-                content=_strip_think_blocks("".join(acc.content_parts)),
+                content=strip_think_blocks(raw_content),
                 tool_calls=tool_calls,
                 finish_reason=acc.finish_reason,
                 tokens_in=int(acc.tokens_in),
                 tokens_out=int(acc.tokens_out),
                 model=model,
                 cost_usd=acc.cost,
+                raw_content=raw_content,
             )
 
-        return cast("ChatCompletionResponse", await self._with_retry(_inner))
+        response = cast("ChatCompletionResponse", await self._with_retry(_inner, may_retry=lambda: not shown))
+        cost = 0.0
+        for attempt in attempts:
+            cost += await self._stream_cost(attempt)
+        return response if cost == response.cost_usd else replace(response, cost_usd=cost)
+
+    async def _stream_cost(self, acc: _StreamAccumulator) -> float:
+        """What one streamed attempt cost: its own cost, else its tokens at the prices /model/info lists.
+
+        A stream carries no cost of its own: LiteLLM sets the cost header
+        before the stream starts, and v1.103.1 adds ``usage.cost`` to chunks
+        only on /v1/messages and pass-through routes (KI-196). The prices are
+        those of the model that served the stream (its chunks name it), else
+        of the model asked for. 0 when LiteLLM lists no price (the caller's
+        fallback table takes over).
+        """
+        if acc.cost > 0 or not (acc.tokens_in or acc.tokens_out):
+            return acc.cost
+        for name in dict.fromkeys(name for name in (acc.served_model, acc.model) if name):
+            metadata = await self.model_metadata(name)
+            if metadata.input_cost_per_token is not None or metadata.output_cost_per_token is not None:
+                return _listed_cost(metadata, int(acc.tokens_in), int(acc.tokens_out), acc.cached_tokens)
+        return 0.0
 
     async def embedding(self, text: str, model: str = "text-embedding-3-small") -> list[float]:
         """Compute an embedding vector via the LiteLLM Proxy."""
@@ -857,6 +1003,24 @@ class LiteLLMClient:
             raise LLMError(resp.status_code, model, resp.text)
         data = resp.json()
         return data["data"][0]["embedding"]
+
+    async def model_metadata(self, model: str) -> ModelMetadata:
+        """Return what LiteLLM's ``/model/info`` reports for *model* (KI-125).
+
+        The table is fetched once per MODEL_INFO_TTL_SECONDS. After a failed
+        fetch the last table (empty at first) is used for as long: every
+        streamed call would wait for /model/info again (KI-196 review).
+        """
+        now = time.monotonic()
+        if self._model_info is None or now - self._model_info[0] > MODEL_INFO_TTL_SECONDS:
+            try:
+                resp = await self._client.get("/model/info", timeout=5.0)
+                resp.raise_for_status()
+                self._model_info = (now, _model_info_table(resp.json()))
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("LiteLLM model info unavailable for %s: %s", model, exc)
+                self._model_info = (now, self._model_info[1] if self._model_info else {})
+        return self._model_info[1].get(model, ModelMetadata())
 
     async def health(self) -> bool:
         """Check if the LiteLLM Proxy is healthy."""
@@ -883,6 +1047,7 @@ def _build_stream_payload(
     provider_api_key: str,
     top_p: float | None,
     extra_body: dict[str, object] | None,
+    response_format: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build the JSON payload for a streaming chat completion request."""
     payload: dict[str, object] = {
@@ -890,6 +1055,11 @@ def _build_stream_payload(
         "messages": messages,
         "temperature": temperature,
         "stream": True,
+        # Without it OpenAI-compatible backends (Ollama, LM Studio, ...) send
+        # no token counts in a stream (KI-127). LiteLLM computes the usage
+        # chunk itself for providers without the option, and drop_params
+        # drops it for a backend that rejects it.
+        "stream_options": {"include_usage": True},
     }
     if tools:
         payload["tools"] = tools
@@ -905,6 +1075,8 @@ def _build_stream_payload(
         payload["top_p"] = top_p
     if extra_body:
         payload["extra_body"] = extra_body
+    if response_format is not None:
+        payload["response_format"] = response_format
     return payload
 
 
@@ -912,18 +1084,31 @@ class _StreamAccumulator:
     """Accumulates SSE stream chunks for chat completion responses."""
 
     __slots__ = (
+        "_call_by_index",
         "_in_think",
+        "cached_tokens",
         "content_parts",
         "cost",
         "finish_reason",
+        "model",
+        "served_model",
         "tc_accum",
         "tokens_in",
         "tokens_out",
     )
 
-    def __init__(self) -> None:
+    def __init__(self, model: str = "") -> None:
+        # The requested model, named by the LLMError of an error frame.
+        self.model = model
+        # The model the chunks name: the deployment that served the stream.
+        self.served_model = ""
+        # Prompt tokens read from the provider's prompt cache.
+        self.cached_tokens = 0
         self.content_parts: list[str] = []
+        # Tool calls by their number in the stream (0, 1, ...), and the call
+        # each provider index currently continues.
         self.tc_accum: dict[int, dict[str, str]] = {}
+        self._call_by_index: dict[int, int] = {}
         self.finish_reason = "stop"
         self.tokens_in = 0
         self.tokens_out = 0
@@ -957,11 +1142,21 @@ class _StreamAccumulator:
         return "".join(result)
 
     def process_chunk(self, raw: str, on_chunk: Callable[[str], None] | None) -> None:
-        """Parse a single SSE data line and accumulate into state."""
-        try:
-            chunk = json.loads(raw)
-        except json.JSONDecodeError:
+        """Parse a single SSE data line and accumulate into state.
+
+        Raises LLMError for an error frame (_parse_frame).
+        """
+        chunk = self._parse_frame(raw)
+        if chunk is None:
             return
+        served = chunk.get("model")
+        if isinstance(served, str) and served:
+            self.served_model = served
+
+        # OpenAI sends the include_usage chunk with an empty choices list.
+        usage = chunk.get("usage")
+        if isinstance(usage, dict):
+            self._record_usage(usage)
 
         choices = chunk.get("choices", [])
         if not choices:
@@ -973,28 +1168,84 @@ class _StreamAccumulator:
 
         text = delta.get("content")
         if text:
-            self.content_parts.append(text)
-            visible = self._strip_think_tokens(text) if on_chunk else ""
-            if visible:
-                on_chunk(visible)
+            self._add_text(text, on_chunk)
 
-        for tc_delta in delta.get("tool_calls", []):
-            idx = tc_delta.get("index", 0)
-            if idx not in self.tc_accum:
-                self.tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
-            acc = self.tc_accum[idx]
-            if "id" in tc_delta:
-                acc["id"] = tc_delta["id"]
-            func = tc_delta.get("function", {})
-            if "name" in func:
-                acc["name"] = func["name"]
-            if "arguments" in func:
-                acc["arguments"] += func["arguments"]
+        for tc_delta in delta.get("tool_calls") or []:
+            func = tc_delta.get("function") or {}
+            call_id = tc_delta.get("id") or ""
+            name = func.get("name") or ""
+            acc = self._tool_call_for(tc_delta.get("index", 0), call_id, name)
+            if call_id:
+                acc["id"] = call_id
+            if name:
+                acc["name"] = name
+            arguments = func.get("arguments")
+            if isinstance(arguments, dict):
+                arguments = json.dumps(arguments)
+            if isinstance(arguments, str):
+                acc["arguments"] += arguments
 
-        usage = chunk.get("usage")
-        if isinstance(usage, dict):
-            self.tokens_in = usage.get("prompt_tokens", self.tokens_in)
-            self.tokens_out = usage.get("completion_tokens", self.tokens_out)
+    def _parse_frame(self, raw: str) -> dict[str, object] | None:
+        """The JSON object of an SSE data line; None for anything else.
+
+        Raises LLMError for an error frame: LiteLLM reports a failure after
+        the stream started as ``data: {"error": {...}}`` on an HTTP 200
+        stream (KI-196).
+        """
+        try:
+            chunk = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(chunk, dict):
+            return None
+        if chunk.get("error") is not None:
+            raise LLMError(_error_frame_status(chunk["error"]), self.model, raw)
+        return chunk
+
+    def _add_text(self, text: str, on_chunk: Callable[[str], None] | None) -> None:
+        self.content_parts.append(text)
+        if on_chunk is None:
+            return
+        visible = self._strip_think_tokens(text)
+        if visible:
+            on_chunk(visible)
+
+    def _record_usage(self, usage: dict[str, object]) -> None:
+        self.tokens_in = usage.get("prompt_tokens", self.tokens_in)
+        self.tokens_out = usage.get("completion_tokens", self.tokens_out)
+        # A cost in the usage chunk (LiteLLM's include_cost_in_streaming_usage
+        # where a route supports it, or a provider's own) wins over the header.
+        cost = _price(usage.get("cost"))
+        if cost:
+            self.cost = cost
+        # OpenAI reports cached prompt tokens in prompt_tokens_details, Anthropic as cache_read_input_tokens.
+        details = usage.get("prompt_tokens_details")
+        cached = details.get("cached_tokens") if isinstance(details, dict) else None
+        if cached is None:
+            cached = usage.get("cache_read_input_tokens")
+        if isinstance(cached, int) and not isinstance(cached, bool) and cached >= 0:
+            self.cached_tokens = cached
+
+    def _tool_call_for(self, index: int, call_id: str, name: str) -> dict[str, str]:
+        """Return the call a tool-call delta continues, or a new one.
+
+        Deltas are matched by index, but a delta whose index belongs to an
+        earlier call starts a new call when it carries another id, or no id
+        and a name while that call has one (a call's name comes only in its
+        first delta). LiteLLM's ollama_chat provider numbers every call 0
+        when Ollama streams them in separate chunks (KI-125).
+        """
+        number = self._call_by_index.get(index)
+        if number is not None:
+            current = self.tc_accum[number]
+            other_id = bool(call_id and current["id"] and call_id != current["id"])
+            new_name = bool(not call_id and name and current["name"])
+            if not (other_id or new_name):
+                return current
+        number = len(self.tc_accum)
+        self.tc_accum[number] = {"id": "", "name": "", "arguments": ""}
+        self._call_by_index[index] = number
+        return self.tc_accum[number]
 
     def build_tool_calls(self, on_tool_call: Callable[[ToolCallPart], None] | None) -> list[ToolCallPart]:
         """Build final ToolCallPart list from accumulated deltas."""
@@ -1007,6 +1258,16 @@ class _StreamAccumulator:
             if on_tool_call:
                 on_tool_call(tc)
         return result
+
+
+def _error_frame_status(error: object) -> int:
+    """The HTTP status an SSE error frame names in its ``code``; 500 when it names none."""
+    code = error.get("code") if isinstance(error, dict) else None
+    if isinstance(code, str) and code.isdecimal():
+        code = int(code)
+    if isinstance(code, int) and not isinstance(code, bool) and 400 <= code <= 599:
+        return code
+    return 500
 
 
 def _normalize_tool_call(name: str, arguments: str) -> tuple[str, str]:

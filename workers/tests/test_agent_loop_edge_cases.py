@@ -1,4 +1,4 @@
-"""Edge-case tests for the core agentic loop (budget, cancellation, fallback, experience cache)."""
+"""Edge-case tests for the core agentic loop (budget, cancellation, fallback)."""
 
 from __future__ import annotations
 
@@ -214,7 +214,9 @@ async def test_cancellation_during_tool_execution() -> None:
     """Cancel between tool calls: remaining get 'Cancelled' placeholder."""
     call_count = 0
 
-    async def _cancel_after_first(tool: str, command: str = "", path: str = "") -> ToolCallDecision:
+    async def _cancel_after_first(
+        tool: str, command: str = "", path: str = "", arguments_preview: str = ""
+    ) -> ToolCallDecision:
         nonlocal call_count
         call_count += 1
         if call_count > 1:
@@ -369,7 +371,7 @@ async def test_unexpected_exception_wrapped() -> None:
             finish_reason="stop",
             tokens_in=10,
             tokens_out=5,
-            model="model-b",
+            model="openai/model-b",
             cost_usd=0.001,
         )
 
@@ -391,8 +393,9 @@ async def test_unexpected_exception_wrapped() -> None:
         result = await executor.run(
             [{"role": "user", "content": "test"}],
             config=LoopConfig(
-                model="model-a",
-                fallback_models=["model-b"],
+                model="openai/model-a",
+                # Fallback models must use the provider/model format (F7-D3).
+                fallback_models=["openai/model-b"],
             ),
         )
 
@@ -514,52 +517,6 @@ async def test_tool_not_found_returns_error() -> None:
     tool_results = [m for m in result.tool_messages if m.role == "tool"]
     assert len(tool_results) == 1
     assert "unknown tool" in tool_results[0].content.lower()
-
-
-# ---------------------------------------------------------------------------
-# Experience cache tests
-# ---------------------------------------------------------------------------
-
-
-async def test_experience_cache_hit() -> None:
-    """Experience pool hit returns cached result, 0 LLM calls."""
-    llm = FakeLLM([_FakeLLMCall(content="nope", tool_calls=[], finish_reason="stop")])
-    runtime = _make_runtime()
-    registry = _make_registry()
-
-    pool = MagicMock()
-    pool.lookup = AsyncMock(
-        return_value={
-            "id": "exp-1",
-            "similarity": 0.95,
-            "result_output": "Cached answer",
-        }
-    )
-
-    executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/ws", experience_pool=pool)
-    result = await executor.run([{"role": "user", "content": "test query"}])
-
-    assert result.final_content == "Cached answer"
-    assert result.step_count == 0
-    assert result.total_cost == 0.0
-    assert llm._call_index == 0
-
-
-async def test_experience_cache_miss() -> None:
-    """Experience pool returns None: normal execution proceeds."""
-    llm = FakeLLM([_FakeLLMCall(content="Normal reply", tool_calls=[], finish_reason="stop")])
-    runtime = _make_runtime()
-    registry = _make_registry()
-
-    pool = MagicMock()
-    pool.lookup = AsyncMock(return_value=None)
-    pool.store = AsyncMock()
-
-    executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/ws", experience_pool=pool)
-    result = await executor.run([{"role": "user", "content": "test query"}])
-
-    assert result.final_content == "Normal reply"
-    assert llm._call_index == 1
 
 
 # ---------------------------------------------------------------------------

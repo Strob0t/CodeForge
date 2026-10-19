@@ -330,10 +330,9 @@ func TestHandleRunComplete_AlreadyCompletedRun(t *testing.T) {
 	svc, store, _, _ := newRuntimeTestEnv()
 	ctx := context.Background()
 
-	// A run that is already completed should error from GetRun status checks
-	// but finalizeRun still proceeds (the store accepts the update).
-	// Actually, HandleRunComplete does not check r.Status before finalizing.
-	// Let's verify it does not error.
+	// A late run.complete for a run that already ended: the store refuses the
+	// second completion (KI-31) and the handler skips it without an error, so
+	// the message is not redelivered and the first result stays.
 	runID := "run-already-completed"
 	store.mu.Lock()
 	store.runs = append(store.runs, run.Run{
@@ -357,6 +356,9 @@ func TestHandleRunComplete_AlreadyCompletedRun(t *testing.T) {
 	// HandleRunComplete should succeed (idempotent)
 	if err := svc.HandleRunComplete(ctx, &payload); err != nil {
 		t.Fatalf("HandleRunComplete on already completed run: %v", err)
+	}
+	if r, _ := store.GetRun(ctx, runID); r.Status != run.StatusCompleted || r.Output != "" {
+		t.Errorf("run = %s with output %q, want the first completion unchanged", r.Status, r.Output)
 	}
 }
 
@@ -650,7 +652,7 @@ func TestHandleQualityGateResult_NonGatedRunIsNoop(t *testing.T) {
 
 func TestHandleQualityGateResult_WithoutRollback(t *testing.T) {
 	// headless-permissive-sandbox has RequireTestsPass but RollbackOnGateFail=false
-	// So gate failure should result in StatusCompleted (not failed).
+	// A failed gate fails the run all the same (D9); only the rollback is skipped.
 	policySvc := service.NewPolicyService("headless-permissive-sandbox", nil)
 	store := &runtimeMockStore{
 		projects: []project.Project{
@@ -700,10 +702,10 @@ func TestHandleQualityGateResult_WithoutRollback(t *testing.T) {
 		t.Fatalf("HandleQualityGateResult: %v", err)
 	}
 
-	// Without rollback, gate failure results in completed (not failed)
+	// Without rollback a failed gate still fails the run (D9)
 	r, _ := store.GetRun(ctx, runID)
-	if r.Status != run.StatusCompleted {
-		t.Errorf("expected completed (no rollback), got %s", r.Status)
+	if r.Status != run.StatusFailed {
+		t.Errorf("expected failed (no rollback), got %s", r.Status)
 	}
 }
 

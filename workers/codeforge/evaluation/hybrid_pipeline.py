@@ -27,7 +27,16 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.evaluation.pipeline import EvaluationPipeline
-from codeforge.evaluation.providers.base import EvalDimension, EvalScore, ExecutionResult, TaskSpec
+from codeforge.evaluation.providers.base import (
+    EvalDimension,
+    EvalScore,
+    ExecutionResult,
+    TaskSpec,
+    average_of_scores,
+)
+from codeforge.evaluation.providers.base import (
+    rank_key as score_rank_key,
+)
 
 if TYPE_CHECKING:
     from codeforge.evaluation.evaluators.base import Evaluator
@@ -43,6 +52,16 @@ class VerificationResult:
     filter_scores: list[EvalDimension] = field(default_factory=list)
     rank_scores: list[EvalDimension] = field(default_factory=list)
     combined_score: EvalScore | None = None
+
+    @property
+    def fully_evaluated(self) -> bool:
+        """Ranked, and no evaluator of either stage (filter or rank) failed."""
+        return self.combined_score is not None and not any(d.error for d in (*self.filter_scores, *self.rank_scores))
+
+    def rank_key(self) -> tuple[bool, float]:
+        """Sort key: fully evaluated results first, then by combined score (see providers.base.rank_key)."""
+        _, score = score_rank_key(self.combined_score)
+        return self.fully_evaluated, score
 
 
 class HybridEvaluationPipeline:
@@ -176,11 +195,8 @@ class HybridEvaluationPipeline:
                     )
                 )
 
-        # Sort by combined score descending (None scores last).
-        ranked_vrs.sort(
-            key=lambda vr: vr.combined_score.average_score() if vr.combined_score else -1.0,
-            reverse=True,
-        )
+        # Fully evaluated results first, then by combined score (None last).
+        ranked_vrs.sort(key=VerificationResult.rank_key, reverse=True)
         return ranked_vrs
 
 
@@ -192,7 +208,7 @@ def _merge_scores(
     """Merge filter and rank dimensions into a single EvalScore."""
     all_dims = [*filter_dims, *rank_dims]
     total_cost = sum(d.cost_usd for d in all_dims)
-    avg = _average(all_dims)
+    avg = average_of_scores(all_dims)
     cost_per_point = (result.cost_usd / avg) if avg > 0 else 0.0
     total_tokens = result.tokens_in + result.tokens_out
     token_eff = (avg / total_tokens) if total_tokens > 0 else 0.0
@@ -203,9 +219,3 @@ def _merge_scores(
         cost_per_score_point=round(cost_per_point, 6),
         token_efficiency=round(token_eff, 8),
     )
-
-
-def _average(dims: list[EvalDimension]) -> float:
-    if not dims:
-        return 0.0
-    return sum(d.score for d in dims) / len(dims)

@@ -1,0 +1,13 @@
+{
+  "request_id": "550e8400-e29b-41d4-a716-446655440050",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "conversation_id": "550e8400-e29b-41d4-a716-446655440051",
+  "workspace_path": "/workspaces/project",
+  "test_file": "test_feature.py",
+  "test_command": "pytest -q",
+  "lint_command": "ruff check .",
+  "timeout_seconds": 300,
+  "tool_output_max_chars": 10000,
+  "tool_uid": 20000
+}

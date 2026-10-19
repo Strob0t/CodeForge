@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from codeforge.history import (
+    DEFAULT_TOOL_OUTPUT_MAX_CHARS,
     ConversationHistoryManager,
     HistoryConfig,
     estimate_tokens,
@@ -34,6 +37,50 @@ def test_truncate_tool_result_long() -> None:
     assert "characters omitted" in result
     assert result.startswith("A" * 50)
     assert result.endswith("A" * 50)
+
+
+@pytest.mark.parametrize(
+    ("text", "max_chars", "head", "tail"),
+    [
+        # max_chars 1 keeps the last character (text[-0:] was the whole text).
+        ("abcdef", 1, "", "f"),
+        ("abcdef", 2, "a", "f"),
+        # Odd bounds keep max_chars characters, the extra one in the tail.
+        ("abcdefgh", 5, "ab", "fgh"),
+        ("abcdefgh", 7, "abc", "efgh"),
+        # Characters, not bytes.
+        ("äöüßéèêëç€", 4, "äö", "ç€"),
+        ("😀🙂🙃😉😊😍", 3, "😀", "😊😍"),
+    ],
+)
+def test_truncate_tool_result_keeps_max_chars(text: str, max_chars: int, head: str, tail: str) -> None:
+    """S8-B review: head + tail keep exactly max_chars characters and the omitted count is exact."""
+    result = truncate_tool_result(text, max_chars)
+    omitted = len(text) - max_chars
+    assert result == f"{head}\n\n... ({omitted} characters omitted) ...\n\n{tail}"
+    assert len(head) + len(tail) == max_chars
+
+
+@pytest.mark.parametrize("delta", [0, 1, 2])
+def test_truncate_tool_result_text_that_fits(delta: int) -> None:
+    text = "x" * 50
+    assert truncate_tool_result(text, len(text) + delta) == text
+
+
+def test_truncate_tool_result_one_char_too_long() -> None:
+    text = "abcdefghij"
+    result = truncate_tool_result(text, len(text) - 1)
+    assert result == "abcd\n\n... (1 characters omitted) ...\n\nfghij"
+
+
+@pytest.mark.parametrize("max_chars", [0, -1])
+def test_truncate_tool_result_non_positive_bound_uses_the_default(max_chars: int) -> None:
+    """0 means the worker's default everywhere tool_output_max_chars is read; so does a negative bound."""
+    short = "y" * DEFAULT_TOOL_OUTPUT_MAX_CHARS
+    assert truncate_tool_result(short, max_chars) == short
+    long = "y" * (DEFAULT_TOOL_OUTPUT_MAX_CHARS + 10)
+    assert truncate_tool_result(long, max_chars) == truncate_tool_result(long, DEFAULT_TOOL_OUTPUT_MAX_CHARS)
+    assert "(10 characters omitted)" in truncate_tool_result(long, max_chars)
 
 
 def test_build_messages_basic() -> None:
@@ -347,3 +394,9 @@ def test_sanitize_dedup_assistant_messages_with_same_tool_calls() -> None:
     assert len(tool_msgs) == 1
     assistant_with_tc = [m for m in msgs if m.get("role") == "assistant" and m.get("tool_calls")]
     assert len(assistant_with_tc) == 1
+
+
+def test_default_context_budget_matches_the_go_core() -> None:
+    """KI-51: one default for the history token budget, Go's agent.max_context_tokens (128000)."""
+    assert HistoryConfig().max_context_tokens == 128_000
+    assert ConversationHistoryManager()._config.max_context_tokens == 128_000

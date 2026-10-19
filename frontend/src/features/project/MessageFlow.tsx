@@ -1,7 +1,9 @@
-import { createSignal, For, onCleanup } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup } from "solid-js";
 
 import type { HandoffStatusEvent } from "~/api/types";
 import { useWebSocket } from "~/components/WebSocketProvider";
+
+import { payloadString } from "./liveEvents";
 
 function isHandoffStatusEvent(p: unknown): p is HandoffStatusEvent {
   return (
@@ -18,18 +20,61 @@ interface Arrow {
   sourceId: string;
   targetId: string;
   status: string;
-  timestamp: number;
+  /** The target's run of an initiated handoff; the arrow stays until it ends. */
+  runId?: string;
+  /** Changes with every status, so a removal timer removes only the arrow it was set for. */
+  version: number;
 }
 
+/** Statuses after which the War Room no longer follows a handoff: their arrow goes after 10 s. */
+const SETTLED_STATUSES: ReadonlySet<string> = new Set([
+  "quarantined",
+  "rejected",
+  "failed",
+  "a2a_delegated",
+]);
+
+/** run.status statuses that end a run; an initiated handoff settles with its run. */
+const RUN_END_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "timeout",
+]);
+
+const SETTLE_MS = 10_000;
+
+/** How many ended runs the War Room remembers (for handoffs announced after their run ended). */
+const ENDED_RUNS_KEPT = 200;
+
 export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
-  const { onMessage } = useWebSocket();
+  const { onMessage, connected } = useWebSocket();
   const [arrows, setArrows] = createSignal<Arrow[]>([]);
   const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+  let version = 0;
 
-  const cleanup = onMessage((msg) => {
-    if (msg.type !== "handoff.status") return;
-    if (!isHandoffStatusEvent(msg.payload)) return;
-    const p = msg.payload;
+  /**
+   * The arrow goes after 10 s, unless a later status changed it meanwhile (a
+   * held handoff that was approved, a new handoff between the same agents).
+   */
+  function settle(arrowVersion: number): void {
+    const timerId = setTimeout(() => {
+      pendingTimers.delete(timerId);
+      setArrows((prev) => prev.filter((a) => a.version !== arrowVersion));
+    }, SETTLE_MS);
+    pendingTimers.add(timerId);
+  }
+
+  /** Settles the arrows of the initiated handoffs whose run matches. */
+  function settleFollowed(matches: (runId: string) => boolean): void {
+    for (const a of arrows()) {
+      if (a.status === "initiated" && a.runId && matches(a.runId)) settle(a.version);
+    }
+  }
+
+  function followHandoff(p: HandoffStatusEvent): void {
+    const v = ++version;
+    const runId = p.status === "initiated" && p.run_id ? p.run_id : undefined;
 
     setArrows((prev) => {
       const existing = prev.find(
@@ -37,34 +82,66 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
       );
       if (existing) {
         return prev.map((a) =>
-          a.id === existing.id ? { ...a, status: p.status, timestamp: Date.now() } : a,
+          a.id === existing.id ? { ...a, status: p.status, runId, version: v } : a,
         );
       }
       return [
         ...prev,
         {
-          id: `${p.source_agent_id}-${p.target_agent_id}-${Date.now()}`,
+          id: `${p.source_agent_id}-${p.target_agent_id}-${v}`,
           sourceId: p.source_agent_id,
           targetId: p.target_agent_id,
           status: p.status,
-          timestamp: Date.now(),
+          runId,
+          version: v,
         },
       ];
     });
 
-    // Auto-remove completed/failed arrows after 10s
-    if (p.status === "completed" || p.status === "failed") {
-      const timerId = setTimeout(() => {
-        pendingTimers.delete(timerId);
-        setArrows((prev) =>
-          prev.filter(
-            (a) => !(a.sourceId === p.source_agent_id && a.targetId === p.target_agent_id),
-          ),
-        );
-      }, 10000);
-      pendingTimers.add(timerId);
+    // An initiated handoff is followed while the target's run works (KI-92);
+    // one that names no run, or whose run already ended, settles like the others.
+    const nothingToFollow = !runId || endedRuns.has(runId);
+    if (SETTLED_STATUSES.has(p.status) || (p.status === "initiated" && nothingToFollow)) {
+      settle(v);
     }
+  }
+
+  // The runs that ended recently: a run can end before its handoff's
+  // initiated status arrives. Bounded; a Set keeps the insertion order.
+  const endedRuns = new Set<string>();
+  function rememberEnded(runId: string): void {
+    endedRuns.delete(runId);
+    endedRuns.add(runId);
+    if (endedRuns.size > ENDED_RUNS_KEPT) {
+      const oldest = endedRuns.values().next().value;
+      if (oldest !== undefined) endedRuns.delete(oldest);
+    }
+  }
+
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const cleanup = onMessage((msg) => {
+    if (msg.type === "run.status") {
+      const runId = payloadString(msg.payload, "run_id");
+      const status = payloadString(msg.payload, "status");
+      if (runId && status && RUN_END_STATUSES.has(status)) {
+        rememberEnded(runId);
+        settleFollowed((id) => id === runId);
+      }
+      return;
+    }
+    if (msg.type !== "handoff.status") return;
+    if (!isHandoffStatusEvent(msg.payload)) return;
+    followHandoff(msg.payload);
   });
+
+  // While the socket was down a followed run may have ended unseen: after a
+  // reconnect its arrow settles instead of staying for the rest of the session.
+  createEffect(
+    on(connected, (isConnected, wasConnected) => {
+      if (isConnected && wasConnected === false) settleFollowed(() => true);
+    }),
+  );
+
   onCleanup(() => {
     cleanup();
     for (const id of pendingTimers) clearTimeout(id);
@@ -74,9 +151,11 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
   const arrowColor = (status: string) => {
     switch (status) {
       case "initiated":
+      case "a2a_delegated":
         return "var(--cf-accent)";
-      case "completed":
-        return "var(--cf-success)";
+      case "quarantined":
+        return "var(--cf-warning)";
+      case "rejected":
       case "failed":
         return "var(--cf-danger)";
       default:

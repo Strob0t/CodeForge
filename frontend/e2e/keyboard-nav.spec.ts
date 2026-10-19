@@ -116,8 +116,8 @@ test.describe("Keyboard Navigation", () => {
         el.matches(":focus-visible")
       );
     });
-    // At minimum the element should be focused
     const isFocused = await page.evaluate(() => document.activeElement !== document.body);
     expect(isFocused).toBe(true);
+    expect(hasFocusStyle).toBe(true);
   });
 });

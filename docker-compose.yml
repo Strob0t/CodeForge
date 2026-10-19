@@ -4,6 +4,10 @@ x-logging: &default-logging
     max-size: "50m"
     max-file: "10"
 
+# Published ports bind to 127.0.0.1 only: these dev services run without
+# authentication or with default credentials (PostgreSQL password, NATS,
+# LiteLLM dev master key, Jaeger, docs-mcp, playwright-mcp). Containers and
+# the devcontainer reach them by container name on the codeforge network.
 services:
   jaeger:
     image: jaegertracing/all-in-one:1.67
@@ -12,9 +16,9 @@ services:
     profiles:
       - dev
     ports:
-      - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     networks:
@@ -26,7 +30,8 @@ services:
     logging: *default-logging
     profiles:
       - dev
-    ipc: host
+    # Its own IPC namespace (the browser loads arbitrary sites); shm_size
+    # gives Chromium its shared memory (KI-214).
     shm_size: "1gb"
     user: "1000:1000"
     security_opt:
@@ -34,7 +39,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     networks:
       - codeforge
     command:
@@ -75,13 +80,15 @@ services:
     security_opt:
       - "no-new-privileges:true"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: codeforge
       POSTGRES_USER: codeforge
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeforge_dev}
+    # PostgreSQL 18+ images keep PGDATA in /var/lib/postgresql/18/docker and
+    # refuse to start with a mount at /var/lib/postgresql/data: mount the parent.
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     shm_size: 256mb
     command: >
       postgres
@@ -91,7 +98,7 @@ services:
         -c log_line_prefix='%t [%p] %q%u@%d '
         -c wal_level=replica
         -c archive_mode=on
-        -c archive_command='mkdir -p /var/lib/postgresql/data/archive && test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
+        -c archive_command='mkdir -p /var/lib/postgresql/archive && test ! -f /var/lib/postgresql/archive/%f && cp %p /var/lib/postgresql/archive/%f'
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U codeforge" ]
       interval: 5s
@@ -114,8 +121,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
     command: [ "--jetstream", "--store_dir", "/data", "-m", "8222" ]
     volumes:
       - nats_data:/data
@@ -141,12 +148,17 @@ services:
     security_opt:
       - "no-new-privileges:true"
     ports:
-      - "6280:6280"
-      - "6281:6281"
+      - "127.0.0.1:6280:6280"
+      - "127.0.0.1:6281:6281"
+    # Embeddings via an OpenAI-compatible API (LM Studio by default); set the
+    # DOCS_MCP_* variables in .env to use another server or model.
     environment:
-      OPENAI_API_KEY: "lm-studio"
-      OPENAI_API_BASE: "http://host.docker.internal:1234/v1"
-      DOCS_MCP_EMBEDDING_MODEL: "text-embedding-nomic-embed-text-v1.5"
+      OPENAI_API_KEY: ${DOCS_MCP_API_KEY:-lm-studio}
+      OPENAI_API_BASE: ${DOCS_MCP_API_BASE:-http://host.docker.internal:1234/v1}
+      DOCS_MCP_EMBEDDING_MODEL: ${DOCS_MCP_EMBEDDING_MODEL:-text-embedding-nomic-embed-text-v1.5}
+    # The default API base is on the host; Linux needs the explicit mapping.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - docs_mcp_data:/data
       - docs_mcp_config:/config
@@ -167,7 +179,8 @@ services:
       - codeforge
 
   litellm:
-    image: docker.litellm.ai/berriai/litellm:main-stable
+    # The release production runs (docker-compose.prod.yml, KI-214).
+    image: ghcr.io/berriai/litellm:v1.103.1
     container_name: codeforge-litellm
     restart: unless-stopped
     logging: *default-logging
@@ -176,10 +189,13 @@ services:
     security_opt:
       - "no-new-privileges:true"
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
       DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:-codeforge_dev}@postgres:5432/codeforge
+      # ollama/* goes to Ollama's OpenAI-compatible /v1 endpoint (KI-125);
+      # OLLAMA_API_BASE lets LiteLLM read a model's capabilities from Ollama.
+      OLLAMA_OPENAI_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}/v1
       OLLAMA_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -195,6 +211,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_SERVICE_NAME: codeforge-litellm
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    # Ollama and LM Studio default to the host; Linux needs the explicit mapping.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
     command: [ "--config", "/app/data/config.yaml", "--port", "4000" ]

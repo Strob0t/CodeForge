@@ -1,13 +1,17 @@
 package postgres_test
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 )
 
-func TestOAuthState_CreateAndGet(t *testing.T) {
+func TestOAuthState_CreateAndConsume(t *testing.T) {
 	store := setupStore(t)
 	tenantID := createTestTenant(t, store)
 	ctx := ctxWithTenant(t, tenantID)
@@ -21,9 +25,9 @@ func TestOAuthState_CreateAndGet(t *testing.T) {
 		t.Fatalf("CreateOAuthState: %v", err)
 	}
 
-	got, err := store.GetOAuthState(ctx, state.State)
+	got, err := store.ConsumeOAuthState(ctx, state.State)
 	if err != nil {
-		t.Fatalf("GetOAuthState: %v", err)
+		t.Fatalf("ConsumeOAuthState: %v", err)
 	}
 	if got.State != state.State {
 		t.Errorf("State = %q, want %q", got.State, state.State)
@@ -34,39 +38,44 @@ func TestOAuthState_CreateAndGet(t *testing.T) {
 	if got.TenantID != tenantID {
 		t.Errorf("TenantID = %q, want %q", got.TenantID, tenantID)
 	}
+
+	// Single use.
+	if _, err := store.ConsumeOAuthState(ctx, state.State); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("second ConsumeOAuthState = %v, want ErrNotFound", err)
+	}
 }
 
-func TestOAuthState_GetNotFound(t *testing.T) {
+func TestOAuthState_ConsumeNotFound(t *testing.T) {
 	store := setupStore(t)
 	tenantID := createTestTenant(t, store)
 	ctx := ctxWithTenant(t, tenantID)
 
-	_, err := store.GetOAuthState(ctx, "nonexistent-state-token")
-	if err == nil {
-		t.Fatal("expected error for nonexistent state")
+	_, err := store.ConsumeOAuthState(ctx, "nonexistent-state-token")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("ConsumeOAuthState = %v, want ErrNotFound", err)
 	}
 }
 
-func TestOAuthState_GetExpired(t *testing.T) {
+func TestOAuthState_ConsumeExpired(t *testing.T) {
 	store := setupStore(t)
 	tenantID := createTestTenant(t, store)
 	ctx := ctxWithTenant(t, tenantID)
 
-	state := &vcsaccount.OAuthState{
-		State:     "expired-state-token-aaaaaabbbbbbccccccddddddeeeeeeee",
-		Provider:  "github",
-		TenantID:  tenantID,
-		ExpiresAt: time.Now().Add(-1 * time.Minute), // already expired
-		CreatedAt: time.Now().Add(-11 * time.Minute),
+	// A random state token keeps the test independent of rows left in a shared
+	// database by earlier runs (state is the primary key).
+	state, err := vcsaccount.NewOAuthState("github", tenantID)
+	if err != nil {
+		t.Fatalf("NewOAuthState: %v", err)
 	}
+	state.ExpiresAt = time.Now().Add(-1 * time.Minute) // already expired
+	state.CreatedAt = time.Now().Add(-11 * time.Minute)
 	if err := store.CreateOAuthState(ctx, state); err != nil {
 		t.Fatalf("CreateOAuthState: %v", err)
 	}
 
-	// GetOAuthState filters by expires_at > now(), so expired states are not found.
-	_, err := store.GetOAuthState(ctx, state.State)
-	if err == nil {
-		t.Fatal("expected error for expired state")
+	// Expired states are not returned.
+	if _, err := store.ConsumeOAuthState(ctx, state.State); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("ConsumeOAuthState = %v, want ErrNotFound", err)
 	}
 }
 
@@ -87,18 +96,17 @@ func TestOAuthState_Delete(t *testing.T) {
 		t.Fatalf("DeleteOAuthState: %v", err)
 	}
 
-	_, err = store.GetOAuthState(ctx, state.State)
-	if err == nil {
+	if _, err := store.ConsumeOAuthState(ctx, state.State); err == nil {
 		t.Fatal("expected error after delete")
 	}
 }
 
-func TestOAuthState_TenantIsolation(t *testing.T) {
+// KI-55: the callback request has no session (default tenant); consuming
+// the state returns the tenant that started the flow.
+func TestOAuthState_ConsumeReturnsTheStartingTenant(t *testing.T) {
 	store := setupStore(t)
 	tenant1 := createTestTenant(t, store)
-	tenant2 := createTestTenant(t, store)
 	ctx1 := ctxWithTenant(t, tenant1)
-	ctx2 := ctxWithTenant(t, tenant2)
 
 	state, err := vcsaccount.NewOAuthState("github", tenant1)
 	if err != nil {
@@ -108,9 +116,18 @@ func TestOAuthState_TenantIsolation(t *testing.T) {
 		t.Fatalf("CreateOAuthState: %v", err)
 	}
 
-	// Tenant 2 should not see tenant 1's state.
-	_, err = store.GetOAuthState(ctx2, state.State)
-	if err == nil {
-		t.Fatal("expected error: tenant 2 should not see tenant 1's state")
+	got, err := store.ConsumeOAuthState(context.Background(), state.State)
+	if err != nil {
+		t.Fatalf("ConsumeOAuthState without a tenant: %v", err)
+	}
+	if got.TenantID != tenant1 {
+		t.Fatalf("TenantID = %q, want %q", got.TenantID, tenant1)
+	}
+}
+
+func TestConsumeOAuthState_IntentionallyCrossTenant(t *testing.T) {
+	src := readStoreSource(t, "store_oauth_state.go")
+	if !strings.Contains(src, "INTENTIONALLY CROSS-TENANT") {
+		t.Fatal("ConsumeOAuthState must document why it is cross-tenant")
 	}
 }

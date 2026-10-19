@@ -46,13 +46,52 @@ func NewFileProvider() *FileProvider {
 func (fp *FileProvider) Get(key string) (string, error) {
 	fileName := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
 	path := fp.Dir + "/" + fileName
-	data, err := os.ReadFile(path) //nolint:gosec // path derived from trusted key name
+	value, err := readSecretFile(path)
 	if err != nil {
 		// Fallback to env var
 		if v := os.Getenv(key); v != "" {
 			return v, nil
 		}
 		return "", fmt.Errorf("secret %s: file %s not found and env var not set", key, path)
+	}
+	return value, nil
+}
+
+// FileEnvSuffix marks an environment variable that holds the path of a file
+// containing the secret instead of the secret itself (Docker secrets), e.g.
+// CODEFORGE_AUTH_JWT_SECRET_FILE=/run/secrets/codeforge-auth-jwt-secret.
+const FileEnvSuffix = "_FILE"
+
+// LookupFileEnv returns the secret for key from the file named by key+"_FILE".
+// ok is false when key+"_FILE" is unset or empty. Setting both key and
+// key+"_FILE" is an error: silently preferring one would hide a stale value.
+// A missing, unreadable or empty file is an error too. Errors never contain
+// the secret values.
+func LookupFileEnv(key string) (value string, ok bool, err error) {
+	fileKey := key + FileEnvSuffix
+	path := os.Getenv(fileKey)
+	if path == "" {
+		return "", false, nil
+	}
+	if os.Getenv(key) != "" {
+		return "", false, fmt.Errorf("both %s and %s are set, set only one", key, fileKey)
+	}
+	value, err = readSecretFile(path)
+	if err != nil {
+		return "", false, fmt.Errorf("%s: %w", fileKey, err)
+	}
+	if value == "" {
+		return "", false, fmt.Errorf("%s: secret file %s is empty", fileKey, path)
+	}
+	return value, true, nil
+}
+
+// readSecretFile reads a secret file and trims surrounding whitespace, such as
+// the trailing newline most editors and `echo` add.
+func readSecretFile(path string) (string, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path comes from operator configuration
+	if err != nil {
+		return "", fmt.Errorf("read secret file: %w", err)
 	}
 	return strings.TrimSpace(string(data)), nil
 }

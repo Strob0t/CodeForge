@@ -7,8 +7,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
+from codeforge.config import get_settings
+
 if TYPE_CHECKING:
-    import pytest
+    from collections.abc import Iterator
 
 
 class TestPlanActControllerToolRestriction:
@@ -204,6 +208,13 @@ class TestPlanActControllerSystemSuffix:
 
 class TestPlanActControllerEnvVar:
     """A3.10: CODEFORGE_PLAN_ACT_MAX_ITERATIONS env var support."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_settings(self) -> Iterator[None]:
+        """get_settings() is a cached singleton: rebuild it from the patched env, then drop it."""
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
 
     def test_env_var_overrides_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CODEFORGE_PLAN_ACT_MAX_ITERATIONS", "5")

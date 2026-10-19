@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { DiscoveredModel, LLMModel } from "~/api/types";
+import { useAuth } from "~/components/AuthProvider";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useAsyncAction, useFormState } from "~/hooks";
@@ -33,6 +34,8 @@ export function ModelsContent() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
+  // All tenants share the LiteLLM models: only platform admins change them.
+  const { isPlatformAdmin } = useAuth();
   const [models, { refetch }] = createResource(() => api.llm.models());
   const [health] = createResource(() => api.llm.health());
   const [showForm, setShowForm] = createSignal(false);
@@ -144,14 +147,20 @@ export function ModelsContent() {
         <Button variant="secondary" onClick={() => void handleDiscover()} disabled={discovering()}>
           {discovering() ? t("models.discovering") : t("models.discover")}
         </Button>
-        <Button onClick={() => setShowForm((v) => !v)}>
-          {showForm() ? t("common.cancel") : t("models.addModel")}
-        </Button>
+        <Show when={isPlatformAdmin()}>
+          <Button onClick={() => setShowForm((v) => !v)}>
+            {showForm() ? t("common.cancel") : t("models.addModel")}
+          </Button>
+        </Show>
       </div>
+
+      <Show when={!isPlatformAdmin()}>
+        <p class="mb-4 text-sm text-cf-text-muted">{t("models.platformAdminOnly")}</p>
+      </Show>
 
       <ErrorBanner error={error} onDismiss={clearError} />
 
-      <Show when={showForm()}>
+      <Show when={showForm() && isPlatformAdmin()}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -253,7 +262,7 @@ export function ModelsContent() {
               {(model) => (
                 <ModelCard
                   model={model}
-                  onDelete={handleDelete}
+                  onDelete={isPlatformAdmin() ? handleDelete : undefined}
                   expanded={isExpanded(model.model_name)}
                   onToggle={() => toggleModel(model.model_name)}
                 />
@@ -277,7 +286,8 @@ export default function ModelsPage() {
 
 interface ModelCardProps {
   model: LLMModel;
-  onDelete: (id: string) => Promise<void>;
+  /** Deletes the model; absent when the user may not delete it. */
+  onDelete?: (id: string) => Promise<void>;
   expanded: boolean;
   onToggle: () => void;
 }
@@ -287,10 +297,10 @@ function ModelCard(props: ModelCardProps) {
   return (
     <Card class="transition-shadow hover:shadow-md">
       <Card.Body>
-        <div class="flex items-start justify-between">
+        <div class="flex items-start justify-between gap-2">
           <button
             type="button"
-            class="flex items-center gap-2 text-left"
+            class="flex min-w-0 flex-1 items-center gap-2 text-left"
             onClick={() => props.onToggle()}
             aria-expanded={props.expanded}
           >
@@ -301,8 +311,13 @@ function ModelCard(props: ModelCardProps) {
             >
               &#9654;
             </span>
-            <div>
-              <h3 class="text-lg font-semibold text-cf-text-primary">{props.model.model_name}</h3>
+            <div class="min-w-0">
+              <h3
+                class="truncate text-lg font-semibold text-cf-text-primary"
+                title={props.model.model_name}
+              >
+                {props.model.model_name}
+              </h3>
               <Show when={props.model.litellm_provider}>
                 <Badge variant="default" pill>
                   {props.model.litellm_provider}
@@ -310,11 +325,12 @@ function ModelCard(props: ModelCardProps) {
               </Show>
             </div>
           </button>
-          <Show when={props.model.model_id}>
+          <Show when={props.model.model_id && props.onDelete}>
             <Button
               variant="danger"
               size="sm"
-              onClick={() => void props.onDelete(props.model.model_id ?? "")}
+              class="shrink-0"
+              onClick={() => void props.onDelete?.(props.model.model_id ?? "")}
               aria-label={t("models.deleteAria", { name: props.model.model_name })}
             >
               {t("common.delete")}
@@ -325,8 +341,10 @@ function ModelCard(props: ModelCardProps) {
         <Show when={props.expanded}>
           <div class="mt-3 flex flex-wrap gap-2 text-xs">
             <Show when={props.model.model_id}>
-              <Badge variant="default">
-                <span class="font-mono">{props.model.model_id}</span>
+              <Badge variant="default" class="max-w-full">
+                <span class="min-w-0 break-all font-mono" title={props.model.model_id}>
+                  {props.model.model_id}
+                </span>
               </Badge>
             </Show>
             <Show when={props.model.model_info}>
@@ -356,14 +374,19 @@ function DiscoveredModelCard(props: DiscoveredModelCardProps) {
   return (
     <Card class="transition-shadow hover:shadow-md">
       <Card.Body>
-        <div class="flex items-start justify-between">
-          <div>
-            <h3 class="text-lg font-semibold text-cf-text-primary">{props.model.model_name}</h3>
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <h3
+              class="truncate text-lg font-semibold text-cf-text-primary"
+              title={props.model.model_name}
+            >
+              {props.model.model_name}
+            </h3>
             <Show when={props.model.provider}>
               <p class="mt-1 text-sm text-cf-text-muted">{props.model.provider}</p>
             </Show>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex shrink-0 items-center gap-2">
             <Badge variant={props.model.status === "reachable" ? "success" : "danger"} pill>
               {props.model.status === "reachable"
                 ? t("models.status.reachable")
@@ -379,8 +402,10 @@ function DiscoveredModelCard(props: DiscoveredModelCardProps) {
 
         <div class="mt-3 flex flex-wrap gap-2 text-xs">
           <Show when={props.model.model_id}>
-            <Badge variant="default">
-              <span class="font-mono">{props.model.model_id}</span>
+            <Badge variant="default" class="max-w-full">
+              <span class="min-w-0 break-all font-mono" title={props.model.model_id}>
+                {props.model.model_id}
+              </span>
             </Badge>
           </Show>
           <Show when={props.model.max_tokens}>

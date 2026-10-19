@@ -31,23 +31,24 @@ Recommended for hourly scheduled backups. Produces a portable SQL dump.
 
 ```bash
 # Run from the Docker host or a backup sidecar container.
-# Uses the codeforge-postgres service name from docker-compose.prod.yml.
+# The postgres service of docker-compose.prod.yml (it sets no container_name).
+PG="$(docker compose -f docker-compose.prod.yml ps -q postgres)"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR=/backups/postgres
 
-docker exec codeforge-postgres pg_dump \
+docker exec "$PG" pg_dump \
   -U codeforge \
   -d codeforge \
   --format=custom \
   --compress=zstd:6 \
   --file=/tmp/codeforge_${TIMESTAMP}.dump
 
-docker cp codeforge-postgres:/tmp/codeforge_${TIMESTAMP}.dump \
+docker cp "$PG":/tmp/codeforge_${TIMESTAMP}.dump \
   ${BACKUP_DIR}/codeforge_${TIMESTAMP}.dump
 
 # Clean up inside container
-docker exec codeforge-postgres rm /tmp/codeforge_${TIMESTAMP}.dump
+docker exec "$PG" rm /tmp/codeforge_${TIMESTAMP}.dump
 ```
 
 Schedule via cron:
@@ -62,11 +63,13 @@ Required for point-in-time recovery (PITR). Take a base backup weekly.
 
 Prerequisites -- enable WAL archiving in PostgreSQL:
 
-```
-# postgresql.conf (or via environment in docker-compose.prod.yml)
-wal_level = replica
-archive_mode = on
-archive_command = 'cp %p /backups/postgres/wal/%f'
+WAL archiving is off by default (KI-210): with it on and no base backups, the archive grows by gigabytes a day and
+cannot be replayed. Turn it on only together with base backups and pruning: set `POSTGRES_ARCHIVE_MODE=on` for
+`docker-compose.prod.yml` (the postgres service archives to `/archive` in the `postgres_archive` volume) and prune old
+segments, for example daily:
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T postgres sh -s -- 7 < scripts/cleanup-wal-archives.sh
 ```
 
 Take the base backup:
@@ -75,7 +78,7 @@ Take the base backup:
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR=/backups/postgres/base
 
-docker exec codeforge-postgres pg_basebackup \
+docker exec "$PG" pg_basebackup \
   -U codeforge \
   -D /tmp/basebackup_${TIMESTAMP} \
   --format=tar \
@@ -83,10 +86,10 @@ docker exec codeforge-postgres pg_basebackup \
   --checkpoint=fast \
   --wal-method=stream
 
-docker cp codeforge-postgres:/tmp/basebackup_${TIMESTAMP} \
+docker cp "$PG":/tmp/basebackup_${TIMESTAMP} \
   ${BACKUP_DIR}/basebackup_${TIMESTAMP}
 
-docker exec codeforge-postgres rm -rf /tmp/basebackup_${TIMESTAMP}
+docker exec "$PG" rm -rf /tmp/basebackup_${TIMESTAMP}
 ```
 
 ### 3.3 Retention Policy
@@ -103,25 +106,25 @@ docker exec codeforge-postgres rm -rf /tmp/basebackup_${TIMESTAMP}
 
 ```bash
 # Stop all services that connect to PostgreSQL
-docker compose -f docker-compose.prod.yml stop core litellm workers
+docker compose -f docker-compose.prod.yml stop core litellm worker
 
 # Drop and recreate the database
-docker exec codeforge-postgres psql -U codeforge -c "DROP DATABASE IF EXISTS codeforge;"
-docker exec codeforge-postgres psql -U codeforge -c "CREATE DATABASE codeforge OWNER codeforge;"
+docker exec "$PG" psql -U codeforge -c "DROP DATABASE IF EXISTS codeforge;"
+docker exec "$PG" psql -U codeforge -c "CREATE DATABASE codeforge OWNER codeforge;"
 
 # Restore from dump
-docker cp ${BACKUP_DIR}/codeforge_${TIMESTAMP}.dump codeforge-postgres:/tmp/restore.dump
-docker exec codeforge-postgres pg_restore \
+docker cp ${BACKUP_DIR}/codeforge_${TIMESTAMP}.dump "$(docker compose -f docker-compose.prod.yml ps -q postgres)":/tmp/restore.dump
+docker exec "$PG" pg_restore \
   -U codeforge \
   -d codeforge \
   --no-owner \
   --no-privileges \
   /tmp/restore.dump
 
-docker exec codeforge-postgres rm /tmp/restore.dump
+docker exec "$PG" rm /tmp/restore.dump
 
 # Restart services
-docker compose -f docker-compose.prod.yml up -d core litellm workers
+docker compose -f docker-compose.prod.yml up -d core litellm worker
 ```
 
 ### 4.2 From Base Backup with WAL Replay (PITR)
@@ -137,34 +140,40 @@ docker volume rm codeforge_postgres_data
 
 # Create fresh volume and restore base backup
 docker volume create codeforge_postgres_data
+# PostgreSQL 18 images keep the cluster in /var/lib/postgresql/18/docker (the volume is mounted at /var/lib/postgresql)
 docker run --rm \
-  -v codeforge_postgres_data:/var/lib/postgresql/data \
+  -v codeforge_postgres_data:/var/lib/postgresql \
   -v ${BACKUP_DIR}/basebackup_${TIMESTAMP}:/backup:ro \
-  postgres:18 \
-  bash -c "tar xzf /backup/base.tar.gz -C /var/lib/postgresql/data"
+  postgres:18-alpine \
+  sh -c "mkdir -p /var/lib/postgresql/18/docker && \
+    tar xzf /backup/base.tar.gz -C /var/lib/postgresql/18/docker && \
+    chown -R postgres:postgres /var/lib/postgresql && chmod 700 /var/lib/postgresql/18/docker"
 
 # Create recovery signal file with target time
 docker run --rm \
-  -v codeforge_postgres_data:/var/lib/postgresql/data \
-  postgres:18 \
-  bash -c "cat > /var/lib/postgresql/data/recovery.signal && \
-    echo \"restore_command = 'cp /backups/postgres/wal/%f %p'\" >> /var/lib/postgresql/data/postgresql.auto.conf && \
-    echo \"recovery_target_time = '${TARGET_TIME}'\" >> /var/lib/postgresql/data/postgresql.auto.conf && \
-    echo \"recovery_target_action = 'promote'\" >> /var/lib/postgresql/data/postgresql.auto.conf"
+  -v codeforge_postgres_data:/var/lib/postgresql \
+  postgres:18-alpine \
+  sh -c "touch /var/lib/postgresql/18/docker/recovery.signal && \
+    echo \"restore_command = 'cp /archive/%f %p'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
+    echo \"recovery_target_time = '${TARGET_TIME}'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
+    echo \"recovery_target_action = 'promote'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
+    chown postgres:postgres /var/lib/postgresql/18/docker/recovery.signal /var/lib/postgresql/18/docker/postgresql.auto.conf"
 
 # Start PostgreSQL -- it will replay WAL up to TARGET_TIME
 docker compose -f docker-compose.prod.yml up -d postgres
 
 # Monitor recovery progress
-docker logs -f codeforge-postgres
+docker compose -f docker-compose.prod.yml logs -f postgres
 
 # After recovery completes, restart remaining services
-docker compose -f docker-compose.prod.yml up -d core litellm workers
+docker compose -f docker-compose.prod.yml up -d core litellm worker
 ```
 
 ## 5. NATS JetStream Recovery
 
 NATS JetStream state is ephemeral for CodeForge. The Go backend auto-recreates streams and consumers on startup (see `internal/port/messagequeue/jetstream.go`).
+
+Production NATS requires authentication ([ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)): it starts only with `configs/nats/nats-server.conf` (in the repository checkout, mounted by Compose) and the secret `nats-passwords.conf`, and the core and the worker connect with `nats-core-url` and `nats-worker-url`. A NATS volume loss does not touch them; if they are missing, see the secrets step in section 7.
 
 ### Recovery Steps
 
@@ -181,6 +190,10 @@ docker compose -f docker-compose.prod.yml up -d nats
 
 # Restart Go Core -- it recreates streams/consumers automatically
 docker compose -f docker-compose.prod.yml restart core
+
+# Restart the worker afterwards -- it waits for the stream; its NotificationHub recreates the
+# notification consumers (retrying until they exist; the worker's /health/ready is 503 meanwhile)
+docker compose -f docker-compose.prod.yml restart worker
 ```
 
 No data is lost because:
@@ -220,8 +233,9 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
 
 - [ ] Docker and Docker Compose installed on the target host
 - [ ] Access to backup storage (pg_dump files, base backups, WAL archives)
-- [ ] CodeForge repository cloned (for docker-compose.prod.yml and configs)
+- [ ] CodeForge repository cloned (for docker-compose.prod.yml and configs; `configs/nats/` must be in the deploy directory)
 - [ ] Environment variables configured (.env file)
+- [ ] Secrets directory restored (`SECRETS_DIR`, `./secrets` by default) from your secure backup; it is not in a Docker volume or in version control
 
 ### Step-by-Step
 
@@ -232,9 +246,16 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
    git checkout <production-tag>
    ```
 
-2. **Restore environment configuration**
+2. **Restore environment configuration and secrets**
    ```bash
    cp /backups/env/.env.prod .env
+   ```
+
+   If the restored secrets directory has no NATS secrets (a backup from before KI-71), run `./scripts/generate-secrets.sh`: it creates only what is missing
+   (`nats-core-pass`, `nats-worker-pass` and the derived `nats-core-url`, `nats-worker-url`, `nats-passwords.conf`) and never replaces the
+   JWT secret, the LLM key encryption secret, the LiteLLM master key or the PostgreSQL password. Then check the files:
+   ```bash
+   ./scripts/validate-env.sh
    ```
 
 3. **Start PostgreSQL only**
@@ -245,15 +266,15 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
 4. **Restore PostgreSQL from latest dump**
    ```bash
    LATEST=$(ls -t /backups/postgres/codeforge_*.dump | head -1)
-   docker cp ${LATEST} codeforge-postgres:/tmp/restore.dump
-   docker exec codeforge-postgres pg_restore \
+   docker cp ${LATEST} "$(docker compose -f docker-compose.prod.yml ps -q postgres)":/tmp/restore.dump
+   docker exec "$PG" pg_restore \
      -U codeforge -d codeforge --no-owner --no-privileges /tmp/restore.dump
-   docker exec codeforge-postgres rm /tmp/restore.dump
+   docker exec "$PG" rm /tmp/restore.dump
    ```
 
 5. **Verify database integrity**
    ```bash
-   docker exec codeforge-postgres psql -U codeforge -d codeforge \
+   docker exec "$PG" psql -U codeforge -d codeforge \
      -c "SELECT count(*) FROM users; SELECT count(*) FROM projects;"
    ```
 
@@ -279,7 +300,7 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
 
 10. **Start Python Workers**
     ```bash
-    docker compose -f docker-compose.prod.yml up -d workers
+    docker compose -f docker-compose.prod.yml up -d worker
     ```
 
 11. **Verify end-to-end connectivity**
@@ -298,6 +319,43 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
     ```bash
     docker compose -f docker-compose.prod.yml up -d frontend
     ```
+
+### 7.1 With the Blue-Green Overlay
+
+When production runs with `docker-compose.blue-green.yml` (usage: [dev-setup.md](dev-setup.md#blue-green-deployment)),
+the single `core` and `frontend` services of the prod file are replaced by the colors `core-blue` / `frontend-blue`
+and `core-green` / `frontend-green` (Compose profiles `blue` and `green`), and Traefik is the only service that
+publishes ports. Adapt the runbook as follows:
+
+- Use both files in every `docker compose` command (`-f docker-compose.prod.yml -f docker-compose.blue-green.yml`) and
+  `ACME_EMAIL` / `CODEFORGE_DOMAIN` in `.env`.
+- Steps 3 to 7 (and 10) start the shared services and the worker; `up -d` of both files does that and starts no color.
+- Replace steps 8, 9 and 12 with `./scripts/deploy-blue-green.sh blue` (or `green`): it starts the color's core and
+  frontend without touching the shared services, waits until both are healthy and stops the other color. Check
+  health through Traefik (`https://<CODEFORGE_DOMAIN>/health`); the core publishes no port of its own.
+- To stop the core before a restore (section 4), stop both colors: set `COMPOSE_PROFILES=blue,green` and stop
+  `core-blue core-green frontend-blue frontend-green`.
+- Rolling back a bad release means deploying the previous color again with the previous image tag; the script refuses
+  to "deploy" the color that is already active, and a color that does not become healthy is stopped again while the
+  active one keeps serving.
+
+### 7.2 Workspaces Volume and Tool UIDs (KI-96)
+
+With per-tenant tool users (`workspace.tool_acls: required`, [ADR-018](architecture/adr/018-per-tenant-tool-identities-and-landlock.md))
+the workspaces volume carries POSIX ACLs and the worker's state directory `<root>/.codeforge` (the binding of each tool
+UID to its tenant, migration stamps, locks).
+
+- **Back up with ACLs.** Use a tool that keeps POSIX ACLs and xattrs (`tar --acls --xattrs`, or a filesystem snapshot).
+  A restore without ACLs fails closed: the migration stamps no longer match, and each tenant's tree is migrated again
+  at its next work item. Files a tool created private (0600) are healed only by that migration.
+- **Restore the database and the workspaces volume to the same point.** `tenants.tool_uid` and the bindings in
+  `<root>/.codeforge/uids/` must agree. If the database is older than the volume, the Core advances the UID sequence
+  past every bound UID at startup (logged as a warning), so no bound UID is handed to a new tenant, and the worker
+  refuses work whose UID is bound to another tenant (the log names both tenants). Remove tenant directories whose
+  tenant no longer exists in the restored database.
+- **`tool_homes` is not backed up.** It holds the tenants' HOMEs (caches, tool config, per-work TMPDIRs); the worker
+  recreates each HOME on first use. A fresh volume gets its owner and mode (10001:10001, 0711) from the image.
+- **Order.** Stop every worker before restoring the workspaces volume, and start the Core before the workers.
 
 ## 8. Backup Verification
 
@@ -349,7 +407,8 @@ Run monthly to ensure backups are restorable.
 
 | Docker Volume | Service | Data | Backup? |
 |---|---|---|---|
-| codeforge_postgres_data | codeforge-postgres | Database files | Yes (pg_dump + pg_basebackup) |
+| codeforge_postgres_data | postgres (service) | Database files | Yes (pg_dump + pg_basebackup) |
 | codeforge_nats_data | codeforge-nats | JetStream state | No (auto-recreated) |
 | codeforge_litellm_config | codeforge-litellm | litellm-config.yaml | No (in version control) |
-| codeforge_workspaces | codeforge-core | Cloned repositories | Optional (re-clone from VCS) |
+| codeforge_workspaces | codeforge-core, codeforge-worker | Cloned repositories, worker state `.codeforge` (tool UID bindings) | Optional (re-clone from VCS); keep POSIX ACLs and restore it to the database's point (section 7.2) |
+| codeforge_tool_homes | codeforge-worker | Tenants' HOMEs (caches, tool config, TMPDIRs; KI-96) | No (recreated on use) |

@@ -16,8 +16,10 @@ func (b *testBackend) Name() string { return b.name }
 func (b *testBackend) Capabilities() agentbackend.Capabilities {
 	return agentbackend.Capabilities{Edit: true}
 }
-func (b *testBackend) Execute(_ context.Context, _ *task.Task) (*task.Result, error) { return nil, nil }
-func (b *testBackend) Stop(_ context.Context, _ string) error                        { return nil }
+func (b *testBackend) Execute(_ context.Context, _ *agentbackend.Execution) (*task.Result, error) {
+	return nil, nil
+}
+func (b *testBackend) Stop(_ context.Context, _ string) error { return nil }
 
 func TestAgentBackend_RegisterAndNew(t *testing.T) {
 	agentbackend.Register("test-agent", func(_ map[string]string) (agentbackend.Backend, error) {

@@ -43,6 +43,10 @@ HandoffMessage with a2a:// prefix --> A2A client --> remote agent
 HandoffMessage without prefix     --> NATS      --> local agent
 ```
 
+> **Implementation status (2026-09-29):** Inbound requests are authenticated only with static API keys sent as Bearer tokens (`a2a.api_keys`, `internal/middleware/a2a_auth.go`; the AgentCard advertises a single `apiKey` scheme). Outbound calls to remote agents carry no credentials (`internal/service/a2a.go`); OAuth 2.0, OIDC, mTLS and JWS per remote agent are not implemented. There is no `/{tenant}/` path prefix: the endpoints are `/a2a` and `/.well-known/agent-card.json`, and the remote agent registry is tenant-scoped via `tenant_id` in PostgreSQL. Both endpoints sit behind the global JWT middleware, so A2A API keys are rejected while auth is enabled; inbound prompts are not quarantined; `a2a://` routing exists only in `HandoffService` (`internal/service/handoff.go`), which is never constructed (see [Known Issues](../../todo.md#known-issues) KI-15).
+
+> **Update (2026-10-01, KI-15):** the endpoint statement above no longer applies. `/a2a` and the AgentCard are outside the JWT middleware and authenticate with A2A API keys (`middleware.A2AAuth`); `a2a.api_keys` entries are `<key>` (default tenant) or `<tenant-uuid>:<key>`, the caller acts in the key's tenant with partial trust, and without keys every request gets 401. A key has the stable ID `key-` plus 16 hex characters of its SHA-256 (`a2a_tasks.caller_key_id`, migration 103); a caller sees only the inbound tasks its own key created and never outbound ones. Inbound prompts pass the quarantine ([ADR-011](011-trust-quarantine-system.md)), and `a2a://` handoff routing runs in the wired `HandoffService`. The executor requires the request's tenant for Execute and Cancel (it never falls back to the default tenant).
+
 ### Consequences
 
 #### Positive

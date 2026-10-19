@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // hitlMockBroadcaster is a minimal Broadcaster mock for HITL tests.
@@ -56,14 +58,14 @@ func TestHITL_ApproveUnblocksWait(t *testing.T) {
 
 	// Start waitForApproval in a goroutine; it blocks until resolved.
 	go func() {
-		resultCh <- svc.waitForApproval(ctx, runID, callID, "Bash", "rm -rf /tmp/test", "")
+		resultCh <- svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: runID, CallID: callID, Tool: "Bash", Command: "rm -rf /tmp/test"})
 	}()
 
 	// Give the goroutine a moment to register the channel.
 	time.Sleep(50 * time.Millisecond)
 
 	// Resolve with "allow".
-	ok := svc.ResolveApproval(runID, callID, "allow")
+	ok := svc.ResolveApproval(context.Background(), runID, callID, "allow")
 	if !ok {
 		t.Fatal("ResolveApproval returned false; expected pending approval to exist")
 	}
@@ -91,12 +93,12 @@ func TestHITL_DenyUnblocksWait(t *testing.T) {
 	resultCh := make(chan policy.Decision, 1)
 
 	go func() {
-		resultCh <- svc.waitForApproval(ctx, runID, callID, "Edit", "", "/etc/passwd")
+		resultCh <- svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: runID, CallID: callID, Tool: "Edit", Path: "/etc/passwd"})
 	}()
 
 	time.Sleep(50 * time.Millisecond)
 
-	ok := svc.ResolveApproval(runID, callID, "deny")
+	ok := svc.ResolveApproval(context.Background(), runID, callID, "deny")
 	if !ok {
 		t.Fatal("ResolveApproval returned false; expected pending approval to exist")
 	}
@@ -123,7 +125,7 @@ func TestHITL_TimeoutReturnsDeny(t *testing.T) {
 	callID := "call-3"
 
 	start := time.Now()
-	decision := svc.waitForApproval(ctx, runID, callID, "Bash", "danger", "")
+	decision := svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: runID, CallID: callID, Tool: "Bash", Command: "danger"})
 	elapsed := time.Since(start)
 
 	if decision != policy.DecisionDeny {
@@ -153,7 +155,7 @@ func TestHITL_ContextCancelReturnsDeny(t *testing.T) {
 	resultCh := make(chan policy.Decision, 1)
 
 	go func() {
-		resultCh <- svc.waitForApproval(ctx, runID, callID, "Bash", "ls", "")
+		resultCh <- svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: runID, CallID: callID, Tool: "Bash", Command: "ls"})
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -178,7 +180,7 @@ func TestHITL_ResolveNonExistentReturnsFalse(t *testing.T) {
 
 	svc, _ := newHITLTestService(30)
 
-	ok := svc.ResolveApproval("no-such-run", "no-such-call", "allow")
+	ok := svc.ResolveApproval(context.Background(), "no-such-run", "no-such-call", "allow")
 	if ok {
 		t.Error("expected false for non-existent approval, got true")
 	}
@@ -195,7 +197,7 @@ func TestHITL_BroadcastEventFired(t *testing.T) {
 	callID := "call-5"
 
 	// Let it time out; we just want to verify the broadcast happened.
-	_ = svc.waitForApproval(ctx, runID, callID, "Bash", "echo hello", "/tmp")
+	_ = svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: runID, CallID: callID, Tool: "Bash", Command: "echo hello", Path: "/tmp"})
 
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
@@ -220,13 +222,13 @@ func TestHITL_PendingApprovalCleanedUpAfterResolve(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		_ = svc.waitForApproval(ctx, runID, callID, "Read", "", "/etc/hosts")
+		_ = svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: runID, CallID: callID, Tool: "Read", Path: "/etc/hosts"})
 		close(done)
 	}()
 
 	time.Sleep(50 * time.Millisecond)
 
-	svc.ResolveApproval(runID, callID, "allow")
+	svc.ResolveApproval(context.Background(), runID, callID, "allow")
 
 	select {
 	case <-done:
@@ -235,7 +237,7 @@ func TestHITL_PendingApprovalCleanedUpAfterResolve(t *testing.T) {
 	}
 
 	// The deferred Delete in waitForApproval should have cleaned up the map.
-	key := approvalKey(runID, callID)
+	key := approvalKey(tenantctx.DefaultTenantID, runID, callID)
 	if _, loaded := svc.state.LoadAndDeletePendingApproval(key); loaded {
 		t.Error("expected pendingApprovals entry to be cleaned up, but it still exists")
 	}
@@ -253,13 +255,13 @@ func TestHITL_DoubleResolveReturnsFalse(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		_ = svc.waitForApproval(ctx, runID, callID, "Bash", "test", "")
+		_ = svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: runID, CallID: callID, Tool: "Bash", Command: "test"})
 		close(done)
 	}()
 
 	time.Sleep(50 * time.Millisecond)
 
-	ok1 := svc.ResolveApproval(runID, callID, "allow")
+	ok1 := svc.ResolveApproval(context.Background(), runID, callID, "allow")
 	if !ok1 {
 		t.Fatal("first ResolveApproval should return true")
 	}
@@ -267,7 +269,7 @@ func TestHITL_DoubleResolveReturnsFalse(t *testing.T) {
 	<-done
 
 	// Second resolve: the entry was already consumed by LoadAndDelete.
-	ok2 := svc.ResolveApproval(runID, callID, "allow")
+	ok2 := svc.ResolveApproval(context.Background(), runID, callID, "allow")
 	if ok2 {
 		t.Error("second ResolveApproval should return false (already consumed)")
 	}

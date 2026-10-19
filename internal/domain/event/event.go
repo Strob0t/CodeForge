@@ -32,6 +32,7 @@ const (
 	TypeDeliveryStarted    Type = "run.delivery.started"
 	TypeDeliveryCompleted  Type = "run.delivery.completed"
 	TypeDeliveryFailed     Type = "run.delivery.failed"
+	TypeDeliveryPartial    Type = "run.delivery.partial" // branch pushed, pull request not opened (KI-188)
 	TypeStallDetected      Type = "run.stall_detected"
 	TypeArtifactValidated  Type = "run.artifact.validated"
 	TypeArtifactFailed     Type = "run.artifact.failed"

@@ -11,6 +11,8 @@ func TestCreateRuleRequest_Validate(t *testing.T) {
 		{"valid", CreateRuleRequest{ProjectID: "p1", BranchPattern: "main"}, false},
 		{"missing project", CreateRuleRequest{BranchPattern: "main"}, true},
 		{"missing pattern", CreateRuleRequest{ProjectID: "p1"}, true},
+		{"malformed pattern", CreateRuleRequest{ProjectID: "p1", BranchPattern: "release/[1-"}, true},
+		{"recursive pattern", CreateRuleRequest{ProjectID: "p1", BranchPattern: "release/**"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,9 +62,9 @@ func TestEvaluatePush(t *testing.T) {
 		{"normal push to main", PushAction{Branch: "main"}, true},
 		{"force push to main denied", PushAction{Branch: "main", ForcePush: true}, false},
 		{"force push to dev allowed", PushAction{Branch: "dev", ForcePush: true}, true},
-		// P1-4: default-deny when enabled rules exist but none match
-		{"push to unprotected branch (default deny)", PushAction{Branch: "feature/x"}, false},
-		{"push to disabled rule (default deny)", PushAction{Branch: "disabled", ForcePush: true}, false},
+		// A rule protects only the branches it matches (KI-205).
+		{"push to a branch no rule matches", PushAction{Branch: "feature/x", ForcePush: true}, true},
+		{"push to a branch only a disabled rule matches", PushAction{Branch: "disabled", ForcePush: true}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -106,8 +108,8 @@ func TestEvaluateMerge(t *testing.T) {
 		{"missing reviews", MergeAction{TargetBranch: "main", TestsPassed: true, LintPassed: true}, false},
 		{"staging tests pass", MergeAction{TargetBranch: "staging", TestsPassed: true}, true},
 		{"staging tests fail", MergeAction{TargetBranch: "staging"}, false},
-		// P1-4: default-deny when enabled rules exist but none match
-		{"unprotected branch (default deny)", MergeAction{TargetBranch: "feature/x"}, false},
+		// A rule protects only the branches it matches (KI-205).
+		{"branch no rule matches", MergeAction{TargetBranch: "feature/x"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,6 +160,23 @@ func TestMatchBranch_GlobPatterns(t *testing.T) {
 		{"release/*", "main", false},
 		{"feature-*", "feature-auth", true},
 		{"*", "anything", true},
+		// "*" stays within one segment, "**" spans any number of them.
+		{"*", "codeforge/abcd1234", false},
+		{"release/*", "release/1.0/hotfix", false},
+		{"release/**", "release/1.0/hotfix", true},
+		{"release/**", "release/1.0", true},
+		{"release/**", "release", true},
+		{"release/**", "releases/1.0", false},
+		{"**/hotfix", "hotfix", true},
+		{"**/hotfix", "release/1.0/hotfix", true},
+		{"**/hotfix", "release/1.0/hotfix-2", false},
+		{"team/**/wip-*", "team/a/b/wip-x", true},
+		{"team/**/wip-*", "team/wip-x", true},
+		{"team/**/wip-*", "other/a/wip-x", false},
+		{"**", "any/thing/at/all", true},
+		// A malformed pattern matches every branch: a broken rule protects
+		// too much rather than nothing.
+		{"release/[1-", "main", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.pattern+"_vs_"+tt.branch, func(t *testing.T) {

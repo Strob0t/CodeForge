@@ -16,6 +16,7 @@ import { Badge, Button, ConfirmDialog, Input, Select } from "~/ui";
 
 import DragList, { type DragHandleProps } from "./DragList";
 import PanelChatLink from "./PanelChatLink";
+import RoadmapSyncForm from "./RoadmapSyncForm";
 
 interface RoadmapPanelProps {
   projectId: string;
@@ -62,6 +63,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
   const [pmProviders] = createResource(() => api.providers.pm().catch(() => [] as ProviderInfo[]));
   const [selectedPM, setSelectedPM] = createSignal("");
   const [pmProjectRef, setPmProjectRef] = createSignal("");
+  const [showPMSync, setShowPMSync] = createSignal(false);
 
   const handleCreate = async () => {
     if (!title()) return;
@@ -325,6 +327,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                 >
                   {t("roadmap.importPM")}
                 </Button>
+                <Button variant="secondary" size="sm" onClick={() => setShowPMSync(!showPMSync())}>
+                  {t("roadmap.syncPM")}
+                </Button>
                 <Button variant="ghost" size="sm" onClick={handleAIView}>
                   {t("roadmap.aiView")}
                 </Button>
@@ -424,6 +429,16 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   </div>
                 </div>
               </div>
+            </Show>
+
+            {/* Bidirectional sync with a PM tool */}
+            <Show when={showPMSync()}>
+              <RoadmapSyncForm
+                projectId={props.projectId}
+                providers={pmProviders() ?? []}
+                onSynced={() => refetch()}
+                onCancel={() => setShowPMSync(false)}
+              />
             </Show>
 
             {/* Import Result */}

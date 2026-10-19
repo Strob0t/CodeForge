@@ -1,0 +1,13 @@
+# The tool HOMEs on a Docker tmpfs instead of the tool_homes volume: Docker
+# mounts it noexec (npx shims, go test, pip --user binaries fail) and its
+# pages count against the worker's memory. The worker is not ready (E18).
+services:
+  worker:
+    volumes: !override
+      - workspaces:/data/workspaces
+      - knowledge:/data/knowledge:ro
+      - ./workers/tests:/app/workers/tests:ro
+    tmpfs: !override
+      - /tmp:uid=10001,gid=10010,mode=1771
+      - /run/secrets:uid=10001,gid=10001,mode=0700
+      - /home/codeforge-tools:uid=10001,gid=10001,mode=0711

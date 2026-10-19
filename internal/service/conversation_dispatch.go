@@ -19,6 +19,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
+// defaultConversationMode is the mode of an agentic conversation turn when
+// neither the request nor the conversation selects one.
+const defaultConversationMode = "coder"
+
 // policyForAutonomy maps an autonomy level (1-5) to a policy preset name.
 func policyForAutonomy(autonomy int) string {
 	switch autonomy {
@@ -31,9 +35,29 @@ func policyForAutonomy(autonomy int) string {
 	}
 }
 
+// conversationPolicyProfile resolves the policy profile of an agentic
+// conversation turn. It is used both when the turn is dispatched and when
+// its tool calls are evaluated, so both always agree:
+//  1. the profile the project selects explicitly (policy_profile, then
+//     config["policy_preset"]);
+//  2. the preset derived from the mode's autonomy level (modeAutonomy > 0);
+//  3. the service default.
+//
+// The project's Allow-Always clone of the result, if any, then decides the
+// calls (effectivePolicyProfile).
+func conversationPolicyProfile(proj *project.Project, modeAutonomy int, defaultProfile string) string {
+	if p := projectPolicyProfile(proj); p != "" {
+		return p
+	}
+	if modeAutonomy > 0 {
+		return policyForAutonomy(modeAutonomy)
+	}
+	return defaultProfile
+}
+
 // isFullAutoProject checks if the project's policy profile uses an auto-allow mode
 // (ModeAcceptEdits or ModeDelegate), meaning HITL is bypassed and the agent runs autonomously.
-func (s *ConversationService) isFullAutoProject(_ context.Context, proj *project.Project) bool {
+func (s *ConversationService) isFullAutoProject(ctx context.Context, proj *project.Project) bool {
 	if s.policySvc == nil {
 		return false
 	}
@@ -46,7 +70,7 @@ func (s *ConversationService) isFullAutoProject(_ context.Context, proj *project
 	if preset == "" {
 		return false
 	}
-	profile, ok := s.policySvc.GetProfile(preset)
+	profile, ok := s.policySvc.GetProfile(ctx, preset)
 	if !ok {
 		return false
 	}
@@ -92,14 +116,12 @@ func (s *ConversationService) resolveFullAutoGate(ctx context.Context, proj *pro
 }
 
 // resolveModelAndMode resolves the LLM model and agent mode for a conversation run.
-// modeID is the preferred mode; if empty, conv.Mode or "coder" is used.
-func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMode string) (model string, resolvedMode *messagequeue.ModePayload, autonomy int, err error) {
+// modeID is the preferred mode; if empty, conv.Mode or "coder" is used. An
+// empty model leaves the choice to the worker (see resolveModel).
+func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMode string) (model string, resolvedMode *messagequeue.ModePayload, autonomy int) {
 	model = explicitModel
 	if model == "" {
 		model = s.resolveModel()
-	}
-	if model == "" {
-		return "", nil, 0, fmt.Errorf("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
 	}
 
 	if s.modeSvc != nil {
@@ -107,7 +129,7 @@ func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMod
 			modeID = convMode
 		}
 		if modeID == "" {
-			modeID = "coder"
+			modeID = defaultConversationMode
 		}
 		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
 			autonomy = m.Autonomy
@@ -120,29 +142,16 @@ func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMod
 			}
 		}
 	}
-	return model, resolvedMode, autonomy, nil
+	return model, resolvedMode, autonomy
 }
 
-// buildMCPDefinitions builds the MCP server definition payloads for a project.
-func (s *ConversationService) buildMCPDefinitions(projectID string) []messagequeue.MCPServerDefPayload {
+// buildMCPDefinitions builds the MCP server definition payloads for a
+// project of the conversation's tenant (the tenant in ctx).
+func (s *ConversationService) buildMCPDefinitions(ctx context.Context, projectID string) []messagequeue.MCPServerDefPayload {
 	if s.mcpSvc == nil {
 		return nil
 	}
-	servers := s.mcpSvc.ResolveForRun(projectID, "")
-	defs := make([]messagequeue.MCPServerDefPayload, 0, len(servers))
-	for i := range servers {
-		defs = append(defs, messagequeue.MCPServerDefPayload{
-			ID:        servers[i].ID,
-			Name:      servers[i].Name,
-			Transport: string(servers[i].Transport),
-			Command:   servers[i].Command,
-			Args:      servers[i].Args,
-			URL:       servers[i].URL,
-			Env:       servers[i].Env,
-			Enabled:   servers[i].Enabled,
-		})
-	}
-	return defs
+	return s.mcpSvc.RunServerPayloads(ctx, projectID, "")
 }
 
 // matchMicroagents matches microagent trigger patterns against a user message
@@ -178,6 +187,8 @@ type agenticOpts struct {
 	rolloutCount   int
 	recordMetrics  bool
 	agentName      string // WS broadcast agent name ("agent" default, or modeID)
+	// implementationTurn: the turn implements a feature (KI-153).
+	implementationTurn bool
 }
 
 // WithModel overrides the default model resolution for the agentic run.
@@ -196,6 +207,24 @@ func WithContextEntries(entries []messagequeue.ContextEntryPayload) AgenticOptio
 	}
 }
 
+// multiRolloutRefusal returns why a multi-rollout turn cannot run on the
+// project now, or "". The rollouts reset the workspace between them
+// (KI-195): another run, task or conversation turn working there would lose
+// its changes. It is checked after the turn began, so two turns dispatched
+// at once see each other; a check that fails refuses (fail closed).
+func (s *ConversationService) multiRolloutRefusal(ctx context.Context, projectID, conversationID string) string {
+	busy, err := s.db.ProjectHasOtherActiveWork(ctx, projectID, conversationID)
+	if err != nil {
+		slog.Warn("multi-rollout refused: the project's active work is unknown",
+			"project_id", projectID, "conversation_id", conversationID, "error", err)
+		return "the project's active work could not be checked"
+	}
+	if busy {
+		return "another run, task or conversation turn is active on this project"
+	}
+	return ""
+}
+
 // dispatchAgenticRun is the shared core for SendMessageAgentic and SendMessageAgenticWithMode.
 // It stores the user message, builds the NATS payload, and publishes the conversation run start.
 func (s *ConversationService) dispatchAgenticRun(
@@ -205,6 +234,35 @@ func (s *ConversationService) dispatchAgenticRun(
 	opts *agenticOpts,
 ) error {
 	conversationID := conv.ID
+
+	proj, err := s.db.GetProject(ctx, conv.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+
+	// Agentic runs execute tools, so an execution mode that cannot run them is
+	// rejected before anything is stored or dispatched (KI-13).
+	if _, err := resolveExecMode("", proj); err != nil {
+		return err
+	}
+	// Without a workspace the worker's file tools would work in its own
+	// directory (KI-193); an explicit agentic request is refused, not
+	// downgraded to plain chat.
+	if err := requireWorkspace(proj); err != nil {
+		return err
+	}
+	// The turn's tool processes run as the tenant's tool UID (KI-96).
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantctx.FromContext(ctx))
+	if err != nil {
+		return fmt.Errorf("tool uid: %w", err)
+	}
+
+	turnID, finishRun, err := s.beginRun(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	dispatched := false
+	defer func() { finishRun(dispatched) }()
 
 	// Store user message.
 	userMsg := &conversation.Message{
@@ -220,11 +278,6 @@ func (s *ConversationService) dispatchAgenticRun(
 	history, err := s.db.ListMessages(ctx, conversationID)
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
-	}
-
-	proj, err := s.db.GetProject(ctx, conv.ProjectID)
-	if err != nil {
-		return fmt.Errorf("get project: %w", err)
 	}
 
 	// Ensure a session exists for this conversation.
@@ -244,19 +297,13 @@ func (s *ConversationService) dispatchAgenticRun(
 	protoMessages := s.historyToPayload(history)
 
 	// Resolve model and mode.
-	model, resolvedMode, modeAutonomy, modeErr := s.resolveModelAndMode(opts.model, modeID, conv.Mode)
-	if modeErr != nil {
-		return modeErr
-	}
+	model, resolvedMode, modeAutonomy := s.resolveModelAndMode(opts.model, modeID, conv.Mode)
 
-	// Resolve policy profile.
+	// Resolve policy profile (the same resolution the tool-call evaluation uses).
 	policyProfile := ""
 	if s.policySvc != nil {
-		modePolicy := ""
-		if modeAutonomy > 0 {
-			modePolicy = policyForAutonomy(modeAutonomy)
-		}
-		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
+		base := conversationPolicyProfile(proj, modeAutonomy, s.policySvc.DefaultProfile())
+		policyProfile = effectivePolicyProfile(ctx, s.policySvc, base, proj.ID)
 	}
 
 	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
@@ -276,12 +323,18 @@ func (s *ConversationService) dispatchAgenticRun(
 		contextEntries = append(contextEntries, opts.extraContext...)
 	}
 
-	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
+	reminders := s.evaluateReminders(ctx, conversationID, resolvedMode, modeAutonomy, protoMessages)
 
 	// Resolve rollout count (only for autonomy >= 4, capped at 8).
 	rolloutCount := opts.rolloutCount
 	if rolloutCount <= 0 {
 		rolloutCount = 1
+	}
+	rolloutSkipped := ""
+	if rolloutCount > 1 {
+		if rolloutSkipped = s.multiRolloutRefusal(ctx, proj.ID, conversationID); rolloutSkipped != "" {
+			rolloutCount = 1
+		}
 	}
 
 	runID := conversationID
@@ -297,19 +350,27 @@ func (s *ConversationService) dispatchAgenticRun(
 		WorkspacePath:      proj.WorkspacePath,
 		Mode:               resolvedMode,
 		Termination:        termination,
-		MCPServers:         s.buildMCPDefinitions(proj.ID),
+		MCPServers:         s.buildMCPDefinitions(ctx, proj.ID),
 		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, userMessage, conversationID),
 		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:            contextEntries,
 		Agentic:            true,
 		PlanActEnabled:     modeAutonomy >= 4,
 		ProviderAPIKey:     opts.providerAPIKey,
-		TenantID:           tenantctx.FromContext(ctx),
+		TenantID:           outgoingTenant(ctx, "conversation.run.start"),
 		SessionMeta:        sessionMeta,
 		Reminders:          reminders,
 		RolloutCount:       rolloutCount,
 		SummarizeThreshold: s.summarizeThreshold(),
+		ToolOutputMaxChars: s.toolOutputMaxChars(),
+		TurnID:             turnID,
+		ImplementationTurn: opts.implementationTurn,
+		ToolUID:            toolUID,
 	}
+	// The worker waits for policy responses longer than Go waits for a HITL
+	// approval of one of this run's tool calls (KI-21).
+	payload.ApprovalTimeoutSeconds = approvalTimeoutSeconds(s.runtimeCfg)
+	payload.HeartbeatSeconds = heartbeatSeconds(s.runtimeCfg)
 
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -325,6 +386,13 @@ func (s *ConversationService) dispatchAgenticRun(
 		ThreadID:  conversationID,
 		AgentName: agentName,
 	})
+	if rolloutSkipped != "" {
+		s.hub.BroadcastEvent(ctx, event.AGUITextMessage, event.AGUITextMessageEvent{
+			RunID:   runID,
+			Role:    "assistant",
+			Content: "[Multi-rollout skipped: " + rolloutSkipped + ". Running once.]\n",
+		})
+	}
 
 	// Publish with dedup key when provided, plain publish otherwise.
 	if opts.dedupKey != "" {
@@ -341,6 +409,7 @@ func (s *ConversationService) dispatchAgenticRun(
 			return fmt.Errorf("publish conversation run start: %w", err)
 		}
 	}
+	dispatched = true
 
 	if opts.recordMetrics && s.metrics != nil {
 		s.metrics.RecordRunStarted(ctx, "type", "conversation_agentic", "project.id", proj.ID)
@@ -387,10 +456,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Resolve rollout count (only for autonomy >= 4).
 	rolloutCount := 1
 	if s.agentCfg != nil && s.agentCfg.ConversationRolloutCount > 1 {
-		_, _, modeAutonomy, resolveErr := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
-		if resolveErr != nil {
-			slog.Warn("rollout mode resolution failed, using default autonomy", "error", resolveErr)
-		}
+		_, _, modeAutonomy := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
 		if modeAutonomy >= 4 {
 			rolloutCount = min(s.agentCfg.ConversationRolloutCount, 8)
 		}
@@ -403,6 +469,8 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		rolloutCount:   rolloutCount,
 		recordMetrics:  true,
 		agentName:      "agent",
+
+		implementationTurn: req.ImplementationTurn,
 	})
 }
 

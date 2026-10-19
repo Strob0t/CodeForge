@@ -58,20 +58,35 @@ def aggregate_metric_scores(scores: dict[str, float]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _split_dimensions(eval_score: object) -> tuple[dict[str, float], dict[str, str]]:
+    """The scored dimensions (with their metric averages) and the errored ones.
+
+    A dimension an evaluator could not score carries an error: it is reported
+    in the errors and never as a score, so no average counts it as 0.0.
+    """
+    scores: dict[str, float] = {}
+    errors: dict[str, str] = {}
+    if eval_score:
+        for dim in eval_score.dimensions:
+            if dim.error:
+                errors[dim.name] = dim.error
+            else:
+                scores[dim.name] = dim.score
+    aggregate_metric_scores(scores)
+    return scores, errors
+
+
 def convert_rollout_outcome(task: object, outcome: object, rollout_count: int) -> object:
     """Convert a RolloutOutcome to a BenchmarkTaskResult with rollout fields."""
     from codeforge.models import BenchmarkTaskResult
 
-    scores: dict[str, float] = {}
-    if outcome.eval_score:
-        for dim in outcome.eval_score.dimensions:
-            scores[dim.name] = dim.score
-    aggregate_metric_scores(scores)
+    scores, errors = _split_dimensions(outcome.eval_score)
 
     return BenchmarkTaskResult(
         task_id=task.id,
         task_name=task.name,
         scores=scores,
+        evaluation_errors=errors,
         actual_output=outcome.result.actual_output,
         expected_output=task.expected_output,
         tool_calls=[{"name": tc.name, "args": tc.args} for tc in outcome.result.tool_calls],
@@ -93,22 +108,23 @@ def convert_result(r: object) -> object:
     """Convert internal RunResult to the NATS-serializable BenchmarkTaskResult."""
     from codeforge.models import BenchmarkTaskResult
 
-    scores: dict[str, float] = {}
+    scores, errors = _split_dimensions(r.eval_score)
     evaluator_scores: dict[str, dict[str, float]] = {}
     if r.eval_score:
         for dim in r.eval_score.dimensions:
-            scores[dim.name] = dim.score
+            if dim.error:
+                continue
             parts = dim.name.split(".", 1)
             if len(parts) == 2:
                 evaluator_scores.setdefault(parts[0], {})[parts[1]] = dim.score
             else:
                 evaluator_scores.setdefault("default", {})[dim.name] = dim.score
-    aggregate_metric_scores(scores)
 
     return BenchmarkTaskResult(
         task_id=r.task.id,
         task_name=r.task.name,
         scores=scores,
+        evaluation_errors=errors,
         actual_output=r.execution.actual_output,
         expected_output=r.task.expected_output,
         tool_calls=[{"name": tc.name, "args": tc.args} for tc in r.execution.tool_calls],

@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import os
+from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import MetricExporter, MetricExportResult, MetricsData
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import ReadableSpan, SimpleSpanProcessor, SpanExporter, SpanExportResult
 
 from codeforge.tracing.setup import (
     TRACER_NAME,
+    OTELConfig,
     TracingManager,
     _NoOpTracer,
     _OTELTracer,
@@ -172,3 +176,182 @@ class TestTracingManagerOTEL:
         tm = TracingManager()
         tm.init()
         tm.shutdown()  # Should not raise
+
+
+class _RecordingMetricExporter(MetricExporter):
+    """Stands in for the OTLP metric exporter; records its settings, exports and shutdown."""
+
+    instances: ClassVar[list[_RecordingMetricExporter]] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__()
+        self.kwargs = kwargs
+        self.exported: list[MetricsData] = []
+        self.shut_down = False
+        _RecordingMetricExporter.instances.append(self)
+
+    def export(
+        self, metrics_data: MetricsData, timeout_millis: float = 10_000, **_kwargs: object
+    ) -> MetricExportResult:
+        self.exported.append(metrics_data)
+        return MetricExportResult.SUCCESS
+
+    def force_flush(self, timeout_millis: float = 10_000) -> bool:
+        return True
+
+    def shutdown(self, timeout_millis: float = 30_000, **_kwargs: object) -> None:
+        self.shut_down = True
+
+
+class _RecordingLogger:
+    """Records (level, event, fields) of the calls made to the module logger."""
+
+    def __init__(self) -> None:
+        self.entries: list[tuple[str, str, dict[str, object]]] = []
+
+    def info(self, event: str, **fields: object) -> None:
+        self.entries.append(("info", event, fields))
+
+    def error(self, event: str, **fields: object) -> None:
+        self.entries.append(("error", event, fields))
+
+
+class TestTracingManagerMetrics:
+    """KI-36: with OTEL enabled the worker exports its metrics (codeforge.tracing.metrics) via OTLP."""
+
+    @pytest.fixture
+    def installed(self, monkeypatch: pytest.MonkeyPatch) -> list[object]:
+        """Replace the OTLP metric exporter and the global setters; return the meter providers init() installs."""
+        providers: list[object] = []
+        _RecordingMetricExporter.instances = []
+        monkeypatch.setattr(
+            "opentelemetry.exporter.otlp.proto.grpc.metric_exporter.OTLPMetricExporter", _RecordingMetricExporter
+        )
+        monkeypatch.setattr("opentelemetry.metrics.set_meter_provider", providers.append)
+        monkeypatch.setattr("opentelemetry.trace.set_tracer_provider", lambda _provider: None)
+        return providers
+
+    def test_enabled_installs_an_otlp_meter_provider(
+        self, monkeypatch: pytest.MonkeyPatch, installed: list[object]
+    ) -> None:
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "true")
+        monkeypatch.setenv("CODEFORGE_OTEL_ENDPOINT", "collector:4317")
+        monkeypatch.setenv("CODEFORGE_OTEL_INSECURE", "true")
+        tm = TracingManager()
+        tm.init()
+        try:
+            assert len(installed) == 1
+            provider = installed[0]
+            assert isinstance(provider, MeterProvider)
+            [exporter] = _RecordingMetricExporter.instances
+            assert exporter.kwargs == {"endpoint": "collector:4317", "insecure": True}
+
+            provider.get_meter("test").create_counter("codeforge.test.counter").add(3)
+            provider.force_flush()
+            assert exporter.exported, "a recorded measurement must reach the exporter"
+        finally:
+            tm.shutdown()
+        assert exporter.shut_down, "shutdown() must flush and stop the metric exporter"
+
+    def test_span_exporter_failure_is_reported_not_printed(
+        self, monkeypatch: pytest.MonkeyPatch, installed: list[object], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """init() runs before logging is set up: no console exporter, log_status() reports the error."""
+
+        def broken_exporter(**_kwargs: object) -> None:
+            raise ValueError("invalid endpoint")
+
+        monkeypatch.setattr("opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter", broken_exporter)
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "true")
+        logs = _RecordingLogger()
+        monkeypatch.setattr("codeforge.tracing.setup.logger", logs)
+        tm = TracingManager()
+        tm.init()
+        try:
+            assert tm.enabled
+            assert logs.entries == [], "init() runs before logging is set up and must not log"
+            assert capsys.readouterr().out == "", "init() must not print"
+            tm.log_status()
+        finally:
+            tm.shutdown()
+        errors = [fields for level, _event, fields in logs.entries if level == "error"]
+        assert errors == [{"error": "invalid endpoint"}]
+
+    def test_metric_exporter_failure_is_reported_not_raised(
+        self, monkeypatch: pytest.MonkeyPatch, installed: list[object]
+    ) -> None:
+        """init() runs at import time (get_tracer); a metric exporter error must not break the worker's imports."""
+
+        def broken_exporter(**_kwargs: object) -> None:
+            raise ValueError("invalid metrics endpoint")
+
+        monkeypatch.setattr(
+            "opentelemetry.exporter.otlp.proto.grpc.metric_exporter.OTLPMetricExporter", broken_exporter
+        )
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "true")
+        logs = _RecordingLogger()
+        monkeypatch.setattr("codeforge.tracing.setup.logger", logs)
+        tm = TracingManager()
+        tm.init()  # does not raise
+        try:
+            assert tm.enabled, "tracing still works"
+            assert installed == [], "no meter provider without an exporter"
+            assert logs.entries == []
+            tm.log_status()
+        finally:
+            tm.shutdown()
+        errors = [fields for level, _event, fields in logs.entries if level == "error"]
+        assert errors == [{"error": "invalid metrics endpoint"}]
+
+    def test_shutdown_is_idempotent(self, monkeypatch: pytest.MonkeyPatch, installed: list[object]) -> None:
+        """stop() may run twice (a second signal); the providers are shut down once."""
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "true")
+        tm = TracingManager()
+        tm.init()
+        [exporter] = _RecordingMetricExporter.instances
+        calls: list[str] = []
+        original = exporter.shutdown
+
+        def counting_shutdown(timeout_millis: float = 30_000, **kwargs: object) -> None:
+            calls.append("shutdown")
+            original(timeout_millis, **kwargs)
+
+        monkeypatch.setattr(exporter, "shutdown", counting_shutdown)
+        tm.shutdown()
+        tm.shutdown()
+        assert calls == ["shutdown"]
+
+    def test_log_status_when_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "false")
+        logs = _RecordingLogger()
+        monkeypatch.setattr("codeforge.tracing.setup.logger", logs)
+        tm = TracingManager()
+        tm.init()
+        assert logs.entries == []
+        tm.log_status()
+        assert [(level, event) for level, event, _fields in logs.entries] == [
+            ("info", "otel tracing and metrics disabled")
+        ]
+
+    def test_disabled_installs_no_meter_provider(
+        self, monkeypatch: pytest.MonkeyPatch, installed: list[object]
+    ) -> None:
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "false")
+        tm = TracingManager()
+        tm.init()
+        tm.shutdown()
+        assert installed == []
+        assert _RecordingMetricExporter.instances == []
+
+
+class TestOTELConfigDefaults:
+    def test_insecure_defaults_to_tls_like_the_go_core(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Go and the worker read the same otel.insecure / CODEFORGE_OTEL_INSECURE: same default (false)."""
+        monkeypatch.delenv("CODEFORGE_OTEL_INSECURE", raising=False)
+        assert OTELConfig().insecure is False
+        assert OTELConfig.from_env().insecure is False
+
+    @pytest.mark.parametrize(("value", "expected"), [("true", True), ("1", True), ("false", False), ("0", False)])
+    def test_insecure_from_env(self, monkeypatch: pytest.MonkeyPatch, value: str, expected: bool) -> None:
+        monkeypatch.setenv("CODEFORGE_OTEL_INSECURE", value)
+        assert OTELConfig.from_env().insecure is expected

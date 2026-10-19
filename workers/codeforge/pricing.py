@@ -4,7 +4,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import structlog
 import yaml
+
+from codeforge.provider_keys import KEYLESS_PROVIDERS, model_provider
+
+logger = structlog.get_logger(__name__)
+
+# The worker is installed editable (Dockerfile.worker: /app/workers), so this
+# is /app/configs/model_pricing.yaml in the image, which copies it there.
+DEFAULT_PRICING_PATH = Path(__file__).resolve().parents[2] / "configs" / "model_pricing.yaml"
+
+# Models a call with tokens was costed $0 for, warned about once each (KI-196).
+_warned_unpriced: set[str] = set()
 
 
 class PricingTable:
@@ -12,7 +24,7 @@ class PricingTable:
 
     def __init__(self, pricing_path: Path | None = None) -> None:
         if pricing_path is None:
-            pricing_path = Path(__file__).resolve().parents[2] / "configs" / "model_pricing.yaml"
+            pricing_path = DEFAULT_PRICING_PATH
         self._models: dict[str, dict[str, float]] = {}
         if pricing_path.exists():
             with open(pricing_path) as f:
@@ -46,7 +58,25 @@ def resolve_cost(
     tokens_in: int,
     tokens_out: int,
 ) -> float:
-    """Return LiteLLM cost if positive, else fall back to the pricing table."""
+    """Return LiteLLM cost if positive, else fall back to the pricing table.
+
+    A cloud model that still costs $0 for a call with tokens is logged once:
+    its budget (max_cost) cannot stop a run.
+    """
     if litellm_cost > 0:
         return litellm_cost
-    return _get_default_table().calculate(model, tokens_in, tokens_out)
+    cost = _get_default_table().calculate(model, tokens_in, tokens_out)
+    if cost <= 0 and (tokens_in or tokens_out) and model_provider(model) not in KEYLESS_PROVIDERS:
+        _warn_unpriced(model)
+    return cost
+
+
+def _warn_unpriced(model: str) -> None:
+    if model in _warned_unpriced:
+        return
+    _warned_unpriced.add(model)
+    logger.warning(
+        "no price for a model that is not local: its calls cost $0 and budgets cannot stop its runs",
+        model=model,
+        pricing_table=str(DEFAULT_PRICING_PATH),
+    )

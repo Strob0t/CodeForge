@@ -8,7 +8,9 @@
 #   0 2 * * * /path/to/backup-postgres.sh --cleanup  # Daily at 2 AM
 #
 # For off-host backup, set BACKUP_DEST to an S3/GCS/NFS path.
-# For encryption, set BACKUP_ENCRYPTION_KEY_FILE.
+# For encryption, set BACKUP_ENCRYPTION_KEY_FILE (a passphrase file; the
+# backups are then codeforge_*.sql.gz.gpg, which restore-postgres.sh decrypts
+# with the same file).
 #
 # Environment:
 #   PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE (standard libpq vars)
@@ -49,6 +51,8 @@ echo "Backup complete: $BACKUP_DIR/$FILENAME ($SIZE)"
 
 # Retention cleanup
 if [[ "${1:-}" == "--cleanup" ]]; then
-  DELETED=$(find "$BACKUP_DIR" -name "codeforge_*.sql.gz" -mtime +"$RETAIN_DAYS" -print -delete | wc -l)
+  # Encrypted backups (.gpg) age out like plain ones.
+  DELETED=$(find "$BACKUP_DIR" -type f \( -name 'codeforge_*.sql.gz' -o -name 'codeforge_*.sql.gz.gpg' \) \
+    -mtime +"$RETAIN_DAYS" -print -delete | wc -l)
   echo "Retention: removed $DELETED backups older than $RETAIN_DAYS days"
 fi

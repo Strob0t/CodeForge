@@ -17,6 +17,8 @@ The sub-interfaces themselves (ProjectStore, RunStore, AuditStore, etc.) are alr
 3. **Existing services will be migrated incrementally** — each service's constructor signature is updated to accept only its required sub-interfaces when that service is next modified for other reasons. No big-bang refactor.
 4. **Consumer-defined interfaces** (defined in the service file, not in the port package) are the preferred pattern for cross-cutting needs that span 2-3 sub-interfaces.
 
+> **Implementation status (2026-09-29):** The migration has barely started: `NewGDPRService` (`internal/service/gdpr.go`) still accepts the composite `database.Store`; only `NewConsentService` (`internal/service/consent.go`, `database.ConsentStore`) takes a segregated store, and 40+ service constructors still take `database.Store`.
+
 ### Consequences
 
 #### Positive

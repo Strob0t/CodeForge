@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -38,13 +40,13 @@ func NewRoutingService(store database.Store) *RoutingService {
 // RecordOutcome persists a routing outcome from a completed LLM call.
 func (s *RoutingService) RecordOutcome(ctx context.Context, o *routing.RoutingOutcome) error {
 	if o.ModelName == "" {
-		return fmt.Errorf("model_name is required")
+		return fmt.Errorf("%w: model_name is required", domain.ErrValidation)
 	}
 	if !o.TaskType.IsValid() {
-		return fmt.Errorf("invalid task_type: %q", o.TaskType)
+		return fmt.Errorf("%w: invalid task_type: %q", domain.ErrValidation, o.TaskType)
 	}
 	if !o.ComplexityTier.IsValid() {
-		return fmt.Errorf("invalid complexity_tier: %q", o.ComplexityTier)
+		return fmt.Errorf("%w: invalid complexity_tier: %q", domain.ErrValidation, o.ComplexityTier)
 	}
 	return s.store.CreateRoutingOutcome(ctx, o)
 }
@@ -194,13 +196,16 @@ func (s *RoutingService) SeedFromBenchmarkRun(ctx context.Context, runID string)
 // metadata from discovered models (tools, vision, context, cost).
 func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm.DiscoveredModel) error {
 	for i := range models {
-		if models[i].Status != "reachable" {
+		// A wildcard route ("groq/*", a provider without a key) names no
+		// model the router could pick (KI-125).
+		if models[i].Status != "reachable" || strings.Contains(models[i].ModelName, "*") {
 			continue
 		}
 
+		model := &models[i]
 		supportsTools := false
 		supportsVision := false
-		if info := models[i].ModelInfo; info != nil {
+		if info := model.ModelInfo; info != nil {
 			if v, ok := info["supports_function_calling"]; ok {
 				supportsTools, _ = v.(bool)
 			}
@@ -225,35 +230,41 @@ func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm
 				// Check if this model already has stats for this combo.
 				found := false
 				for j := range existing {
-					if existing[j].ModelName != models[i].ModelName {
+					if existing[j].ModelName != model.ModelName {
 						continue
 					}
 					found = true
+					// Unchanged rows are not written: the registry syncs
+					// every refresh interval, and each write is WAL the
+					// archive keeps (KI-210).
+					if sameCapabilities(&existing[j], model, supportsTools, supportsVision) {
+						break
+					}
 					// Update capability fields only.
 					existing[j].SupportsTools = supportsTools
 					existing[j].SupportsVision = supportsVision
-					existing[j].MaxContext = models[i].MaxTokens
-					existing[j].InputCostPer = models[i].InputCostPer
-					existing[j].OutputCostPer = models[i].OutputCostPer
+					existing[j].MaxContext = model.MaxTokens
+					existing[j].InputCostPer = model.InputCostPer
+					existing[j].OutputCostPer = model.OutputCostPer
 					if err := s.store.UpsertRoutingStats(ctx, &existing[j]); err != nil {
-						slog.Warn("sync model capabilities upsert failed", "model", models[i].ModelName, "error", err)
+						slog.Warn("sync model capabilities upsert failed", "model", model.ModelName, "error", err)
 					}
 					break
 				}
 
 				if !found {
 					st := &routing.ModelPerformanceStats{
-						ModelName:      models[i].ModelName,
+						ModelName:      model.ModelName,
 						TaskType:       taskType,
 						ComplexityTier: tier,
 						SupportsTools:  supportsTools,
 						SupportsVision: supportsVision,
-						MaxContext:     models[i].MaxTokens,
-						InputCostPer:   models[i].InputCostPer,
-						OutputCostPer:  models[i].OutputCostPer,
+						MaxContext:     model.MaxTokens,
+						InputCostPer:   model.InputCostPer,
+						OutputCostPer:  model.OutputCostPer,
 					}
 					if err := s.store.UpsertRoutingStats(ctx, st); err != nil {
-						slog.Warn("sync model capabilities insert failed", "model", models[i].ModelName, "error", err)
+						slog.Warn("sync model capabilities insert failed", "model", model.ModelName, "error", err)
 					}
 				}
 			}
@@ -262,6 +273,15 @@ func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm
 
 	s.invalidateCache()
 	return nil
+}
+
+// sameCapabilities reports whether st already holds the capabilities of m.
+func sameCapabilities(st *routing.ModelPerformanceStats, m *llm.DiscoveredModel, supportsTools, supportsVision bool) bool {
+	return st.SupportsTools == supportsTools &&
+		st.SupportsVision == supportsVision &&
+		st.MaxContext == m.MaxTokens &&
+		st.InputCostPer == m.InputCostPer &&
+		st.OutputCostPer == m.OutputCostPer
 }
 
 func (s *RoutingService) invalidateCache() {

@@ -6,7 +6,23 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 )
+
+// requestProject loads the project of the {id} URL parameter in the
+// request's tenant and writes 404 when the tenant has none. The index and
+// graph status and the searches of a project are keyed by its ID only (in
+// memory and on the worker), so the handlers below that do not load the
+// project otherwise check it first.
+func (h *Handlers) requestProject(w http.ResponseWriter, r *http.Request) (*project.Project, bool) {
+	proj, err := h.Projects.Get(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return nil, false
+	}
+	return proj, true
+}
 
 // --- RepoMap Endpoints ---
 
@@ -65,8 +81,11 @@ func (h *Handlers) IndexProject(w http.ResponseWriter, r *http.Request) {
 
 // GetIndexStatus handles GET /api/v1/projects/{id}/index
 func (h *Handlers) GetIndexStatus(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-	info := h.Retrieval.GetIndexStatus(projectID)
+	proj, ok := h.requestProject(w, r)
+	if !ok {
+		return
+	}
+	info := h.Retrieval.GetIndexStatus(proj.ID)
 	if info == nil {
 		writeError(w, http.StatusNotFound, "no index found for project")
 		return
@@ -76,8 +95,6 @@ func (h *Handlers) GetIndexStatus(w http.ResponseWriter, r *http.Request) {
 
 // SearchProject handles POST /api/v1/projects/{id}/search
 func (h *Handlers) SearchProject(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-
 	req, ok := readJSON[struct {
 		Query          string  `json:"query"`
 		TopK           int     `json:"top_k"`
@@ -95,6 +112,11 @@ func (h *Handlers) SearchProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "query exceeds maximum length of 2000 characters")
 		return
 	}
+	proj, ok := h.requestProject(w, r)
+	if !ok {
+		return
+	}
+	projectID := proj.ID
 
 	// Clamp top_k to safe bounds.
 	topK := req.TopK
@@ -117,8 +139,6 @@ func (h *Handlers) SearchProject(w http.ResponseWriter, r *http.Request) {
 
 // AgentSearchProject handles POST /api/v1/projects/{id}/search/agent
 func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-
 	req, ok := readJSON[struct {
 		Query      string `json:"query"`
 		TopK       int    `json:"top_k"`
@@ -137,6 +157,11 @@ func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "query exceeds maximum length of 2000 characters")
 		return
 	}
+	proj, ok := h.requestProject(w, r)
+	if !ok {
+		return
+	}
+	projectID := proj.ID
 
 	// Apply defaults from config, clamp to safe bounds.
 	defaultModel, defaultMaxQueries, defaultRerank := h.Retrieval.SubAgentDefaults()
@@ -161,11 +186,8 @@ func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
 		rerank = *req.Rerank
 	}
 
-	// Look up project-specific expansion prompt from config.
-	var expansionPrompt string
-	if proj, projErr := h.Projects.Get(r.Context(), projectID); projErr == nil && proj.Config != nil {
-		expansionPrompt = proj.Config["expansion_prompt"]
-	}
+	// The project-specific expansion prompt from its config.
+	expansionPrompt := proj.Config["expansion_prompt"]
 
 	result, err := h.Retrieval.SubAgentSearchSync(r.Context(), projectID, req.Query, topK, maxQueries, model, rerank, expansionPrompt)
 	if err != nil {
@@ -180,14 +202,12 @@ func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
 
 // BuildGraph handles POST /api/v1/projects/{id}/graph/build
 func (h *Handlers) BuildGraph(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-	proj, err := h.Projects.Get(r.Context(), projectID)
-	if err != nil {
-		writeDomainError(w, err, "project not found")
+	proj, ok := h.requestProject(w, r)
+	if !ok {
 		return
 	}
 
-	if err := h.Graph.RequestBuild(r.Context(), projectID, proj.WorkspacePath); err != nil {
+	if err := h.Graph.RequestBuild(r.Context(), proj.ID, proj.WorkspacePath); err != nil {
 		writeInternalError(w, err)
 		return
 	}
@@ -196,8 +216,11 @@ func (h *Handlers) BuildGraph(w http.ResponseWriter, r *http.Request) {
 
 // GetGraphStatus handles GET /api/v1/projects/{id}/graph/status
 func (h *Handlers) GetGraphStatus(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-	info := h.Graph.GetStatus(projectID)
+	proj, ok := h.requestProject(w, r)
+	if !ok {
+		return
+	}
+	info := h.Graph.GetStatus(proj.ID)
 	if info == nil {
 		writeError(w, http.StatusNotFound, "no graph found for project")
 		return
@@ -207,8 +230,6 @@ func (h *Handlers) GetGraphStatus(w http.ResponseWriter, r *http.Request) {
 
 // SearchGraph handles POST /api/v1/projects/{id}/graph/search
 func (h *Handlers) SearchGraph(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-
 	req, ok := readJSON[struct {
 		SeedSymbols []string `json:"seed_symbols"`
 		MaxHops     int      `json:"max_hops"`
@@ -221,6 +242,11 @@ func (h *Handlers) SearchGraph(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "seed_symbols is required")
 		return
 	}
+	proj, ok := h.requestProject(w, r)
+	if !ok {
+		return
+	}
+	projectID := proj.ID
 
 	maxHops := req.MaxHops
 	if maxHops <= 0 {

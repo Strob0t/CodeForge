@@ -10,6 +10,11 @@ import type {
 // Export types
 // ---------------------------------------------------------------------------
 
+/** Image data as exported: the large dataUrl is stripped, only the file name remains. */
+export interface ExportedImageData {
+  originalName: string;
+}
+
 export interface ExportedElement {
   id: string;
   type: CanvasElement["type"];
@@ -20,7 +25,7 @@ export interface ExportedElement {
   rotation: number;
   zIndex: number;
   style: ElementStyle;
-  data: ElementData;
+  data: ElementData | ExportedImageData;
 }
 
 export interface ExportedAnnotation {
@@ -95,6 +100,6 @@ export function exportJson(
 }
 
 /** Strip the large dataUrl from image data, keep only the file name for export. */
-function stripImageDataUrl(data: ImageData): ImageData {
-  return { dataUrl: "", originalName: data.originalName };
+function stripImageDataUrl(data: ImageData): ExportedImageData {
+  return { originalName: data.originalName };
 }

@@ -237,7 +237,7 @@ func (s *Store) ProjectHealth(ctx context.Context, projectID string) (*dashboard
 		CostStability:     costStab,
 	}
 	ph.Score = ph.Factors.Score()
-	ph.Level = dashboard.HealthLevel(ph.Score)
+	ph.Level = dashboard.ProjectHealthLevel(ph.Score, total7d)
 
 	ph.Stats = dashboard.ProjectHealthStats{
 		SuccessRatePct: successRate,

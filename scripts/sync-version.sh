@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# sync-version.sh - Propagate VERSION file to all package manifests.
+# sync-version.sh - Propagate VERSION file to all package manifests and the
+# image tags docker-compose.prod.yml pins.
 # Usage: ./scripts/sync-version.sh
 set -euo pipefail
 
@@ -33,5 +34,11 @@ echo "  updated frontend/package.json"
 sed -i '3s/"version": "[^"]*"/"version": "'"$VERSION"'"/' "$ROOT_DIR/frontend/package-lock.json"
 sed -i '9s/"version": "[^"]*"/"version": "'"$VERSION"'"/' "$ROOT_DIR/frontend/package-lock.json"
 echo "  updated frontend/package-lock.json"
+
+# docker-compose.prod.yml: the default image tags (KI-116), e.g.
+# ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:<VERSION>}
+sed -i -E 's#(\$\{(CORE|WORKER|FRONTEND)_IMAGE:-ghcr\.io/strob0t/codeforge-(core|worker|frontend)):[^}]*\}#\1:'"$VERSION"'}#' \
+  "$ROOT_DIR/docker-compose.prod.yml"
+echo "  updated docker-compose.prod.yml"
 
 echo "Done. All manifests now at v$VERSION."

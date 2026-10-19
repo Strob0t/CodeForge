@@ -1,16 +1,52 @@
 # Production Docker Compose for CodeForge
-# Usage: docker compose -f docker-compose.prod.yml up -d
+# Usage:
+#   ./scripts/generate-secrets.sh ./secrets   # once; creates the files listed under "secrets:"
+#   ./scripts/validate-env.sh                  # pre-flight check of the secrets
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Images: the core, worker and frontend images default to the released
+# version in VERSION (scripts/sync-version.sh writes it; a v* tag on main
+# publishes it, KI-116). CORE_IMAGE, WORKER_IMAGE and FRONTEND_IMAGE choose
+# others, e.g. the branch builds ghcr.io/strob0t/codeforge-core:main; with
+# `docker compose -f docker-compose.prod.yml build` the images are built from
+# this checkout under the same names.
 #
 # Secret Management:
-#   1. Generate secrets: ./scripts/generate-secrets.sh ./secrets
-#   2. Or set env vars: POSTGRES_PASSWORD, LITELLM_MASTER_KEY, NATS_USER, NATS_PASS
-#   Services read from /run/secrets/ first, then fall back to env vars.
+#   Secrets are Docker secret files from ${SECRETS_DIR:-./secrets}, mounted at
+#   /run/secrets/<name>. Services get the file paths (*_FILE), never the values,
+#   so no secret appears in the compose environment or in `docker inspect`.
+#   The Go core and the worker read *_FILE natively; postgres uses the image's
+#   POSTGRES_PASSWORD_FILE; nats reads the users' passwords from a file its
+#   config includes; litellm exports its secrets from the files in a small
+#   entrypoint wrapper.
+#   Compose bind-mounts the files with their host owner and mode (uid/gid/mode
+#   are Swarm-only and ignored here), so they must be readable by the non-root
+#   container users: generate-secrets.sh writes them 0644 inside a 0700
+#   directory. The worker's agent tool processes run as other users (each
+#   tenant's tool UID, KI-96), so the worker mounts /run/secrets as a tmpfs
+#   only the worker user may enter (KI-71).
+#
+# Upgrading to per-tenant tool users (KI-96, ADR-018): back up the workspaces
+# volume with its ACLs (tar --acls --xattrs), run ./scripts/check-host.sh with
+# the new worker image, stop every worker (`docker compose stop worker`), then
+# start the core and the new worker(s). No worker of an older image may run
+# next to them.
+#
+# NATS: every client authenticates (configs/nats/nats-server.conf); the core
+# connects as "core", the worker as "worker", each limited to what it
+# publishes (KI-71).
 
 x-logging: &default-logging
   driver: json-file
   options:
     max-size: "50m"
     max-file: "10"
+
+# The providers whose API key LiteLLM gets, as names only (KI-125): the core
+# lists their models and picks its default model from them, the worker's
+# routing uses them; neither sees a key. ${VAR:+name,} is the name when VAR
+# is set and not empty.
+x-keyed-providers: &keyed-providers "${OPENAI_API_KEY:+openai,}${ANTHROPIC_API_KEY:+anthropic,}${GEMINI_API_KEY:+gemini,}${GROQ_API_KEY:+groq,}${MISTRAL_API_KEY:+mistral,}${OPENROUTER_API_KEY:+openrouter,}${CEREBRAS_API_KEY:+cerebras,}${CHUTES_API_KEY:+chutes,}${AIHUBMIX_API_KEY:+aihubmix,}"
 
 services:
   # --- Infrastructure ---
@@ -28,13 +64,35 @@ services:
       - SETUID
     security_opt:
       - no-new-privileges:true
+    secrets:
+      - postgres-password
+      - postgres-tls-cert
+      - postgres-tls-key
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-codeforge}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
       POSTGRES_DB: ${POSTGRES_DB:-codeforge}
+    # PostgreSQL 18+ images keep PGDATA in /var/lib/postgresql/18/docker and
+    # refuse to start with a mount at /var/lib/postgresql/data: mount the parent.
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
       - postgres_archive:/archive
+    tmpfs:
+      - /run/postgresql-tls:size=1m
+    # Runs as root before the image entrypoint drops to the postgres user:
+    # PostgreSQL only accepts a private key owned by its user with mode 0600,
+    # and the archive volume is created root-owned.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        chown postgres:postgres /run/postgresql-tls /archive
+        chmod 0700 /run/postgresql-tls /archive
+        install -m 0644 -o postgres -g postgres /run/secrets/postgres-tls-cert /run/postgresql-tls/server.crt
+        install -m 0600 -o postgres -g postgres /run/secrets/postgres-tls-key /run/postgresql-tls/server.key
+        exec docker-entrypoint.sh "$$@"
+      - postgres-entrypoint
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codeforge}"]
       interval: 10s
@@ -55,13 +113,19 @@ services:
       - "-c"
       - "ssl=on"
       - "-c"
-      - "ssl_cert_file=/var/lib/postgresql/data/server.crt"
+      - "ssl_cert_file=/run/postgresql-tls/server.crt"
       - "-c"
-      - "ssl_key_file=/var/lib/postgresql/data/server.key"
+      - "ssl_key_file=/run/postgresql-tls/server.key"
       - "-c"
       - "wal_level=replica"
+      # WAL archiving for point-in-time recovery is off unless
+      # POSTGRES_ARCHIVE_MODE=on (KI-210): with archive_timeout every
+      # 5 minutes with writes closes a 16 MiB segment, and archived WAL is
+      # only useful together with base backups (pg_basebackup) and pruning
+      # (scripts/cleanup-wal-archives.sh), which the operator must run. Off,
+      # the archive volume stays empty.
       - "-c"
-      - "archive_mode=on"
+      - "archive_mode=${POSTGRES_ARCHIVE_MODE:-off}"
       - "-c"
       - "archive_command=test ! -f /archive/%f && cp %p /archive/%f"
       - "-c"
@@ -76,20 +140,29 @@ services:
     logging: *default-logging
 
   nats:
-    image: nats:2-alpine
+    # The minor version configs/nats/nats-server.conf is tested with
+    # (workers/tests/test_nats_permissions.py, CI): the worker's rights rely
+    # on how the server checks consumer names in JetStream API subjects.
+    image: nats:2.15-alpine
     restart: unless-stopped
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Users "core" and "worker" with their permissions; the config includes
+    # the passwords from the secret mounted next to it.
+    configs:
+      - source: nats-server-conf
+        target: /etc/nats/codeforge/nats-server.conf
+    secrets:
+      - source: nats-passwords
+        target: /etc/nats/codeforge/passwords.conf
     command:
+      - "--config"
+      - "/etc/nats/codeforge/nats-server.conf"
       - "--jetstream"
       - "--store_dir"
       - "/data"
-      - "--user"
-      - "${NATS_USER:?NATS_USER is required}"
-      - "--pass"
-      - "${NATS_PASS:?NATS_PASS is required}"
     volumes:
       - nats_data:/data
     healthcheck:
@@ -108,7 +181,7 @@ services:
     logging: *default-logging
 
   litellm:
-    image: ghcr.io/berriai/litellm:v1.63.2
+    image: ghcr.io/berriai/litellm:v1.103.1
     restart: unless-stopped
     cap_drop:
       - ALL
@@ -116,10 +189,8 @@ services:
       - no-new-privileges:true
     secrets:
       - litellm-master-key
-      - postgres-password
+      - database-url
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -131,8 +202,26 @@ services:
       CHUTES_API_KEY: ${CHUTES_API_KEY:-}
       AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
       LM_STUDIO_API_BASE: ${LM_STUDIO_API_BASE:-http://host.docker.internal:1234/v1}
+      # ollama/* goes to Ollama's OpenAI-compatible /v1 endpoint (KI-125);
+      # OLLAMA_API_BASE lets LiteLLM read a model's capabilities from Ollama.
+      OLLAMA_OPENAI_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}/v1
+      OLLAMA_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     volumes:
       - ./litellm:/app/data:ro
+    # The local model servers default to the host; Linux needs the explicit mapping.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # LiteLLM reads its master key and database URL only from the environment.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        LITELLM_MASTER_KEY="$$(cat /run/secrets/litellm-master-key)"
+        DATABASE_URL="$$(cat /run/secrets/database-url)"
+        export LITELLM_MASTER_KEY DATABASE_URL
+        exec docker/prod_entrypoint.sh "$$@"
+      - litellm-entrypoint
     command: ["--config", "/app/data/config.yaml", "--port", "4000"]
     depends_on:
       postgres:
@@ -143,8 +232,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    # "internal" has no route out; LiteLLM needs "egress" to reach the LLM
+    # providers (and local model servers via host.docker.internal).
     networks:
       - internal
+      - egress
     deploy:
       resources:
         limits:
@@ -155,7 +247,7 @@ services:
   # --- Application ---
 
   core:
-    image: ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:latest}
+    image: ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:0.9.0}
     build:
       context: .
       dockerfile: Dockerfile
@@ -166,18 +258,54 @@ services:
     security_opt:
       - "no-new-privileges:true"
     secrets:
+      - database-url
+      - source: nats-core-url
+        target: nats-url
       - litellm-master-key
-      - postgres-password
-      - nats-user
-      - nats-pass
+      - codeforge-auth-jwt-secret
+      - codeforge-auth-llm-key-encryption-secret
+      - codeforge-internal-key
     environment:
+      APP_ENV: production
       CODEFORGE_PORT: "8080"
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
-      NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
+      DATABASE_URL_FILE: /run/secrets/database-url
+      NATS_URL_FILE: /run/secrets/nats-url
       LITELLM_BASE_URL: "http://litellm:4000"
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      LITELLM_MASTER_KEY_FILE: /run/secrets/litellm-master-key
+      CODEFORGE_LITELLM_KEYED_PROVIDERS: *keyed-providers
+      CODEFORGE_AUTH_JWT_SECRET_FILE: /run/secrets/codeforge-auth-jwt-secret
+      CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET_FILE: /run/secrets/codeforge-auth-llm-key-encryption-secret
+      CODEFORGE_INTERNAL_KEY_FILE: /run/secrets/codeforge-internal-key
+      CODEFORGE_WORKSPACE_ROOT: /data/workspaces
+      CODEFORGE_KNOWLEDGE_CONTENT_ROOT: /data/knowledge
+      CODEFORGE_AUTH_INITIAL_PASSWORD_FILE: /data/initial_admin_password
+      # One-time token for the first-admin setup page (KI-119).
+      CODEFORGE_AUTH_SETUP_TOKEN_FILE: /data/setup_token
+      # Per-tenant tool identities (KI-96): tenant directories get POSIX ACLs
+      # for their tenant's tool UID and tool work carries it (the worker
+      # refuses tool work without it). Deleted projects' workspaces are removed
+      # by the worker as that UID.
+      CODEFORGE_WORKSPACE_TOOL_ACLS: required
+      # Clients reach the core through nginx (Traefik in blue-green): their
+      # forwarding headers count only from the proxy containers' addresses on
+      # the public network (rate limits and audit see the real client, KI-211).
+      CODEFORGE_TRUSTED_PROXIES: ${CODEFORGE_TRUSTED_PROXIES:-${CODEFORGE_PUBLIC_IP_RANGE:-10.250.240.128/25}}
+    # The root filesystem stays read-only: /data (initial admin password, setup
+    # token, the OAuth .env next to the workspace root) and the workspaces
+    # shared with the worker are volumes, /tmp is a tmpfs. Knowledge-base
+    # content (KI-105) is read only below /data/knowledge/<tenant_id>/, a
+    # read-only volume the operator fills.
+    volumes:
+      - core_data:/data
+      - workspaces:/data/workspaces
+      - knowledge:/data/knowledge:ro
+    tmpfs:
+      - /tmp
+    # Clients use the frontend's port (nginx proxies /api, /ws and /health);
+    # the API port itself is plain HTTP and only for checks on this host
+    # (KI-213).
     ports:
-      - "${CORE_PORT:-8080}:8080"
+      - "127.0.0.1:${CORE_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -185,6 +313,10 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+    # On SIGTERM the core stops HTTP (up to 30 s for open requests), then
+    # drains NATS (up to 30 s for pending publishes); Docker's default of
+    # 10 s killed it in the first phase (KI-214).
+    stop_grace_period: 75s
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 10s
@@ -202,37 +334,83 @@ services:
     logging: *default-logging
 
   worker:
-    image: ${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:latest}
+    image: ${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:0.9.0}
     build:
       context: .
       dockerfile: Dockerfile.worker
     restart: unless-stopped
     read_only: true
+    # Tool isolation (KI-71, KI-96): the container starts as root with only
+    # these three capabilities; the image entrypoint runs the worker as uid
+    # 10001 and keeps them to start agent tool processes as their tenant's
+    # tool user (20000-29999: no group, no capabilities, no_new_privs,
+    # Landlock) and to stop them. Per-tenant isolation adds no capability.
+    user: "0:0"
     cap_drop:
       - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - KILL
     security_opt:
       - "no-new-privileges:true"
     secrets:
+      - database-url
+      - source: nats-worker-url
+        target: nats-url
       - litellm-master-key
-      - postgres-password
-      - nats-user
-      - nats-pass
+      - codeforge-internal-key
+    # Secrets as file paths only: no secret is in the worker's environment.
     environment:
-      NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
+      APP_ENV: production
       LITELLM_BASE_URL: "http://litellm:4000"
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
+      CODEFORGE_CORE_URL: "http://core:8080"
+      DATABASE_URL_FILE: /run/secrets/database-url
+      NATS_URL_FILE: /run/secrets/nats-url
+      LITELLM_MASTER_KEY_FILE: /run/secrets/litellm-master-key
+      CODEFORGE_INTERNAL_KEY_FILE: /run/secrets/codeforge-internal-key
+      CODEFORGE_LITELLM_KEYED_PROVIDERS: *keyed-providers
+      # Landlock per tool call follows it (CODEFORGE_TOOL_LANDLOCK; "off" is
+      # refused with APP_ENV=production); the host needs Landlock ABI 2 or
+      # later and POSIX ACLs on both volumes (scripts/check-host.sh).
+      CODEFORGE_TOOL_ISOLATION: required
+      CODEFORGE_WORKSPACE_ROOT: /data/workspaces
+      CODEFORGE_KNOWLEDGE_CONTENT_ROOT: /data/knowledge
+    # Agent tools edit the workspaces in place, at the paths the core sends.
+    # Knowledge bases are indexed below /data/knowledge only (KI-105).
+    # tool_homes holds each tenant's HOME (/home/codeforge-tools/<uid>: caches,
+    # per-work TMPDIRs): on disk, not a tmpfs, which Docker mounts noexec (npx,
+    # go test, pip --user binaries run from there) and whose pages count
+    # against the worker's memory limit. Caches only: not backed up.
+    volumes:
+      - workspaces:/data/workspaces
+      - knowledge:/data/knowledge:ro
+      - tool_homes:/home/codeforge-tools
+    tmpfs:
+      # Only the worker may create entries in /tmp (Claude Code run
+      # directories, benchmark workspaces); tools use their TMPDIR.
+      - /tmp:uid=10001,gid=10010,mode=1771
+      # Only the worker user may enter the secrets directory (the secret files
+      # are mounted inside); the worker locks it once it read them.
+      - /run/secrets:uid=10001,gid=10001,mode=0700
     depends_on:
       nats:
         condition: service_healthy
       litellm:
         condition: service_healthy
+    # On SIGTERM the worker fails its unfinished accepted runs and tasks and
+    # publishes their completions before it drains NATS (up to about 40 s,
+    # see _SHUTDOWN_GRACE_SECONDS in workers/codeforge/consumer/__init__.py);
+    # Docker's default of 10 s would kill it before the completions are out.
+    stop_grace_period: 45s
+    # GET /health/ready on CODEFORGE_WORKER_HEALTH_PORT (default 8081): 200
+    # while the worker is connected to NATS and every consumer loop runs.
     healthcheck:
-      test: ["CMD", "python", "-c", "import codeforge.consumer"]
+      test: ["CMD", "python", "/app/scripts/worker-healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 30s
     networks:
       - internal
     deploy:
@@ -243,7 +421,7 @@ services:
     logging: *default-logging
 
   frontend:
-    image: ${FRONTEND_IMAGE:-ghcr.io/strob0t/codeforge-frontend:latest}
+    image: ${FRONTEND_IMAGE:-ghcr.io/strob0t/codeforge-frontend:0.9.0}
     build:
       context: .
       dockerfile: Dockerfile.frontend
@@ -272,23 +450,60 @@ services:
     logging: *default-logging
 
 secrets:
-  litellm-master-key:
-    file: ${SECRETS_DIR:-./secrets}/litellm-master-key
   postgres-password:
     file: ${SECRETS_DIR:-./secrets}/postgres-password
-  nats-user:
-    file: ${SECRETS_DIR:-./secrets}/nats-user
-  nats-pass:
-    file: ${SECRETS_DIR:-./secrets}/nats-pass
+  postgres-tls-cert:
+    file: ${SECRETS_DIR:-./secrets}/postgres-tls.crt
+  postgres-tls-key:
+    file: ${SECRETS_DIR:-./secrets}/postgres-tls.key
+  database-url:
+    file: ${SECRETS_DIR:-./secrets}/database-url
+  nats-passwords:
+    file: ${SECRETS_DIR:-./secrets}/nats-passwords.conf
+  nats-core-url:
+    file: ${SECRETS_DIR:-./secrets}/nats-core-url
+  nats-worker-url:
+    file: ${SECRETS_DIR:-./secrets}/nats-worker-url
+  litellm-master-key:
+    file: ${SECRETS_DIR:-./secrets}/litellm-master-key
+  codeforge-auth-jwt-secret:
+    file: ${SECRETS_DIR:-./secrets}/codeforge-auth-jwt-secret
+  codeforge-auth-llm-key-encryption-secret:
+    file: ${SECRETS_DIR:-./secrets}/codeforge-auth-llm-key-encryption-secret
+  codeforge-internal-key:
+    file: ${SECRETS_DIR:-./secrets}/codeforge-internal-key
+
+configs:
+  nats-server-conf:
+    file: ./configs/nats/nats-server.conf
 
 volumes:
   postgres_data:
   postgres_archive:
   nats_data:
+  core_data:
+  workspaces:
+  knowledge:
+  tool_homes:
 
 networks:
+  # A fixed subnet, so the core can trust the proxies' addresses
+  # (CODEFORGE_TRUSTED_PROXIES). Containers get addresses from ip_range only;
+  # the gateway, which is the source of connections Docker's userland proxy
+  # forwards, stays outside it and is not trusted. The default lies outside
+  # Docker's default address pools (172.17-172.31.0.0/16, 192.168.0.0/16),
+  # which other networks draw from. Set the three variables together if it
+  # collides with a network of the host (a VPN, the LAN); the core trusts
+  # CODEFORGE_PUBLIC_IP_RANGE unless CODEFORGE_TRUSTED_PROXIES is set.
   public:
     driver: bridge
+    ipam:
+      config:
+        - subnet: ${CODEFORGE_PUBLIC_SUBNET:-10.250.240.0/24}
+          ip_range: ${CODEFORGE_PUBLIC_IP_RANGE:-10.250.240.128/25}
+          gateway: ${CODEFORGE_PUBLIC_GATEWAY:-10.250.240.1}
   internal:
     driver: bridge
     internal: true
+  egress:
+    driver: bridge

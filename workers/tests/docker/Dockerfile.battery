@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+# The worker image plus the toolchains agents commonly run, for the Docker
+# tenant-isolation suite's battery (KI-96): node and npm (npx shims from the
+# tenant's HOME), go (test binaries built and run from TMPDIR) and a JDK
+# (java.io.tmpdir). Nothing else changes: the battery runs the production
+# service definition with this image.
+ARG WORKER_IMAGE
+FROM ${WORKER_IMAGE}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends nodejs npm golang-go default-jdk-headless && \
+    rm -rf /var/lib/apt/lists/*

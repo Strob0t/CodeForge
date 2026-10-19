@@ -189,7 +189,7 @@ class TestWriteFileSecurity:
             str(tmp_path),
         )
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_path_traversal_deep(self, tmp_path: Path) -> None:
         tool = WriteFileTool()
@@ -198,7 +198,7 @@ class TestWriteFileSecurity:
             str(tmp_path),
         )
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_path_traversal_absolute(self, tmp_path: Path) -> None:
         tool = WriteFileTool()
@@ -207,7 +207,7 @@ class TestWriteFileSecurity:
             str(tmp_path),
         )
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_path_traversal_via_dot_dot_in_middle(self, tmp_path: Path) -> None:
         tool = WriteFileTool()
@@ -216,4 +216,4 @@ class TestWriteFileSecurity:
             str(tmp_path),
         )
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error

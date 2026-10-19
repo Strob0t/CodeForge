@@ -41,21 +41,25 @@ test.describe("LLM API", () => {
     expect([201, 502]).toContain(res.status());
   });
 
-  test("delete model requires id", async ({ request }) => {
-    const res = await request.post(`${API_BASE}/llm/models/delete`, {
-      headers: headers(),
-      data: {},
-    });
+  test("delete model rejects a blank id", async ({ request }) => {
+    const res = await request.delete(`${API_BASE}/llm/models/%20`, { headers: headers() });
     expect(res.status()).toBe(400);
   });
 
   test("delete model with id", async ({ request }) => {
+    const res = await request.delete(`${API_BASE}/llm/models/non-existent-model-id`, {
+      headers: headers(),
+    });
+    // 200 if LiteLLM is up, 502 if not
+    expect([200, 502]).toContain(res.status());
+  });
+
+  test("the old POST delete route is gone", async ({ request }) => {
     const res = await request.post(`${API_BASE}/llm/models/delete`, {
       headers: headers(),
       data: { id: "non-existent-model-id" },
     });
-    // 200 if LiteLLM is up, 502 if not
-    expect([200, 502]).toContain(res.status());
+    expect(res.status()).toBe(405);
   });
 
   test("LLM health returns status field", async ({ request }) => {

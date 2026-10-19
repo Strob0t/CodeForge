@@ -385,3 +385,51 @@ func TestContainsStr(t *testing.T) {
 		})
 	}
 }
+
+// A reminder fires only under its own condition (KI-190): a mode list or a
+// runtime trigger, never on every turn.
+func TestPromptEntry_ReminderFires(t *testing.T) {
+	t.Parallel()
+
+	coder := AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+	architect := AssemblyContext{ModeID: "architect", Autonomy: 2, Agentic: true}
+
+	tests := []struct {
+		name string
+		cond Conditions
+		ctx  AssemblyContext
+		sig  ReminderSignals
+		want bool
+	}{
+		{"no condition never fires", Conditions{}, coder, ReminderSignals{StallIterations: 100, BudgetPercent: 100}, false},
+		{"agentic_only alone is no condition", Conditions{AgenticOnly: true}, coder, ReminderSignals{}, false},
+		{"mode list, other mode", Conditions{Modes: []string{"architect"}}, coder, ReminderSignals{}, false},
+		{"mode list, its mode", Conditions{Modes: []string{"architect"}}, architect, ReminderSignals{}, true},
+		{"stall below minimum", Conditions{StallIterationsMin: 10}, coder, ReminderSignals{StallIterations: 9}, false},
+		{"stall at minimum", Conditions{StallIterationsMin: 10}, coder, ReminderSignals{StallIterations: 10}, true},
+		{"stall zero", Conditions{StallIterationsMin: 10}, coder, ReminderSignals{}, false},
+		{"budget below minimum", Conditions{BudgetPercentMin: 80}, coder, ReminderSignals{BudgetPercent: 79.99}, false},
+		{"budget at minimum", Conditions{BudgetPercentMin: 80}, coder, ReminderSignals{BudgetPercent: 80}, true},
+		{"budget over 100", Conditions{BudgetPercentMin: 80}, coder, ReminderSignals{BudgetPercent: 150}, true},
+		{
+			"every trigger must be reached",
+			Conditions{StallIterationsMin: 5, BudgetPercentMin: 80},
+			coder, ReminderSignals{StallIterations: 5, BudgetPercent: 10}, false,
+		},
+		{
+			"trigger reached but static condition fails",
+			Conditions{StallIterationsMin: 5, ExcludeModes: []string{"coder"}},
+			coder, ReminderSignals{StallIterations: 6}, false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := PromptEntry{ID: "r", Category: CategoryReminder, Conditions: tc.cond}
+			if got := e.ReminderFires(tc.ctx, tc.sig); got != tc.want {
+				t.Errorf("ReminderFires() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -62,11 +62,16 @@ class TestRetrievalHandlerMixinErrorHandling:
             assert "_handle_request" in source, f"{method_name} must delegate to _handle_request"
 
     def test_search_publishes_error_result_on_failure(self) -> None:
-        """Retrieval search should publish error result so Go waiter is unblocked."""
+        """Retrieval search returns an error result on failure, so the Go waiter is unblocked.
+
+        _handle_request publishes it and acks the request instead of retrying.
+        """
         source = inspect.getsource(RetrievalHandlerMixin._do_retrieval_search)
-        assert "_publish_error" in source
+        assert 'error="internal worker error"' in source
+        assert "raise" not in source
 
     def test_subagent_publishes_error_result_on_failure(self) -> None:
-        """Sub-agent search should publish error result so Go waiter is unblocked."""
+        """Sub-agent search returns an error result on failure, so the Go waiter is unblocked."""
         source = inspect.getsource(RetrievalHandlerMixin._do_subagent_search)
-        assert "_publish_error" in source
+        assert 'error="internal worker error"' in source
+        assert "raise" not in source

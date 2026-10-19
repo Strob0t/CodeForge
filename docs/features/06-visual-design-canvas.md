@@ -100,7 +100,7 @@ interface MessageImage {
 
 ### NATS Payload
 
-- `MessageImagePayload` struct in `internal/port/messagequeue/schemas.go`
+- `MessageImagePayload` struct in `internal/port/messagequeue/schemas_conversation.go`
 - `ConversationMessagePayload.Images []MessageImagePayload`
 
 ### Python Models

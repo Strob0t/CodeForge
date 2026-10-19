@@ -26,15 +26,15 @@ type ModelRegistry struct {
 	lastRefresh time.Time
 	interval    time.Duration
 	discoverer  llm.ModelDiscoverer
-	hub         broadcast.Broadcaster
-	ollamaURL   string // from OLLAMA_BASE_URL env
+	hub         broadcast.GlobalBroadcaster // model health is system-wide, not tenant data
+	ollamaURL   string                      // from OLLAMA_BASE_URL env
 	routingSvc  *RoutingService
 }
 
 // NewModelRegistry creates a new registry with the given poll interval.
 // Pass interval <= 0 to disable periodic polling (manual refresh only).
 // The ollamaURL parameter comes from cfg.Ollama.BaseURL (OLLAMA_BASE_URL env var).
-func NewModelRegistry(discoverer llm.ModelDiscoverer, hub broadcast.Broadcaster, interval time.Duration, ollamaURL string) *ModelRegistry {
+func NewModelRegistry(discoverer llm.ModelDiscoverer, hub broadcast.GlobalBroadcaster, interval time.Duration, ollamaURL string) *ModelRegistry {
 	return &ModelRegistry{
 		discoverer: discoverer,
 		hub:        hub,
@@ -212,7 +212,7 @@ func (r *ModelRegistry) broadcastHealth(ctx context.Context, models []llm.Discov
 		}
 	}
 
-	r.hub.BroadcastEvent(ctx, event.EventModelHealth, event.ModelHealthEvent{
+	r.hub.BroadcastGlobal(ctx, event.EventModelHealth, event.ModelHealthEvent{
 		Models:         entries,
 		BestModel:      bestModel,
 		HealthyCount:   healthy,

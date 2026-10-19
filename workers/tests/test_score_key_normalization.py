@@ -1,11 +1,11 @@
-"""Tests for score key normalization in _convert_result and _convert_rollout_outcome.
+"""Tests for score key normalization in convert_result and convert_rollout_outcome.
 
 Bug: When a user requests metrics: ["llm_judge"], the API returns scores under
 {"correctness": 0.8} instead of {"llm_judge": 0.8}. This is because evaluators
 produce EvalDimension(name="correctness", ...) and the convert functions use
 dim.name as the dict key without adding an aggregated metric-level key.
 
-Fix: _aggregate_metric_scores() adds averaged parent-metric keys to the scores
+Fix: aggregate_metric_scores() adds averaged parent-metric keys to the scores
 dict while preserving the raw dimension keys.
 """
 
@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import pytest
 
-from codeforge.consumer._benchmark import (
+from codeforge.consumer._benchmark_gemmas import (
     _DIMENSION_TO_METRIC,
-    _aggregate_metric_scores,
-    _convert_result,
-    _convert_rollout_outcome,
+    aggregate_metric_scores,
+    convert_result,
+    convert_rollout_outcome,
 )
 from codeforge.evaluation.providers.base import EvalDimension, EvalScore
 
@@ -60,7 +60,7 @@ class _FakeTask:
 
 
 class _FakeRunResult:
-    """Duck-types the RunResult used by _convert_result."""
+    """Duck-types the RunResult used by convert_result."""
 
     def __init__(self, task: _FakeTask, execution: _FakeExecution, eval_score: EvalScore | None) -> None:
         self.task = task
@@ -69,7 +69,7 @@ class _FakeRunResult:
 
 
 class _FakeRolloutOutcome:
-    """Duck-types the RolloutOutcome used by _convert_rollout_outcome."""
+    """Duck-types the RolloutOutcome used by convert_rollout_outcome."""
 
     def __init__(
         self,
@@ -87,17 +87,17 @@ class _FakeRolloutOutcome:
 
 
 # ---------------------------------------------------------------------------
-# Tests for _aggregate_metric_scores helper
+# Tests for aggregate_metric_scores helper
 # ---------------------------------------------------------------------------
 
 
 class TestAggregateMetricScores:
-    """Unit tests for the _aggregate_metric_scores helper."""
+    """Unit tests for the aggregate_metric_scores helper."""
 
     def test_llm_judge_single_dimension(self) -> None:
         """A single LLM judge dimension produces an aggregated 'llm_judge' key."""
         scores: dict[str, float] = {"correctness": 0.8}
-        _aggregate_metric_scores(scores)
+        aggregate_metric_scores(scores)
         assert "llm_judge" in scores
         assert scores["llm_judge"] == pytest.approx(0.8)
         # Raw key preserved
@@ -111,7 +111,7 @@ class TestAggregateMetricScores:
             "answer_relevancy": 0.7,
             "tool_correctness": 0.9,
         }
-        _aggregate_metric_scores(scores)
+        aggregate_metric_scores(scores)
         assert "llm_judge" in scores
         expected = (0.8 + 0.6 + 0.7 + 0.9) / 4
         assert scores["llm_judge"] == pytest.approx(expected)
@@ -129,7 +129,7 @@ class TestAggregateMetricScores:
             "sparc_code_quality": 1.0,
             "sparc_security": 1.0,
         }
-        _aggregate_metric_scores(scores)
+        aggregate_metric_scores(scores)
         assert "sparc" in scores
         expected = (0.9 + 0.8 + 0.7 + 0.75 + 1.0 + 1.0) / 6
         assert scores["sparc"] == pytest.approx(expected)
@@ -143,20 +143,20 @@ class TestAggregateMetricScores:
             "trajectory_error_recovery": 0.7,
             "trajectory_completeness": 0.95,
         }
-        _aggregate_metric_scores(scores)
+        aggregate_metric_scores(scores)
         assert "trajectory_verifier" in scores
         expected = (0.9 + 0.85 + 0.8 + 0.7 + 0.95) / 5
         assert scores["trajectory_verifier"] == pytest.approx(expected)
         # Also check the error fallback key
         scores2: dict[str, float] = {"trajectory_quality": 0.0}
-        _aggregate_metric_scores(scores2)
+        aggregate_metric_scores(scores2)
         assert "trajectory_verifier" in scores2
         assert scores2["trajectory_verifier"] == pytest.approx(0.0)
 
     def test_functional_test_identity(self) -> None:
         """functional_test is an identity mapping — no duplicate key created."""
         scores: dict[str, float] = {"functional_test": 1.0}
-        _aggregate_metric_scores(scores)
+        aggregate_metric_scores(scores)
         assert scores["functional_test"] == pytest.approx(1.0)
         # Should only have one key (no extra aggregated key because metric == dim)
         assert len(scores) == 1
@@ -164,13 +164,13 @@ class TestAggregateMetricScores:
     def test_empty_scores_unchanged(self) -> None:
         """An empty scores dict remains empty."""
         scores: dict[str, float] = {}
-        _aggregate_metric_scores(scores)
+        aggregate_metric_scores(scores)
         assert scores == {}
 
     def test_unknown_dimensions_ignored(self) -> None:
         """Dimension names not in the mapping are left alone, no aggregation."""
         scores: dict[str, float] = {"some_custom_metric": 0.5, "another_metric": 0.7}
-        _aggregate_metric_scores(scores)
+        aggregate_metric_scores(scores)
         assert len(scores) == 2
         assert "some_custom_metric" in scores
         assert "another_metric" in scores
@@ -184,7 +184,7 @@ class TestAggregateMetricScores:
             "sparc_cost": 0.7,
             "functional_test": 1.0,
         }
-        _aggregate_metric_scores(scores)
+        aggregate_metric_scores(scores)
         # LLM judge aggregated from correctness + faithfulness
         assert scores["llm_judge"] == pytest.approx((0.8 + 0.6) / 2)
         # SPARC aggregated from sparc_steps + sparc_cost
@@ -235,12 +235,12 @@ class TestDimensionToMetricMapping:
 
 
 # ---------------------------------------------------------------------------
-# Integration: _convert_result includes aggregated keys
+# Integration: convert_result includes aggregated keys
 # ---------------------------------------------------------------------------
 
 
 class TestConvertResultAggregation:
-    """Verify _convert_result produces aggregated metric keys in scores."""
+    """Verify convert_result produces aggregated metric keys in scores."""
 
     def test_convert_result_adds_llm_judge_key(self) -> None:
         task = _FakeTask()
@@ -252,7 +252,7 @@ class TestConvertResultAggregation:
             ]
         )
         run_result = _FakeRunResult(task=task, execution=execution, eval_score=eval_score)
-        result = _convert_result(run_result)
+        result = convert_result(run_result)
         assert result.scores["llm_judge"] == pytest.approx(0.7)
         assert result.scores["correctness"] == pytest.approx(0.8)
         assert result.scores["faithfulness"] == pytest.approx(0.6)
@@ -262,17 +262,17 @@ class TestConvertResultAggregation:
         task = _FakeTask()
         execution = _FakeExecution()
         run_result = _FakeRunResult(task=task, execution=execution, eval_score=None)
-        result = _convert_result(run_result)
+        result = convert_result(run_result)
         assert result.scores == {}
 
 
 # ---------------------------------------------------------------------------
-# Integration: _convert_rollout_outcome includes aggregated keys
+# Integration: convert_rollout_outcome includes aggregated keys
 # ---------------------------------------------------------------------------
 
 
 class TestConvertRolloutOutcomeAggregation:
-    """Verify _convert_rollout_outcome produces aggregated metric keys in scores."""
+    """Verify convert_rollout_outcome produces aggregated metric keys in scores."""
 
     def test_convert_rollout_outcome_adds_sparc_key(self) -> None:
         task = _FakeTask()
@@ -285,7 +285,7 @@ class TestConvertRolloutOutcomeAggregation:
             ]
         )
         outcome = _FakeRolloutOutcome(execution=execution, eval_score=eval_score)
-        result = _convert_rollout_outcome(task, outcome, rollout_count=3)
+        result = convert_rollout_outcome(task, outcome, rollout_count=3)
         assert result.scores["sparc"] == pytest.approx((0.9 + 0.8 + 0.7) / 3)
         assert result.scores["sparc_steps"] == pytest.approx(0.9)
 
@@ -294,5 +294,5 @@ class TestConvertRolloutOutcomeAggregation:
         task = _FakeTask()
         execution = _FakeExecution()
         outcome = _FakeRolloutOutcome(execution=execution, eval_score=None)
-        result = _convert_rollout_outcome(task, outcome, rollout_count=1)
+        result = convert_rollout_outcome(task, outcome, rollout_count=1)
         assert result.scores == {}

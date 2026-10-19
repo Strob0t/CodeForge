@@ -22,6 +22,7 @@ class _RolloutEntry:
     output: str
     exit_code: int
     score: float
+    fully_evaluated: bool
 
 
 class EarlyStopChecker:
@@ -51,14 +52,23 @@ class EarlyStopChecker:
         self._stopped = False
         self._best_cluster: list[_RolloutEntry] = []
 
-    def add_rollout(self, rollout_id: int, output: str, exit_code: int, score: float = 0.0) -> None:
-        """Record a completed rollout."""
+    def add_rollout(
+        self,
+        rollout_id: int,
+        output: str,
+        exit_code: int,
+        score: float = 0.0,
+        *,
+        fully_evaluated: bool = True,
+    ) -> None:
+        """Record a completed rollout; ``fully_evaluated`` is False when an evaluator failed on it."""
         self._rollouts.append(
             _RolloutEntry(
                 rollout_id=rollout_id,
                 output=output,
                 exit_code=exit_code,
                 score=score,
+                fully_evaluated=fully_evaluated,
             )
         )
 
@@ -106,17 +116,18 @@ class EarlyStopChecker:
         return False
 
     def best_from_cluster(self) -> int:
-        """Return the rollout_id with the highest score in the best cluster.
+        """Return the rollout_id ranked best in the best cluster.
 
-        Returns -1 if no quorum has been met.
+        Ranked like providers.base.rank_key: fully evaluated rollouts first,
+        then by score; ties go to the earliest rollout. Returns -1 if no
+        quorum has been met.
         """
         if not self._best_cluster:
             return -1
 
-        # Sort by score descending, then by rollout_id ascending for stability.
         best = min(
             self._best_cluster,
-            key=lambda r: (-r.score, r.rollout_id),
+            key=lambda r: (not r.fully_evaluated, -r.score, r.rollout_id),
         )
         return best.rollout_id
 

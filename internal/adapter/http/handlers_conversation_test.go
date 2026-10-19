@@ -339,3 +339,33 @@ func TestHandleApproveToolCall_NoPendingApproval(t *testing.T) {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestHandleBypassConversationApprovals_UnknownConversation: a conversation
+// the caller's tenant cannot load (unknown, or another tenant's - the store
+// is tenant-scoped) is not bypassed and answers 404 (KI-63).
+func TestHandleBypassConversationApprovals_UnknownConversation(t *testing.T) {
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+
+	req := httptest.NewRequest("POST", "/api/v1/conversations/conv-other/bypass-approvals", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleBypassConversationApprovals_OwnConversation(t *testing.T) {
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+	store.convs = append(store.convs, conversation.Conversation{ID: "conv-1", ProjectID: "proj-1"})
+
+	req := httptest.NewRequest("POST", "/api/v1/conversations/conv-1/bypass-approvals", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}

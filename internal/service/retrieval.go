@@ -31,13 +31,17 @@ const healthCooldown = 30 * time.Second
 // ---------------------------------------------------------------------------
 
 // RetrievalIndexInfo holds the in-memory state of a project's retrieval index.
+// GET /projects/{id}/index returns it; the names are those of the frontend's
+// RetrievalIndexStatus.
 type RetrievalIndexInfo struct {
-	ProjectID      string
-	Status         string // "building", "ready", "error"
-	FileCount      int
-	ChunkCount     int
-	EmbeddingModel string
-	Error          string
+	ProjectID      string `json:"project_id"`
+	Status         string `json:"status"` // "building", "ready", "error"
+	FileCount      int    `json:"file_count"`
+	ChunkCount     int    `json:"chunk_count"`
+	EmbeddingModel string `json:"embedding_model"`
+	Error          string `json:"error,omitempty"`
+	// BM25Only: ready, but ranked by BM25 alone (the embedding model cannot be used, KI-130).
+	BM25Only bool `json:"bm25_only,omitempty"`
 }
 
 // KBStatusUpdater can update knowledge base indexing status.
@@ -99,8 +103,9 @@ func (s *RetrievalService) SetModelRegistry(r *ModelRegistry) {
 }
 
 // RequestIndex publishes a request for index building to the Python worker.
-// When workspacePath is non-empty it is used directly (e.g. for knowledge bases);
-// otherwise the workspace path is resolved from the project store.
+// When workspacePath is non-empty it is used directly; otherwise the workspace
+// path is resolved from the project store. Knowledge bases use
+// RequestKnowledgeIndex.
 func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspacePath, embeddingModel string) error {
 	if workspacePath == "" {
 		proj, err := s.store.GetProject(ctx, projectID)
@@ -110,15 +115,29 @@ func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspac
 		workspacePath = proj.WorkspacePath
 	}
 
-	if embeddingModel == "" {
-		embeddingModel = s.orchCfg.DefaultEmbeddingModel
-	}
-
-	payload := messagequeue.RetrievalIndexRequestPayload{
+	return s.publishIndexRequest(ctx, &messagequeue.RetrievalIndexRequestPayload{
 		ProjectID:      projectID,
 		WorkspacePath:  workspacePath,
 		EmbeddingModel: embeddingModel,
+	})
+}
+
+// RequestKnowledgeIndex asks the worker to index a knowledge base: its content
+// at knowledgePath, relative to the worker's knowledge content root (KI-105).
+func (s *RetrievalService) RequestKnowledgeIndex(ctx context.Context, projectID, knowledgePath string) error {
+	return s.publishIndexRequest(ctx, &messagequeue.RetrievalIndexRequestPayload{
+		ProjectID:     projectID,
+		KnowledgePath: knowledgePath,
+	})
+}
+
+func (s *RetrievalService) publishIndexRequest(ctx context.Context, payload *messagequeue.RetrievalIndexRequestPayload) error {
+	projectID := payload.ProjectID
+	if payload.EmbeddingModel == "" {
+		payload.EmbeddingModel = s.orchCfg.DefaultEmbeddingModel
 	}
+	embeddingModel := payload.EmbeddingModel
+	payload.TenantID = outgoingTenant(ctx, "retrieval.index.request")
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal retrieval index request: %w", err)
@@ -148,6 +167,7 @@ func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspac
 
 // HandleIndexResult processes the result of an index build from the Python worker.
 func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messagequeue.RetrievalIndexResultPayload) error {
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 	status := payload.Status
 	if payload.Error != "" {
 		status = "error"
@@ -161,6 +181,7 @@ func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messa
 		ChunkCount:     payload.ChunkCount,
 		EmbeddingModel: payload.EmbeddingModel,
 		Error:          payload.Error,
+		BM25Only:       payload.BM25Only,
 	}
 	s.mu.Unlock()
 
@@ -171,6 +192,7 @@ func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messa
 		ChunkCount:     payload.ChunkCount,
 		EmbeddingModel: payload.EmbeddingModel,
 		Error:          payload.Error,
+		BM25Only:       payload.BM25Only,
 	})
 
 	if payload.Error != "" {
@@ -211,7 +233,7 @@ func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query stri
 		return nil, err
 	}
 
-	ch := s.searchWaiter.register(requestID)
+	ch := s.searchWaiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.searchWaiter.unregister(requestID)
 
 	// Publish search request.
@@ -253,8 +275,14 @@ func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query stri
 }
 
 // HandleSearchResult delivers a search result to the waiting caller.
-func (s *RetrievalService) HandleSearchResult(_ context.Context, payload *messagequeue.RetrievalSearchResultPayload) {
-	s.searchWaiter.deliver(payload.RequestID, payload)
+func (s *RetrievalService) HandleSearchResult(ctx context.Context, payload *messagequeue.RetrievalSearchResultPayload) {
+	s.handleSearchResult(ctx, payload, nil)
+}
+
+// handleSearchResult delivers a search result decoded from raw, the
+// worker's message (nil: none), which the relay sends as it came.
+func (s *RetrievalService) handleSearchResult(ctx context.Context, payload *messagequeue.RetrievalSearchResultPayload, raw []byte) {
+	s.searchWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload, raw)
 }
 
 // SubAgentSearchSync sends a sub-agent search request and waits synchronously for the result.
@@ -270,7 +298,7 @@ func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, qu
 		return nil, err
 	}
 
-	ch := s.subAgentWaiter.register(requestID)
+	ch := s.subAgentWaiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.subAgentWaiter.unregister(requestID)
 
 	// Publish sub-agent search request.
@@ -319,7 +347,14 @@ func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, qu
 // HandleSubAgentSearchResult delivers a sub-agent search result to the waiting caller
 // and records any reported LLM cost in the event store for cost aggregation.
 func (s *RetrievalService) HandleSubAgentSearchResult(ctx context.Context, payload *messagequeue.SubAgentSearchResultPayload) {
-	s.subAgentWaiter.deliver(payload.RequestID, payload)
+	s.handleSubAgentSearchResult(ctx, payload, nil)
+}
+
+// handleSubAgentSearchResult is HandleSubAgentSearchResult for a result
+// decoded from raw, the worker's message (nil: none), which the relay sends
+// as it came.
+func (s *RetrievalService) handleSubAgentSearchResult(ctx context.Context, payload *messagequeue.SubAgentSearchResultPayload, raw []byte) {
+	s.subAgentWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload, raw)
 
 	// Record sub-agent LLM cost when the event store is available and cost > 0.
 	if s.events != nil && (payload.CostUSD > 0 || payload.TokensIn > 0 || payload.TokensOut > 0) {
@@ -389,20 +424,59 @@ type GlobalSearchResult struct {
 	Score      float64 `json:"score"`
 }
 
+// GlobalSearchResults are the hits of a cross-project search and the
+// searched projects' indexes that do not rank with embeddings (KI-150).
+type GlobalSearchResults struct {
+	Hits []GlobalSearchResult
+	// Indexes are the known indexes of the searched projects that are
+	// building, failed or BM25-only; a hybrid ready index is left out.
+	Indexes []RetrievalIndexInfo
+}
+
 // GlobalSearch searches across multiple projects concurrently and returns merged results.
-// If projectIDs is empty, all tenant projects are searched.
-func (s *RetrievalService) GlobalSearch(ctx context.Context, query string, projectIDs []string, limit int) ([]GlobalSearchResult, error) {
+// If projectIDs is empty, all tenant projects are searched. A project ID the
+// tenant has no project for fails the search with the store's not-found
+// error: the worker searches an index by project ID only.
+func (s *RetrievalService) GlobalSearch(ctx context.Context, query string, projectIDs []string, limit int) (*GlobalSearchResults, error) {
+	hits, projectIDs, err := s.globalSearchHits(ctx, query, projectIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	return &GlobalSearchResults{Hits: hits, Indexes: s.limitedIndexes(projectIDs)}, nil
+}
+
+// limitedIndexes returns the known indexes of the projects that do not rank
+// with embeddings, in the order of projectIDs.
+func (s *RetrievalService) limitedIndexes(projectIDs []string) []RetrievalIndexInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	limited := []RetrievalIndexInfo{}
+	for _, id := range projectIDs {
+		if info := s.indexes[id]; info != nil && (info.Status != "ready" || info.BM25Only) {
+			limited = append(limited, *info)
+		}
+	}
+	return limited
+}
+
+// globalSearchHits runs the search and returns its hits and the searched projects.
+func (s *RetrievalService) globalSearchHits(ctx context.Context, query string, projectIDs []string, limit int) ([]GlobalSearchResult, []string, error) {
+	for _, id := range projectIDs {
+		if _, err := s.store.GetProject(ctx, id); err != nil {
+			return nil, nil, fmt.Errorf("global search project %s: %w", id, err)
+		}
+	}
 	if len(projectIDs) == 0 {
 		projects, err := s.store.ListProjects(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("list projects for global search: %w", err)
+			return nil, nil, fmt.Errorf("list projects for global search: %w", err)
 		}
 		for i := range projects {
 			projectIDs = append(projectIDs, projects[i].ID)
 		}
 	}
 	if len(projectIDs) == 0 {
-		return []GlobalSearchResult{}, nil
+		return []GlobalSearchResult{}, projectIDs, nil
 	}
 
 	type result struct {
@@ -457,7 +531,7 @@ func (s *RetrievalService) GlobalSearch(ctx context.Context, query string, proje
 	if merged == nil {
 		merged = []GlobalSearchResult{}
 	}
-	return merged, nil
+	return merged, projectIDs, nil
 }
 
 // StartSubscribers subscribes to retrieval result subjects and returns cancel funcs.
@@ -478,7 +552,7 @@ func (s *RetrievalService) StartSubscribers(ctx context.Context) ([]func(), erro
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return fmt.Errorf("unmarshal retrieval search result: %w", err)
 		}
-		s.HandleSearchResult(msgCtx, &payload)
+		s.handleSearchResult(msgCtx, &payload, data)
 		return nil
 	})
 	if err != nil {
@@ -491,7 +565,7 @@ func (s *RetrievalService) StartSubscribers(ctx context.Context) ([]func(), erro
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return fmt.Errorf("unmarshal subagent search result: %w", err)
 		}
-		s.HandleSubAgentSearchResult(msgCtx, &payload)
+		s.handleSubAgentSearchResult(msgCtx, &payload, data)
 		return nil
 	})
 	if err != nil {

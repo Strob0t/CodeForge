@@ -1,18 +1,25 @@
 package http
 
 import (
-	"crypto/hmac"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
+	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
-// ListChannels handles GET /api/v1/channels
+// ListChannels handles GET /api/v1/channels (with the caller's unread counts).
 func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
-	channels, err := h.Channels.List(r.Context(), projectID)
+	userID := ""
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		userID = u.ID
+	}
+	channels, err := h.Channels.List(r.Context(), projectID, userID)
 	if err != nil {
 		writeDomainError(w, err, "list channels")
 		return
@@ -20,12 +27,19 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 	writeJSONList(w, http.StatusOK, channels)
 }
 
-// CreateChannel handles POST /api/v1/channels
+// CreateChannel handles POST /api/v1/channels. The creator is the calling
+// user; created_by in the request body is ignored (KI-89).
 func (h *Handlers) CreateChannel(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	req, ok := readJSON[channel.Channel](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
+	req.CreatedBy = u.ID
 	ch, err := h.Channels.Create(r.Context(), &req)
 	if err != nil {
 		writeDomainError(w, err, "create channel")
@@ -69,11 +83,29 @@ func (h *Handlers) ListChannelMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSONList(w, http.StatusOK, messages)
 }
 
+// asAuthenticatedSender attributes a message to the calling user. Sender
+// fields in the request body are ignored: messages are broadcast live to the
+// whole tenant, so a client must not pose as an agent or another user.
+func asAuthenticatedSender(w http.ResponseWriter, r *http.Request, msg *channel.Message) bool {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return false
+	}
+	msg.SenderType = channel.SenderUser
+	msg.SenderID = u.ID
+	msg.SenderName = u.Name
+	return true
+}
+
 // SendChannelMessage handles POST /api/v1/channels/{id}/messages
 func (h *Handlers) SendChannelMessage(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 	req, ok := readJSON[channel.Message](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
+		return
+	}
+	if !asAuthenticatedSender(w, r, &req) {
 		return
 	}
 	req.ChannelID = channelID
@@ -95,6 +127,9 @@ func (h *Handlers) SendThreadReply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !asAuthenticatedSender(w, r, &req) {
+		return
+	}
 	req.ChannelID = channelID
 	req.ParentID = parentID
 
@@ -106,10 +141,21 @@ func (h *Handlers) SendThreadReply(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, msg)
 }
 
-// UpdateMemberNotify handles PUT /api/v1/channels/{id}/members/{uid}
+// UpdateMemberNotify handles PUT /api/v1/channels/{id}/members/{uid}: a
+// member changes their own notification setting; another member's only an
+// admin (KI-171).
 func (h *Handlers) UpdateMemberNotify(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 	userID := chi.URLParam(r, "uid")
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if userID != u.ID && u.Role != user.RoleAdmin {
+		writeError(w, http.StatusForbidden, "only admins change another member's notification setting")
+		return
+	}
 
 	type notifyRequest struct {
 		Notify channel.NotifySetting `json:"notify"`
@@ -127,7 +173,61 @@ func (h *Handlers) UpdateMemberNotify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-// WebhookMessage handles POST /api/v1/channels/{id}/webhook
+// RegenerateChannelWebhookKey handles POST /api/v1/channels/{id}/webhook-key
+// (admins): it makes a new webhook key and returns it once; a previous key
+// stops working.
+func (h *Handlers) RegenerateChannelWebhookKey(w http.ResponseWriter, r *http.Request) {
+	key, err := h.Channels.RegenerateWebhookKey(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeDomainError(w, err, "generate webhook key")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"webhook_key": key})
+}
+
+// MarkChannelRead handles POST /api/v1/channels/{id}/read: it moves the
+// caller's read position to a message (204 when the caller has no account
+// row, whose read position is not tracked).
+func (h *Handlers) MarkChannelRead(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	type markReadRequest struct {
+		MessageID string `json:"message_id"`
+	}
+	req, ok := readJSON[markReadRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+	state, err := h.Channels.MarkRead(r.Context(), chi.URLParam(r, "id"), u.ID, req.MessageID)
+	if errors.Is(err, channel.ErrReadStateNotTracked) {
+		// No account row (auth disabled, internal service key): nothing is
+		// stored and nothing is broadcast.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		writeDomainError(w, err, "mark channel read")
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+// ListChannelReadStates handles GET /api/v1/channels/{id}/read.
+func (h *Handlers) ListChannelReadStates(w http.ResponseWriter, r *http.Request) {
+	states, err := h.Channels.ListReadStates(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeDomainError(w, err, "list channel read states")
+		return
+	}
+	writeJSONList(w, http.StatusOK, states)
+}
+
+// WebhookMessage handles POST /api/v1/webhooks/channels/{id}: a public
+// endpoint for external systems, authenticated by the channel's webhook key
+// (X-Webhook-Key) and handled in the channel's tenant.
 func (h *Handlers) WebhookMessage(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 
@@ -136,15 +236,13 @@ func (h *Handlers) WebhookMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "X-Webhook-Key header is required")
 		return
 	}
-
-	// Validate the webhook key against the channel's stored key.
-	ch, err := h.Channels.Get(r.Context(), channelID)
-	if err != nil {
-		writeDomainError(w, err, "channel not found")
+	ctx, err := h.Channels.AuthorizeWebhook(r.Context(), channelID, webhookKey)
+	if errors.Is(err, service.ErrWebhookForbidden) {
+		writeError(w, http.StatusForbidden, "invalid webhook key")
 		return
 	}
-	if !hmac.Equal([]byte(webhookKey), []byte(ch.WebhookKey)) {
-		writeError(w, http.StatusForbidden, "invalid webhook key")
+	if err != nil {
+		writeInternalError(w, err)
 		return
 	}
 
@@ -154,8 +252,10 @@ func (h *Handlers) WebhookMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	req.ChannelID = channelID
 	req.SenderType = channel.SenderWebhook
+	req.SenderID = "" // a webhook is not a user; its sender_name is only a display label
+	req.ParentID = ""
 
-	msg, err := h.Channels.SendMessage(r.Context(), &req)
+	msg, err := h.Channels.SendMessage(ctx, &req)
 	if err != nil {
 		writeDomainError(w, err, "webhook message")
 		return

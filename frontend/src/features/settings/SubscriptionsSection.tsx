@@ -2,6 +2,7 @@ import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { DeviceFlowResponse, SubscriptionProvider } from "~/api/types";
+import { useAuth } from "~/components/AuthProvider";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
@@ -11,6 +12,8 @@ export default function SubscriptionsSection() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
+  // Connecting writes the platform's provider credentials: platform admins only.
+  const { isPlatformAdmin } = useAuth();
 
   const [subProviders, { refetch: refetchSubProviders }] = createResource(() =>
     api.subscriptionProviders.list().then((r) => r.providers),
@@ -90,6 +93,11 @@ export default function SubscriptionsSection() {
       class="mb-8"
     >
       <p class="mb-4 text-sm text-cf-text-muted">{t("settings.subscriptionProviders.subtitle")}</p>
+      <Show when={!isPlatformAdmin()}>
+        <p class="mb-4 text-sm text-cf-text-muted">
+          {t("settings.subscriptionProviders.platformAdminOnly")}
+        </p>
+      </Show>
       <Show
         when={!subProviders.loading}
         fallback={<p class="text-sm text-cf-text-muted">{t("common.loading")}</p>}
@@ -133,32 +141,34 @@ export default function SubscriptionsSection() {
                           </div>
                         </div>
                       </div>
-                      <div class="ml-4 flex-shrink-0">
-                        <Show
-                          when={provider.connected}
-                          fallback={
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={() => handleConnectProvider(provider)}
-                              loading={connectingProvider() === provider.name}
-                              disabled={connectingProvider() !== null}
-                            >
-                              {connectingProvider() === provider.name
-                                ? t("settings.subscriptionProviders.connecting")
-                                : t("settings.subscriptionProviders.connect")}
-                            </Button>
-                          }
-                        >
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => handleDisconnectProvider(provider)}
+                      <Show when={isPlatformAdmin()}>
+                        <div class="ml-4 flex-shrink-0">
+                          <Show
+                            when={provider.connected}
+                            fallback={
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => handleConnectProvider(provider)}
+                                loading={connectingProvider() === provider.name}
+                                disabled={connectingProvider() !== null}
+                              >
+                                {connectingProvider() === provider.name
+                                  ? t("settings.subscriptionProviders.connecting")
+                                  : t("settings.subscriptionProviders.connect")}
+                              </Button>
+                            }
                           >
-                            {t("settings.subscriptionProviders.disconnect")}
-                          </Button>
-                        </Show>
-                      </div>
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => handleDisconnectProvider(provider)}
+                            >
+                              {t("settings.subscriptionProviders.disconnect")}
+                            </Button>
+                          </Show>
+                        </div>
+                      </Show>
                     </div>
 
                     {/* Device flow UI */}

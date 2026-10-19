@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
 const maxBatchSize = 50
@@ -28,7 +29,10 @@ type batchStatusResultItem struct {
 	Status *project.GitStatus `json:"status,omitempty"`
 }
 
-// BatchDeleteProjects handles POST /api/v1/projects/batch/delete.
+// BatchDeleteProjects handles POST /api/v1/projects/batch/delete (admins).
+// Every project is audited before its delete, as DELETE /projects/{id} is;
+// a project whose entry cannot be written is reported as failed and kept.
+// Duplicate IDs are deleted and audited once (KI-173).
 func (h *Handlers) BatchDeleteProjects(w http.ResponseWriter, r *http.Request) {
 	req, ok := readJSON[batchRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
@@ -38,12 +42,42 @@ func (h *Handlers) BatchDeleteProjects(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	ids := uniqueIDs(req.IDs)
 
-	results := h.runBatch(r, req.IDs, func(ctx context.Context, id string) error {
-		return h.Projects.Delete(ctx, id)
-	})
+	results := make([]batchResultItem, len(ids))
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		if err := middleware.RecordAudit(r.Context(), id, map[string]string{"batch": "true"}); err != nil {
+			results[i] = batchResultItem{ID: id, OK: false, Error: middleware.ErrAuditUnavailable.Error()}
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, projID string) {
+			defer wg.Done()
+			if err := h.Projects.Delete(r.Context(), projID); err != nil {
+				results[idx] = batchResultItem{ID: projID, OK: false, Error: "operation failed"}
+				return
+			}
+			results[idx] = batchResultItem{ID: projID, OK: true}
+		}(i, id)
+	}
+	wg.Wait()
 
 	writeJSON(w, http.StatusOK, results)
+}
+
+// uniqueIDs returns ids without duplicates, in first-seen order.
+func uniqueIDs(ids []string) []string {
+	seen := make(map[string]bool, len(ids))
+	unique := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 // BatchPullProjects handles POST /api/v1/projects/batch/pull.

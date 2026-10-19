@@ -2,17 +2,19 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
@@ -21,11 +23,14 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // AutoAgentService manages the lifecycle of auto-agent runs that iterate
 // over pending roadmap features and process them via the conversation loop.
 type AutoAgentService struct {
+	toolUIDSource
 	db            database.Store
 	hub           broadcast.Broadcaster
 	queue         messagequeue.Queue
@@ -33,7 +38,29 @@ type AutoAgentService struct {
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // projectID -> cancel func
+
+	// Workspace test runs in the worker (KI-81): waiters by request ID.
+	testWaiter     *syncWaiter[messagequeue.WorkspaceTestResultPayload]
+	testTimeout    time.Duration // bounds each test or lint command in the worker
+	testWaitMargin time.Duration // queueing and delivery on top of the commands' timeouts
+
+	verify AutoAgentVerification // how features are verified (KI-152)
+	// commandPolicy decides whether a verification command may run (the
+	// feature conversation's policy); nil: every command may.
+	commandPolicy commandPolicy
 }
+
+// commandPolicy tells whether a conversation's agent may run a command on
+// its own (ConversationService.CommandAllowed).
+type commandPolicy interface {
+	CommandAllowed(ctx context.Context, conversationID, command string) (allowed bool, reason string, err error)
+}
+
+// Defaults of the workspace test run (KI-81).
+const (
+	workspaceTestTimeout    = 5 * time.Minute
+	workspaceTestWaitMargin = 2 * time.Minute
+)
 
 // NewAutoAgentService creates a new AutoAgentService.
 func NewAutoAgentService(
@@ -42,13 +69,21 @@ func NewAutoAgentService(
 	queue messagequeue.Queue,
 	conversations *ConversationService,
 ) *AutoAgentService {
-	return &AutoAgentService{
-		db:            db,
-		hub:           hub,
-		queue:         queue,
-		conversations: conversations,
-		cancels:       make(map[string]context.CancelFunc),
+	s := &AutoAgentService{
+		db:             db,
+		hub:            hub,
+		queue:          queue,
+		conversations:  conversations,
+		cancels:        make(map[string]context.CancelFunc),
+		testWaiter:     newSyncWaiter[messagequeue.WorkspaceTestResultPayload]("workspace-test"),
+		testTimeout:    workspaceTestTimeout,
+		testWaitMargin: workspaceTestWaitMargin,
+		verify:         AutoAgentVerification{FixAttempts: DefaultAutoAgentFixAttempts},
 	}
+	if conversations != nil {
+		s.commandPolicy = conversations
+	}
+	return s
 }
 
 // Start launches the auto-agent loop for a project in a background goroutine.
@@ -108,8 +143,10 @@ func (s *AutoAgentService) Start(ctx context.Context, projectID string) (*autoag
 
 	s.broadcastStatus(ctx, aa)
 
-	// Launch background goroutine with cancellable context.
-	loopCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in s.cancels[projectID], called from Stop()
+	// Launch background goroutine with cancellable context. It outlives the
+	// request but stays in the request's tenant (store queries, conversation
+	// runs and WebSocket events).
+	loopCtx, cancel := context.WithCancel(detachTenant(ctx)) //nolint:gosec // G118: cancel stored in s.cancels[projectID], called from Stop()
 	s.mu.Lock()
 	s.cancels[projectID] = cancel
 	s.mu.Unlock()
@@ -184,7 +221,7 @@ func (s *AutoAgentService) runLoop(ctx context.Context, projectID string, featur
 		_ = s.db.UpdateAutoAgentProgress(ctx, aa)
 		s.broadcastStatus(ctx, aa)
 
-		err := s.processFeature(ctx, projectID, feat, aa)
+		result, err := s.processFeature(ctx, projectID, feat, aa)
 		if err != nil {
 			slog.Error("auto-agent feature failed",
 				"project_id", projectID,
@@ -193,11 +230,13 @@ func (s *AutoAgentService) runLoop(ctx context.Context, projectID string, featur
 			)
 			aa.FeaturesFailed++
 
-			// Mark feature as failed in roadmap.
-			_ = s.updateFeatureStatus(ctx, feat.ID, roadmap.FeatureCancelled)
+			// Mark feature as failed in roadmap, with the reason.
+			logBestEffort(ctx, s.finishFeature(ctx, feat.ID, roadmap.FeatureCancelled, "failed: "+err.Error()),
+				"finishFeature", slog.String("feature_id", feat.ID))
 		} else {
 			aa.FeaturesComplete++
-			_ = s.updateFeatureStatus(ctx, feat.ID, roadmap.FeatureDone)
+			logBestEffort(ctx, s.finishFeature(ctx, feat.ID, roadmap.FeatureDone, result),
+				"finishFeature", slog.String("feature_id", feat.ID))
 		}
 
 		_ = s.db.UpdateAutoAgentProgress(ctx, aa)
@@ -228,20 +267,30 @@ func (s *AutoAgentService) runLoop(ctx context.Context, projectID string, featur
 	)
 }
 
-// processFeature creates a conversation for a feature and waits for completion.
+// processFeature creates a conversation for a feature, runs it and
+// verifies the result (KI-152). It returns the feature's result, or an
+// error when the feature failed.
 func (s *AutoAgentService) processFeature(
 	ctx context.Context,
 	projectID string,
 	feat *roadmap.Feature,
 	aa *autoagent.AutoAgent,
-) error {
+) (string, error) {
+	proj, err := s.db.GetProject(ctx, projectID)
+	if err != nil {
+		return "", fmt.Errorf("get project: %w", err)
+	}
+	// The change check compares the workspace after the feature's runs
+	// with its state now.
+	before := takeWorkspaceSnapshot(ctx, proj.WorkspacePath)
+
 	// Create a conversation for this feature.
 	conv, err := s.conversations.Create(ctx, conversation.CreateRequest{
 		ProjectID: projectID,
 		Title:     fmt.Sprintf("Auto-agent: %s", feat.Title),
 	})
 	if err != nil {
-		return fmt.Errorf("create conversation: %w", err)
+		return "", fmt.Errorf("create conversation: %w", err)
 	}
 
 	aa.ConversationID = conv.ID
@@ -259,74 +308,69 @@ func (s *AutoAgentService) processFeature(
 		feat.Description,
 	)
 
-	// Send the message via the agentic loop (tool-use enabled).
-	err = s.conversations.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
-		Content: prompt,
+	// Run the prompt via the agentic loop (tool-use enabled) and wait for it.
+	if err := s.runAndWait(ctx, conv.ID, prompt, aa); err != nil {
+		return "", fmt.Errorf("feature run: %w", err)
+	}
+
+	return s.verifyFeature(ctx, &featureVerification{
+		projectID:      projectID,
+		conversationID: conv.ID,
+		title:          feat.Title,
+		testFile:       extractTestFile(feat.Description),
+		before:         before,
+	}, func(fixPrompt string) error {
+		slog.Info("auto-agent verification failed, sending fix prompt",
+			"project_id", projectID, "feature_id", feat.ID)
+		return s.runAndWait(ctx, conv.ID, fixPrompt, aa)
 	})
+}
+
+// runAndWait dispatches prompt as an agentic run of the conversation and
+// waits for the run to end. The waiter is registered before the dispatch, so
+// a run that ends at once is not missed (KI-76).
+func (s *AutoAgentService) runAndWait(ctx context.Context, conversationID, prompt string, aa *autoagent.AutoAgent) error {
+	waiter, err := s.conversations.ExpectCompletion(conversationID)
 	if err != nil {
+		return fmt.Errorf("expect completion: %w", err)
+	}
+	defer waiter.Close()
+
+	// A feature turn implements: no planning tools (KI-153).
+	req := &conversation.SendMessageRequest{Content: prompt, ImplementationTurn: true}
+	if err := s.conversations.SendMessageAgentic(ctx, conversationID, req); err != nil {
 		return fmt.Errorf("send agentic message: %w", err)
 	}
-
-	// Wait for the conversation run to complete via NATS.
-	err = s.waitForCompletion(ctx, conv.ID, aa)
-	if err != nil {
+	if err := s.waitForCompletion(ctx, conversationID, waiter, aa); err != nil {
 		return fmt.Errorf("wait for completion: %w", err)
 	}
-
-	// Post-completion verification: run associated tests and send a fix prompt if they fail.
-	testFile := extractTestFile(feat.Description)
-	if testFile != "" {
-		result, testErr := s.runWorkspaceTest(ctx, projectID, testFile)
-		if testErr != nil || !result.AllPassed {
-			passed := result.Passed
-			total := result.Total
-			output := result.Output
-			if testErr != nil && total == 0 {
-				output = testErr.Error()
-			}
-
-			slog.Info("auto-agent post-verification failed, sending fix prompt",
-				"project_id", projectID,
-				"feature_id", feat.ID,
-				"test_file", testFile,
-				"passed", passed,
-				"total", total,
-			)
-
-			fixPrompt := fmt.Sprintf(
-				"The tests are failing. %d/%d tests passed.\n\nTest output:\n```\n%s\n```\n\nPlease fix the implementation to make all tests pass.",
-				passed, total, strings.TrimSpace(output),
-			)
-			err = s.conversations.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
-				Content: fixPrompt,
-			})
-			if err != nil {
-				return fmt.Errorf("send fix prompt: %w", err)
-			}
-
-			err = s.waitForCompletion(ctx, conv.ID, aa)
-			if err != nil {
-				return fmt.Errorf("wait for fix completion: %w", err)
-			}
-		}
-	}
-
 	return nil
 }
 
+// autoAgentStopTimeout bounds stopping a run the auto-agent gave up on.
+const autoAgentStopTimeout = 10 * time.Second
+
 // waitForCompletion waits for the conversation run to finish via the
 // ConversationService's in-process waiter (no duplicate NATS subscription).
+// A run the auto-agent stops waiting for (feature timeout, auto-agent
+// stopped) is stopped: it would go on changing the workspace next to the
+// next feature's run, and its conversation would refuse messages (KI-76).
 func (s *AutoAgentService) waitForCompletion(
 	ctx context.Context,
 	conversationID string,
+	waiter *CompletionWaiter,
 	aa *autoagent.AutoAgent,
 ) error {
 	timeout := time.Duration(autoagent.FeatureTimeoutMinutes) * time.Minute
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, err := s.conversations.WaitForCompletion(timeoutCtx, conversationID)
+	result, err := waiter.Wait(timeoutCtx)
 	if err != nil {
+		stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), autoAgentStopTimeout)
+		defer stopCancel()
+		logBestEffort(stopCtx, s.conversations.StopConversation(stopCtx, conversationID), "StopConversation",
+			slog.String("conversation_id", conversationID))
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("feature timed out after %d minutes", autoagent.FeatureTimeoutMinutes)
 		}
@@ -335,8 +379,8 @@ func (s *AutoAgentService) waitForCompletion(
 
 	aa.TotalCostUSD += result.CostUSD
 
-	if result.Status == "failed" {
-		return fmt.Errorf("conversation run failed: %s", result.Error)
+	if result.Status != "completed" {
+		return fmt.Errorf("conversation run %s: %s", result.Status, result.Error)
 	}
 	return nil
 }
@@ -388,6 +432,24 @@ func (s *AutoAgentService) updateFeatureStatus(ctx context.Context, featureID st
 	return s.db.UpdateFeature(ctx, feat)
 }
 
+// maxFeatureResult bounds the result (in runes) the auto-agent stores on a
+// feature.
+const maxFeatureResult = 2000
+
+// finishFeature sets a processed feature's status and result.
+func (s *AutoAgentService) finishFeature(ctx context.Context, featureID string, status roadmap.FeatureStatus, result string) error {
+	feat, err := s.db.GetFeature(ctx, featureID)
+	if err != nil {
+		return err
+	}
+	feat.Status = status
+	if r := []rune(result); len(r) > maxFeatureResult {
+		result = string(r[:maxFeatureResult]) + "..."
+	}
+	feat.Result = result
+	return s.db.UpdateFeature(ctx, feat)
+}
+
 // extractTestFile extracts the test filename from a feature description.
 // Looks for patterns like "Tests: test_lru_cache.py" or "Tests: test_lru_cache.py (25 tests)".
 func extractTestFile(description string) string {
@@ -399,6 +461,23 @@ func extractTestFile(description string) string {
 	return ""
 }
 
+// maxPromptTestOutput bounds the test output a fix prompt hands the agent
+// (S3-F review C7; the worker already sends at most the last 64 KiB).
+const maxPromptTestOutput = 16 * 1024
+
+// testOutputForPrompt returns the tail of the test output - the summary and
+// the failures pytest prints last - behind a marker when it is cut.
+func testOutputForPrompt(output string) string {
+	if len(output) <= maxPromptTestOutput {
+		return output
+	}
+	cut := len(output) - maxPromptTestOutput
+	for cut < len(output) && !utf8.RuneStart(output[cut]) {
+		cut++
+	}
+	return fmt.Sprintf("[... %d bytes of earlier test output truncated ...]\n%s", cut, output[cut:])
+}
+
 // testResult holds parsed pytest output.
 type testResult struct {
 	Passed    int
@@ -408,9 +487,13 @@ type testResult struct {
 	Output    string
 }
 
-// runWorkspaceTest runs pytest for a test file inside the project workspace
-// and parses the output for pass/fail counts.
-func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, testFile string) (testResult, error) {
+// runWorkspaceTest runs pytest for a test file of the project workspace and
+// parses the output for pass/fail counts. The test runs in the worker
+// (conversation.test.request, KI-81): workspace code - the test, conftest.py,
+// pytest plugins and configuration the agent wrote - must never run in the
+// Go Core, which holds the platform's secrets. The worker runs it with its
+// tool environment, in its own process group and bounded by the timeout.
+func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, conversationID, testFile string) (testResult, error) {
 	proj, err := s.db.GetProject(ctx, projectID)
 	if err != nil {
 		return testResult{}, fmt.Errorf("get project for test: %w", err)
@@ -419,23 +502,41 @@ func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, test
 		return testResult{}, fmt.Errorf("project has no workspace path")
 	}
 
-	// Validate testFile resolves within workspace (defense-in-depth).
+	// Validate testFile resolves within workspace (defense-in-depth; the
+	// worker checks again where it runs the test).
 	absTest := filepath.Join(proj.WorkspacePath, testFile)
 	cleanTest := filepath.Clean(absTest)
 	if !strings.HasPrefix(cleanTest, filepath.Clean(proj.WorkspacePath)+string(filepath.Separator)) {
-		return testResult{}, fmt.Errorf("test file path escapes workspace: %s", testFile)
+		return testResult{}, fmt.Errorf("%w: %s escapes the workspace", errTestFileMissing, testFile)
 	}
-	if info, err := os.Stat(cleanTest); err != nil || info.IsDir() {
-		return testResult{}, fmt.Errorf("test file not found or is directory: %s", testFile)
+	// Resolved inside the workspace (KI-95): a symlink out of it is refused.
+	if info, err := workspacefs.StatAt(proj.WorkspacePath, testFile); err != nil || info.IsDir() {
+		return testResult{}, fmt.Errorf("%w: %s not found or a directory", errTestFileMissing, testFile)
 	}
 
-	//nolint:gosec // testFile is validated above via regex + path containment check.
-	cmd := exec.CommandContext(ctx, "python", "-m", "pytest", testFile, "-v", "--tb=short")
-	cmd.Dir = proj.WorkspacePath
+	tenantID := tenantctx.FromContext(ctx)
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantID)
+	if err != nil {
+		return testResult{}, fmt.Errorf("tool uid: %w", err)
+	}
+	res, err := s.requestWorkspaceTest(ctx, &messagequeue.WorkspaceTestRequestPayload{
+		RequestID:      uuid.New().String(),
+		TenantID:       tenantID,
+		ProjectID:      projectID,
+		ConversationID: conversationID,
+		WorkspacePath:  proj.WorkspacePath,
+		TestFile:       testFile,
+		TimeoutSeconds: int(s.testTimeout.Seconds() + 0.999),
+		ToolUID:        toolUID,
+	})
+	if err != nil {
+		return testResult{}, err
+	}
+	if res.Passed == nil {
+		return testResult{Output: res.Output}, fmt.Errorf("workspace test could not run: %s", res.Error)
+	}
 
-	out, runErr := cmd.CombinedOutput()
-	output := string(out)
-
+	output := res.Output
 	result := testResult{Output: output}
 
 	// Parse "X passed" from pytest summary line.
@@ -448,9 +549,64 @@ func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, test
 	}
 
 	result.Total = result.Passed + result.Failed
-	result.AllPassed = result.Failed == 0 && result.Passed > 0 && runErr == nil
+	result.AllPassed = result.Failed == 0 && result.Passed > 0 && *res.Passed
 
 	return result, nil
+}
+
+// requestWorkspaceTest publishes the request and waits for its result.
+func (s *AutoAgentService) requestWorkspaceTest(ctx context.Context, req *messagequeue.WorkspaceTestRequestPayload) (*messagequeue.WorkspaceTestResultPayload, error) {
+	ch := s.testWaiter.register(req.RequestID, messagequeue.RelayOf(s.queue))
+	defer s.testWaiter.unregister(req.RequestID)
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal workspace test request: %w", err)
+	}
+	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationTestRequest, data); err != nil {
+		return nil, fmt.Errorf("publish workspace test request: %w", err)
+	}
+
+	// The worker runs the commands one after the other.
+	commands := 0
+	for _, cmd := range []string{req.TestFile, req.TestCommand, req.LintCommand} {
+		if cmd != "" {
+			commands++
+		}
+	}
+	wait := time.Duration(max(commands, 1))*s.testTimeout + s.testWaitMargin
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case res := <-ch:
+		return res, nil
+	case <-timer.C:
+		return nil, fmt.Errorf("workspace checks: no result from the worker within %s", wait)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// HandleWorkspaceTestResult hands a worker's test result to the auto-agent
+// run waiting for it, on this replica or through the relay on another one
+// (KI-86). Results are delivered at least once: a duplicate or a result
+// nobody waits for (the run ended) is dropped.
+func (s *AutoAgentService) HandleWorkspaceTestResult(ctx context.Context, res *messagequeue.WorkspaceTestResultPayload) error {
+	s.testWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), res.RequestID, res)
+	return nil
+}
+
+// StartTestResultSubscriber subscribes to conversation.test.result. The
+// relay sends the worker's message as it came.
+func (s *AutoAgentService) StartTestResultSubscriber(ctx context.Context) (func(), error) {
+	return s.queue.Subscribe(ctx, messagequeue.SubjectConversationTestResult, func(ctx context.Context, _ string, data []byte) error {
+		var res messagequeue.WorkspaceTestResultPayload
+		if err := json.Unmarshal(data, &res); err != nil {
+			return fmt.Errorf("unmarshal workspace test result: %w", err)
+		}
+		s.testWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), res.RequestID, &res, data)
+		return nil
+	})
 }
 
 // broadcastStatus sends the current auto-agent state to connected clients.

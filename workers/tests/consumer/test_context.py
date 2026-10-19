@@ -42,6 +42,12 @@ class TestContextHandlerMixinErrorHandling:
         assert "_handle_request" in source, "_handle_context_rerank must delegate to _handle_request"
 
     def test_publishes_error_result_on_failure(self) -> None:
-        """Context rerank should publish error result so Go waiter is unblocked."""
+        """Context rerank returns an error result on failure, so the Go waiter is unblocked.
+
+        _handle_request publishes it and acks the request; a re-raise would retry
+        the LLM rerank after Go already got its answer (behaviour:
+        tests/consumer/test_delivery_handlers.py::test_error_result_settles_the_request).
+        """
         source = inspect.getsource(ContextHandlerMixin._do_context_rerank)
-        assert "_publish_error" in source, "_do_context_rerank should publish error result on exception"
+        assert 'error="internal worker error"' in source, "_do_context_rerank should return an error result"
+        assert "raise" not in source, "a failed rerank must not be retried after its error result"

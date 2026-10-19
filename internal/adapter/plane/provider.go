@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	neturl "net/url"
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
@@ -64,7 +66,7 @@ func (p *Provider) Capabilities() pmprovider.Capabilities {
 func parseProjectRef(ref string) (workspace, projectID string, err error) {
 	parts := strings.Split(ref, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("plane: invalid project ref %q: expected workspace-slug/project-id", ref)
+		return "", "", fmt.Errorf("%w: plane: invalid project ref %q: expected workspace-slug/project-id", domain.ErrValidation, ref)
 	}
 	return parts[0], parts[1], nil
 }
@@ -184,6 +186,11 @@ func (p *Provider) ListItems(ctx context.Context, projectRef string) ([]pmprovid
 			_ = resp.Body.Close()
 			if readErr != nil {
 				return nil, fmt.Errorf("plane: list issues: status %d (reading body: %w)", resp.StatusCode, readErr)
+			}
+			if resp.StatusCode == http.StatusNotFound {
+				// The caller gets a plain 404; the operator sees Plane's answer.
+				slog.WarnContext(ctx, "plane answered not found", "project_ref", projectRef, "status", resp.StatusCode)
+				return nil, fmt.Errorf("plane: list issues of %q: %w", projectRef, domain.ErrNotFound)
 			}
 			return nil, fmt.Errorf("plane: list issues: status %d: %s", resp.StatusCode, string(body))
 		}

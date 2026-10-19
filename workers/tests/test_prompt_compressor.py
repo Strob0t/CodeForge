@@ -330,9 +330,8 @@ class TestTrajectoryVerifierCompression:
             ],
         )
 
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = (
+        mock_response = AsyncMock()  # the evaluator reads .content of the chat_completion response
+        mock_response.content = (
             '{"solution_quality": 0.8, "approach_efficiency": 0.7, '
             '"code_quality": 0.6, "error_recovery": 0.5, "completeness": 0.9}'
         )

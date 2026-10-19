@@ -81,8 +81,11 @@ func (s *LSPService) StartServers(ctx context.Context, projectID, workspacePath 
 		}
 
 		client := s.clientFactory(lang, cfg, workspacePath)
+		// Diagnostics arrive long after this request: keep only its tenant so
+		// they reach the clients of the project's tenant.
+		diagCtx := detachTenant(ctx)
 		client.SetDiagnosticCallback(func(uri string, diags []lspDomain.Diagnostic) {
-			s.onDiagnostic(projectID, uri, diags)
+			s.onDiagnostic(diagCtx, projectID, uri, diags)
 		})
 
 		// Broadcast starting status.
@@ -304,7 +307,7 @@ func languageFromURI(uri string) string {
 
 // onDiagnostic is the callback from individual clients when diagnostics are received.
 // It debounces WS broadcasts.
-func (s *LSPService) onDiagnostic(projectID, uri string, diags []lspDomain.Diagnostic) {
+func (s *LSPService) onDiagnostic(ctx context.Context, projectID, uri string, diags []lspDomain.Diagnostic) {
 	key := projectID + "|" + uri
 
 	s.diagMu.Lock()
@@ -317,7 +320,7 @@ func (s *LSPService) onDiagnostic(projectID, uri string, diags []lspDomain.Diagn
 
 	// Set a new debounce timer.
 	s.diagTimers[key] = time.AfterFunc(s.cfg.DiagnosticDelay, func() {
-		s.broadcaster.BroadcastEvent(context.Background(), event.EventLSPDiagnostic, event.LSPDiagnosticEvent{
+		s.broadcaster.BroadcastEvent(ctx, event.EventLSPDiagnostic, event.LSPDiagnosticEvent{
 			ProjectID:   projectID,
 			URI:         uri,
 			Diagnostics: diags,

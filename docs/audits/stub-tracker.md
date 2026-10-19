@@ -26,6 +26,7 @@
 - **Phase:** Phase 31 (Contract-First Review/Refactor)
 - **Description:** ~~`_do_review_trigger()` was a no-op.~~ Now dispatches a `ConversationRunStartMessage` to NATS with boundary-analyzer mode (read-only tools, plan scenario, `BOUNDARIES.json` artifact). Publishes completion to `review.trigger.complete`.
 - **Tests:** `workers/tests/consumer/test_review.py` (15 tests: happy path + edge cases)
+- **Update 2026-09-30:** the consumer, its subjects and tests were removed (KI-22): Go never published `review.trigger.request`, and the run it started was invisible to Go. Review triggers go through `ReviewTriggerService` (KI-17).
 
 ---
 

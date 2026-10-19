@@ -3,7 +3,15 @@
  * Provides a simple raw WebSocket client for verifying server-side events.
  */
 
+import { apiPost } from "./api-helpers";
+
 const WS_BASE = "ws://localhost:8080/ws";
+
+/** Exchange an access token for a single-use WebSocket ticket (POST /api/v1/ws/ticket). */
+export async function fetchWSTicket(token: string): Promise<string> {
+  const res = await apiPost<{ ticket: string }>("/ws/ticket", {}, token);
+  return res.ticket;
+}
 
 export interface WSMessage {
   type: string;
@@ -11,7 +19,8 @@ export interface WSMessage {
 }
 
 /**
- * Create a WebSocket connection with JWT auth.
+ * Create a WebSocket client that authenticates with a ticket obtained with the
+ * given JWT (the JWT itself never goes into the URL).
  * Returns helpers to collect messages, wait for specific events, and close.
  */
 export function createTestWS(token: string): TestWSClient {
@@ -29,24 +38,32 @@ export class TestWSClient {
     this.token = token;
   }
 
-  /** Connect to the WebSocket server. */
+  /** Connect to the WebSocket server with a fresh single-use ticket. */
   async connect(): Promise<void> {
     if (this.openPromise) return this.openPromise;
 
-    this.openPromise = new Promise<void>((resolve, reject) => {
-      const url = `${WS_BASE}?token=${encodeURIComponent(this.token)}`;
-      this.ws = new WebSocket(url);
+    this.openPromise = fetchWSTicket(this.token).then(
+      (ticket) =>
+        new Promise<void>((resolve, reject) => {
+          const url = `${WS_BASE}?ticket=${encodeURIComponent(ticket)}`;
+          this.ws = new WebSocket(url);
 
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (ev) => reject(new Error(`WebSocket error: ${String(ev)}`));
+          this.ws.onopen = () => resolve();
+          this.ws.onerror = (ev) => reject(new Error(`WebSocket error: ${String(ev)}`));
 
-      this.ws.onmessage = (ev: MessageEvent) => {
-        const msg = JSON.parse(String(ev.data)) as WSMessage;
-        this.messages.push(msg);
-        for (const listener of this.listeners) {
-          listener(msg);
-        }
-      };
+          this.ws.onmessage = (ev: MessageEvent) => {
+            const msg = JSON.parse(String(ev.data)) as WSMessage;
+            this.messages.push(msg);
+            for (const listener of this.listeners) {
+              listener(msg);
+            }
+          };
+        }),
+    );
+    // A failed attempt (ticket request or handshake) must not be cached, so the
+    // next connect() retries instead of returning the same rejection.
+    this.openPromise.catch(() => {
+      this.openPromise = null;
     });
 
     return this.openPromise;

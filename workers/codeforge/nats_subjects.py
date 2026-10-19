@@ -23,7 +23,6 @@ STREAM_SUBJECTS = [
     "memory.>",
     "handoff.>",
     "backends.>",
-    "review.>",
     "prompt.>",
 ]
 
@@ -32,6 +31,8 @@ SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
 SUBJECT_TASK_CANCEL = "tasks.cancel"
+# Worker -> Go: every HEARTBEAT_INTERVAL_SECONDS while a backend task runs (KI-65)
+SUBJECT_TASK_HEARTBEAT = "tasks.heartbeat"
 
 # Agent output (Python -> Go: per-line backend output for WS broadcast)
 SUBJECT_AGENT_OUTPUT = "agents.output"
@@ -81,6 +82,14 @@ SUBJECT_CONVERSATION_RUN_COMPLETE = "conversation.run.complete"
 SUBJECT_CONVERSATION_RUN_CANCEL = "conversation.run.cancel"
 SUBJECT_CONVERSATION_COMPACT_REQUEST = "conversation.compact.request"
 SUBJECT_CONVERSATION_COMPACT_COMPLETE = "conversation.compact.complete"
+# Auto-agent post-verification: a workspace test file runs in the worker (KI-81)
+SUBJECT_CONVERSATION_TEST_REQUEST = "conversation.test.request"
+SUBJECT_CONVERSATION_TEST_RESULT = "conversation.test.result"
+
+# Workspace deletion (KI-96 D11): the worker removes a deleted project's
+# workspace as the tenant's tool UID
+SUBJECT_WORKSPACE_DELETE_REQUEST = "workspace.delete.request"
+SUBJECT_WORKSPACE_DELETE_RESULT = "workspace.delete.result"
 
 # Benchmark
 SUBJECT_BENCHMARK_RUN_REQUEST = "benchmark.run.request"
@@ -103,7 +112,7 @@ SUBJECT_A2A_TASK_COMPLETE = "a2a.task.complete"
 SUBJECT_A2A_TASK_CANCEL = "a2a.task.cancel"
 
 # Handoff
-SUBJECT_HANDOFF_REQUEST = "handoff.request"
+SUBJECT_HANDOFF_REQUEST = "handoff.request"  # worker -> Go Core: a handoff_to call (the Go Core starts the run, KI-15)
 
 # Backend health
 SUBJECT_BACKEND_HEALTH_REQUEST = "backends.health.request"
@@ -111,11 +120,6 @@ SUBJECT_BACKEND_HEALTH_RESULT = "backends.health.result"
 
 # Trajectory events
 SUBJECT_TRAJECTORY_EVENT = "runs.trajectory.event"
-
-# Review/Refactor subjects (Phase 31)
-SUBJECT_REVIEW_TRIGGER_REQUEST = "review.trigger.request"
-SUBJECT_REVIEW_TRIGGER_COMPLETE = "review.trigger.complete"
-SUBJECT_REVIEW_APPROVAL_REQUIRED = "review.approval.required"
 
 # Prompt evolution subjects (Phase 33)
 SUBJECT_PROMPT_EVOLUTION_REFLECT = "prompt.evolution.reflect"
@@ -125,9 +129,34 @@ SUBJECT_PROMPT_EVOLUTION_PROMOTED = "prompt.evolution.promoted"
 SUBJECT_PROMPT_EVOLUTION_REVERTED = "prompt.evolution.reverted"
 
 # Headers
+# The worker's inboxes (replies, JetStream deliveries). The deployment's NATS
+# server lets only the worker's user subscribe to them, and the worker none
+# of the Go Core's (_INBOX_core, configs/nats/nats-server.conf; KI-71).
+INBOX_PREFIX = "_INBOX_worker"
+
 HEADER_REQUEST_ID = "X-Request-ID"
-HEADER_RETRY_COUNT = "Retry-Count"
+# The tenant a message was published under (same name in the Go Core,
+# internal/adapter/nats/nats.go); see codeforge.tenant_context.
+HEADER_TENANT_ID = "X-Tenant-ID"
+
+# Delivery semantics (ADR-016); the Go Core uses the same retry limit
+# (internal/adapter/nats/nats.go). Retries are counted by JetStream.
 MAX_RETRIES = 3
+MAX_DELIVER = MAX_RETRIES + 1  # first delivery plus retries
+ACK_WAIT_SECONDS = 90.0
+NAK_DELAY_SECONDS = 2.0
+DLQ_SUFFIX = ".dlq"
+# The original Nats-Msg-Id of a dead-lettered message (same name in the Go Core).
+HEADER_ORIGINAL_MSG_ID = "X-Original-Msg-Id"
+# How long the server may take to confirm the ack of an accepted run, and how
+# often the (idempotent) double ack is sent before the run is released again.
+ACK_SYNC_TIMEOUT_SECONDS = 5.0
+ACCEPT_ATTEMPTS = 3
+# In-progress acks stop after this long, so a hung handler is redelivered. The
+# longest at-least-once work (indexing or graph builds of large repositories,
+# LLM-based reflection) finishes well within it; runs are acked on accept and
+# need no heartbeat.
+MAX_IN_PROGRESS_SECONDS = 30 * 60.0
 
 
 def consumer_name(subject: str) -> str:

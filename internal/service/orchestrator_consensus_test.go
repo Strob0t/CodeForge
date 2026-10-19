@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -80,6 +81,9 @@ func newOrchTestStore() *orchTestStore {
 }
 
 func (s *orchTestStore) UpdatePlanStatus(_ context.Context, id string, status plan.Status) error {
+	if s.planStatuses[id].IsTerminal() {
+		return fmt.Errorf("mock: plan already ended: %w", domain.ErrConflict)
+	}
 	s.planStatuses[id] = status
 	return nil
 }
@@ -100,7 +104,16 @@ func (s *orchTestStore) GetRun(_ context.Context, id string) (*run.Run, error) {
 	return nil, domain.ErrNotFound
 }
 
+// UpdateRunStatus follows the store's transitions (run.SourceStatuses), so
+// that no test passes on a write the store would refuse.
 func (s *orchTestStore) UpdateRunStatus(_ context.Context, id string, status run.Status, _ int, _ float64, _, _ int64) error {
+	r, ok := s.runs[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if !run.CanTransition(r.Status, status) {
+		return fmt.Errorf("mock: run %s %s to %s: %w", id, r.Status, status, domain.ErrConflict)
+	}
 	s.updatedRunStatus[id] = status
 	return nil
 }
@@ -199,24 +212,32 @@ func TestAdvanceConsensus_DefaultQuorum(t *testing.T) {
 // NOTE(FIX-032): TestEvaluateStepReview_PassThreshold requires a
 // ReviewRouterService with LLM evaluation, which is an integration concern.
 
-func TestReplanStep_ResetsStatus(t *testing.T) {
-	store := newOrchTestStore()
-	store.runs["run-1"] = &run.Run{
-		ID:        "run-1",
-		TaskID:    "task-1",
-		ProjectID: "proj-1",
-		Status:    run.StatusFailed,
+// ReplanStep never reopens an ended run (it used to reset it to pending, a
+// write the store refuses); it starts a new run for the run's plan step. A
+// run that is not a plan step, or that is still active, is not re-planned
+// and stays as it is. The re-planning of a plan step is covered in
+// orchestrator_replan_test.go.
+func TestReplanStep_RunNotReplanned(t *testing.T) {
+	tests := []struct {
+		name   string
+		status run.Status
+	}{
+		{name: "ended run outside a plan", status: run.StatusFailed},
+		{name: "active run", status: run.StatusRunning},
 	}
-	svc := newTestOrchService(store)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newOrchTestStore()
+			store.runs["run-1"] = &run.Run{ID: "run-1", TaskID: "task-1", ProjectID: "proj-1", Status: tc.status}
+			svc := newTestOrchService(store)
 
-	err := svc.ReplanStep(context.Background(), "run-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Run status should be reset to pending.
-	if got, ok := store.updatedRunStatus["run-1"]; !ok || got != run.StatusPending {
-		t.Errorf("expected run status reset to 'pending', got %q (found=%v)", got, ok)
+			if err := svc.ReplanStep(context.Background(), "run-1"); err == nil {
+				t.Fatal("expected an error")
+			}
+			if got, ok := store.updatedRunStatus["run-1"]; ok {
+				t.Errorf("run status written to %q, want the run untouched", got)
+			}
+		})
 	}
 }
 

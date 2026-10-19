@@ -3,6 +3,7 @@
 package feedback
 
 import (
+	"slices"
 	"time"
 )
 
@@ -37,13 +38,30 @@ type AuditEntry struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-// FeedbackRequest describes a tool call requiring human approval.
+// FeedbackRequest describes a tool call requiring human approval: what the
+// web approval card shows, including the deciding policy profile and a
+// truncated preview of the call's arguments (display only).
 type FeedbackRequest struct {
-	RunID   string `json:"run_id"`
-	CallID  string `json:"call_id"`
-	Tool    string `json:"tool"`
-	Command string `json:"command"`
-	Path    string `json:"path"`
+	// TenantID is the tenant of the run asking ("" when unknown): providers
+	// that send to operator-wide recipients answer only the tenants the
+	// operator configured (SendsTo).
+	TenantID         string `json:"tenant_id"`
+	RunID            string `json:"run_id"`
+	CallID           string `json:"call_id"`
+	Tool             string `json:"tool"`
+	Command          string `json:"command"`
+	Path             string `json:"path"`
+	Profile          string `json:"profile,omitempty"`
+	ArgumentsPreview string `json:"arguments_preview,omitempty"`
+}
+
+// SendsTo reports whether an operator-configured approval channel (the
+// Slack channel, the approval email recipients) receives the approval
+// requests of tenantID: only the tenants listed in tenants
+// (notification.approval_tenants, KI-84). A request without a tenant is
+// never sent.
+func SendsTo(tenants []string, tenantID string) bool {
+	return tenantID != "" && slices.Contains(tenants, tenantID)
 }
 
 // FeedbackResult is the outcome of a feedback request.

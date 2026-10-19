@@ -4,15 +4,11 @@ package autospec
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 const providerName = "autospec"
@@ -28,12 +24,12 @@ func (p *Provider) Capabilities() specprovider.Capabilities {
 
 func (p *Provider) Detect(_ context.Context, workspacePath string) (bool, error) {
 	// Check for specs/spec.yaml or specs/spec.yml
-	for _, name := range []string{"spec.yaml", "spec.yml"} {
-		info, err := os.Stat(filepath.Join(workspacePath, "specs", name))
+	for _, name := range []string{"specs/spec.yaml", "specs/spec.yml"} {
+		info, err := workspacefs.StatAt(workspacePath, name)
 		if err == nil && !info.IsDir() {
 			return true, nil
 		}
-		if err != nil && !os.IsNotExist(err) {
+		if err != nil && !workspacefs.IsAbsent(err) {
 			return false, err
 		}
 	}
@@ -41,69 +37,19 @@ func (p *Provider) Detect(_ context.Context, workspacePath string) (bool, error)
 }
 
 func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specprovider.Spec, error) {
-	root := filepath.Join(workspacePath, "specs")
-	var specs []specprovider.Spec
-
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".yaml" && ext != ".yml" {
-			return nil
-		}
-
-		rel, relErr := filepath.Rel(workspacePath, path)
-		if relErr != nil {
-			slog.Warn("failed to compute relative path", "workspace", workspacePath, "path", path, "error", relErr)
-			rel = filepath.Base(path)
-		}
-		title := extractTitle(path, rel)
-		specs = append(specs, specprovider.Spec{
-			Path:   rel,
-			Format: providerName,
-			Title:  title,
-		})
-		return nil
-	})
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("walk specs/: %w", err)
-	}
-	return specs, nil
+	return specprovider.ListFiles(workspacePath, "specs", providerName, []string{".yaml", ".yml"}, extractTitle)
 }
 
 func (p *Provider) ReadSpec(_ context.Context, workspacePath, specPath string) ([]byte, error) {
-	full := filepath.Join(workspacePath, specPath)
-
-	// Prevent path traversal: resolved path must be under workspace.
-	resolved, err := filepath.Abs(full)
-	if err != nil {
-		return nil, fmt.Errorf("resolve path: %w", err)
-	}
-	wsAbs, err := filepath.Abs(workspacePath)
-	if err != nil {
-		return nil, fmt.Errorf("resolve workspace: %w", err)
-	}
-	if !strings.HasPrefix(resolved, wsAbs+string(filepath.Separator)) {
-		return nil, fmt.Errorf("path traversal rejected: %s", specPath)
-	}
-
-	return os.ReadFile(full) //nolint:gosec // Path validated above against traversal.
+	return specprovider.ReadFile(workspacePath, specPath)
 }
 
 // extractTitle attempts to parse a title field from YAML content.
 // Falls back to the filename without extension.
-func extractTitle(absPath, relPath string) string {
-	data, err := os.ReadFile(absPath) //nolint:gosec // Internal helper, path from Walk.
+func extractTitle(ws *workspacefs.Root, relPath string) string {
+	data, _, err := ws.ReadFile(relPath, specprovider.MaxSpecBytes)
 	if err != nil {
-		return fileBaseName(relPath)
+		return specprovider.FileBaseName(relPath)
 	}
 
 	var doc struct {
@@ -112,11 +58,5 @@ func extractTitle(absPath, relPath string) string {
 	if err := yaml.Unmarshal(data, &doc); err == nil && doc.Title != "" {
 		return doc.Title
 	}
-	return fileBaseName(relPath)
-}
-
-func fileBaseName(path string) string {
-	base := filepath.Base(path)
-	ext := filepath.Ext(base)
-	return strings.TrimSuffix(base, ext)
+	return specprovider.FileBaseName(relPath)
 }

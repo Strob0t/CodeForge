@@ -3,7 +3,7 @@
   "image": "mcr.microsoft.com/devcontainers/base:bookworm",
   "features": {
     "ghcr.io/devcontainers/features/go:1": {
-      "version": "1.25"
+      "version": "1.26"
     },
     "ghcr.io/devcontainers/features/python:1": {
       "version": "3.12"
@@ -15,10 +15,12 @@
     "ghcr.io/devcontainers/features/git:1": {}
   },
   "remoteEnv": {
-    "DATABASE_URL": "postgres://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge?sslmode=prefer",
+    "APP_ENV": "development",
+    "POSTGRES_PASSWORD": "${localEnv:POSTGRES_PASSWORD:codeforge_dev}",
+    "DATABASE_URL": "postgres://codeforge:${localEnv:POSTGRES_PASSWORD:codeforge_dev}@codeforge-postgres:5432/codeforge?sslmode=prefer",
     "NATS_URL": "nats://codeforge-nats:4222",
-    "LITELLM_URL": "http://codeforge-litellm:4000",
-    "LITELLM_MASTER_KEY": "${localEnv:LITELLM_MASTER_KEY}"
+    "LITELLM_BASE_URL": "http://codeforge-litellm:4000",
+    "LITELLM_MASTER_KEY": "${localEnv:LITELLM_MASTER_KEY:sk-codeforge-dev}"
   },
   "forwardPorts": [3000, 4000, 4222, 5173, 5432, 6280, 8001, 8080, 8222],
   "portsAttributes": {

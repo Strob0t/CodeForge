@@ -10,24 +10,10 @@ import os
 
 import structlog
 
+from codeforge.config import get_settings
+from codeforge.provider_keys import KEYED_PROVIDERS_ENV, KEYLESS_PROVIDERS, PROVIDER_KEY_MAP
+
 logger = structlog.get_logger(component="routing")
-
-# Provider prefix -> environment variable that holds the API key.
-PROVIDER_KEY_MAP: dict[str, str] = {
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "groq": "GROQ_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "cohere": "COHERE_API_KEY",
-    "together_ai": "TOGETHERAI_API_KEY",
-    "fireworks_ai": "FIREWORKS_API_KEY",
-    "github_copilot": "GITHUB_TOKEN",
-}
-
-# Providers that never need an API key.
-_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"ollama", "lm_studio"})
 
 
 class KeyFilter:
@@ -54,15 +40,19 @@ class KeyFilter:
 
     @staticmethod
     def has_key(provider: str) -> bool:
-        """Check whether *provider* has a usable API key in the environment.
+        """Check whether *provider* has a usable API key, as the Go Core decides (KI-125).
 
-        Whitespace-only keys are treated as absent (F14-D3).
+        Named in ``keyed_providers`` (the production worker has no provider
+        key in its environment) or its key variable is set; whitespace-only
+        keys are treated as absent (F14-D3).
         """
-        if provider in _KEYLESS_PROVIDERS:
+        if provider in KEYLESS_PROVIDERS:
             return True
         env_var = PROVIDER_KEY_MAP.get(provider)
         if env_var is None:
             # Unknown provider -- assume key is available (safe default).
+            return True
+        if provider in get_settings().keyed_providers:
             return True
         key = os.environ.get(env_var, "").strip()
         return bool(key)  # empty after strip = no key
@@ -90,7 +80,8 @@ class KeyFilter:
             elif provider not in self._warned_providers:
                 self._warned_providers.add(provider)
                 logger.warning(
-                    "excluding models, env var not set or empty",
+                    "excluding models, provider has no API key (env var not set or empty, "
+                    f"provider not named in {KEYED_PROVIDERS_ENV})",
                     provider=provider,
                     env_var=PROVIDER_KEY_MAP.get(provider, "?"),
                 )

@@ -1,0 +1,25 @@
+# gitleaks configuration (CI "Security Scanning" job, gitleaks-action).
+# Default rules, plus an allowlist for synthetic secrets that tests use as
+# fixtures. Allowlist exact fixture values only, never whole paths, so a real
+# secret pasted into a test file is still reported.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic test fixture secrets"
+regexes = [
+  # internal/config/secret_files_test.go: strongTestSecret (JWT strength checks)
+  '''Xk9mL2pR7wQn4tFvB8jC3hGdE5sAyU0zABCDEFGH''',
+  # internal/config/secret_files_test.go: CODEFORGE_INTERNAL_KEY_FILE fixture
+  '''0f1e2d3c4b5a69788796a5b4c3d2e1f0''',
+  # internal/middleware/idempotency_test.go: gitlabKey idempotency key fixture
+  '''2f1c7a3e-5b6d-4e8f-9a0b-1c2d3e4f5a6b''',
+  # webhook tests (domain, service, postgres): synthetic Plane/GitLab secrets
+  '''plane_wh_0123456789abcdef''',
+  '''plane_wh_secret_0123456789abcdef''',
+  '''glpat-abc_123''',
+  # internal/adapter/githubpm/provider_test.go: testToken fixture
+  '''ghp_INTEGRATION-secret-1234''',
+  # internal/service/webhook_endpoint_test.go: the hex alphabet in a strings.Trim check
+  '''^0123456789abcdef$''',
+]

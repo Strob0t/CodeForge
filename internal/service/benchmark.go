@@ -5,13 +5,16 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -271,6 +274,7 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 			TokensOut:            tr.TokensOut,
 			DurationMs:           tr.DurationMs,
 			EvaluatorScores:      evalScoresJSON,
+			EvaluationErrors:     tr.EvaluationErrors,
 			FilesChanged:         tr.FilesChanged,
 			FunctionalTestOutput: tr.FunctionalTestOutput,
 			RolloutID:            tr.RolloutID,
@@ -364,6 +368,7 @@ func (s *BenchmarkService) HandleBenchmarkTaskStarted(ctx context.Context, _ str
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("unmarshal benchmark task started: %w", err)
 	}
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 
 	if s.hub != nil {
 		s.hub.BroadcastEvent(ctx, "benchmark.task.started", BenchmarkTaskCompletedPayload{
@@ -385,6 +390,7 @@ func (s *BenchmarkService) HandleBenchmarkTaskProgress(ctx context.Context, _ st
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("unmarshal benchmark task progress: %w", err)
 	}
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 
 	if s.hub != nil {
 		// Per-task completion event (for the feature list).
@@ -409,6 +415,47 @@ func (s *BenchmarkService) HandleBenchmarkTaskProgress(ctx context.Context, _ st
 		})
 	}
 
+	return nil
+}
+
+// deadLetteredBenchmarkRunError is the error of a benchmark run whose
+// request was dead-lettered.
+const deadLetteredBenchmarkRunError = "the benchmark run request could not be delivered to a worker (dead-lettered)"
+
+// HandleDeadLetteredRunRequest fails the benchmark run whose request a
+// worker dead-lettered (rejected as invalid, or not accepted within its
+// deliveries; S2-G fix, f3), in the request's tenant: no worker runs it, and
+// it would stay running until the watchdog's timeout. A request that cannot
+// be read, or of a run that is unknown in its tenant or already ended, is
+// ignored; a store error is retried.
+func (s *BenchmarkService) HandleDeadLetteredRunRequest(ctx context.Context, _ string, data []byte) error {
+	var req messagequeue.BenchmarkRunRequestPayload
+	if err := json.Unmarshal(data, &req); err != nil || req.RunID == "" {
+		slog.Warn("dead-lettered benchmark run request without a run, ignored", "error", err)
+		return nil
+	}
+	ctx = withPayloadTenant(ctx, req.TenantID)
+	run, err := s.store.GetBenchmarkRun(ctx, req.RunID)
+	if errors.Is(err, domain.ErrNotFound) {
+		slog.InfoContext(ctx, "dead-lettered request of an unknown benchmark run, ignored", "run_id", req.RunID)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get benchmark run %s: %w", req.RunID, err)
+	}
+	if run.Status != benchmark.StatusRunning {
+		slog.InfoContext(ctx, "dead-lettered request of a benchmark run that ended, ignored", "run_id", run.ID, "status", run.Status)
+		return nil
+	}
+	run.Status = benchmark.StatusFailed
+	run.ErrorMessage = deadLetteredBenchmarkRunError
+	if err := s.Runs.UpdateRun(ctx, run); err != nil {
+		return fmt.Errorf("fail dead-lettered benchmark run %s: %w", run.ID, err)
+	}
+	slog.WarnContext(ctx, "benchmark run request dead-lettered, run failed", "run_id", run.ID)
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, "benchmark.run.progress", BenchmarkRunProgressPayload{RunID: run.ID, Status: string(run.Status)})
+	}
 	return nil
 }
 
@@ -437,10 +484,19 @@ func (s *BenchmarkService) StartResultSubscriber(ctx context.Context) (func(), e
 		return func() {}, fmt.Errorf("subscribe benchmark task progress: %w", err)
 	}
 
+	cancelDeadLettered, err := s.queue.Subscribe(ctx, messagequeue.SubjectBenchmarkRunRequest+deadLetterSuffix, s.HandleDeadLetteredRunRequest)
+	if err != nil {
+		cancelResult()
+		cancelStarted()
+		cancelProgress()
+		return func() {}, fmt.Errorf("subscribe dead-lettered benchmark run requests: %w", err)
+	}
+
 	return func() {
 		cancelResult()
 		cancelStarted()
 		cancelProgress()
+		cancelDeadLettered()
 	}, nil
 }
 
@@ -553,9 +609,23 @@ func ParseScores(raw json.RawMessage) map[string]float64 {
 	return scores
 }
 
-func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.TrainingEntry {
-	scores := ParseScores(r.Scores)
+// resultScores returns a stored result's scores without evaluator error
+// markers. scored is false when an evaluation failed (evaluation_errors, or
+// an error marker in an old row) and no valid score is left: such a result
+// has no reward and is left out of the training exports.
+func resultScores(r *benchmark.Result) (scores map[string]float64, scored bool) {
+	scores = ParseScores(r.Scores)
+	failed := len(r.EvaluationErrors) > 0
+	for key := range scores {
+		if isEvaluatorErrorKey(key) {
+			failed = true
+			delete(scores, key)
+		}
+	}
+	return scores, len(scores) > 0 || !failed
+}
 
+func resultToTrainingEntry(r *benchmark.Result, scores map[string]float64, avgScore float64) benchmark.TrainingEntry {
 	return benchmark.TrainingEntry{
 		RolloutID:   r.RolloutID,
 		TaskID:      r.TaskID,
@@ -570,7 +640,8 @@ func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.Trai
 
 // ComputeRLVRReward computes an RLVR reward from evaluation scores.
 // Strategy: weighted average where functional_test scores get 2x weight.
-// All other scores get 1x weight. Result is clamped to [0.0, 1.0].
+// All other scores get 1x weight; evaluator error markers are not scores.
+// Result is clamped to [0.0, 1.0].
 func ComputeRLVRReward(scores map[string]float64) float64 {
 	if len(scores) == 0 {
 		return 0.0
@@ -578,6 +649,9 @@ func ComputeRLVRReward(scores map[string]float64) float64 {
 
 	var totalWeighted, totalWeight float64
 	for key, value := range scores {
+		if isEvaluatorErrorKey(key) {
+			continue
+		}
 		weight := 1.0
 		if key == "functional_test" {
 			weight = 2.0
@@ -602,16 +676,29 @@ func ComputeRLVRReward(scores map[string]float64) float64 {
 	return avg
 }
 
-// avgFromMap computes the average of a float64 map's values.
+// isEvaluatorErrorKey reports whether a score key is an evaluator's error
+// marker (`<evaluator>_error`): the worker reports evaluation errors apart
+// from the scores, and an older one sent the marker as a 0.0 score.
+func isEvaluatorErrorKey(key string) bool {
+	return strings.HasSuffix(key, "_error")
+}
+
+// avgFromMap computes the average of the scores, leaving out evaluator error
+// markers.
 func avgFromMap(m map[string]float64) float64 {
-	if len(m) == 0 {
+	var total float64
+	var n int
+	for k, v := range m {
+		if isEvaluatorErrorKey(k) {
+			continue
+		}
+		total += v
+		n++
+	}
+	if n == 0 {
 		return 0
 	}
-	var total float64
-	for _, v := range m {
-		total += v
-	}
-	return total / float64(len(m))
+	return total / float64(n)
 }
 
 // avgScoreFromJSON extracts the average score from a JSON scores map.
@@ -623,12 +710,5 @@ func avgScoreFromJSON(raw json.RawMessage) float64 {
 	if err := json.Unmarshal(raw, &scores); err != nil {
 		return 0
 	}
-	if len(scores) == 0 {
-		return 0
-	}
-	var total float64
-	for _, v := range scores {
-		total += v
-	}
-	return total / float64(len(scores))
+	return avgFromMap(scores)
 }

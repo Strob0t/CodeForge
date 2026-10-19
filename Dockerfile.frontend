@@ -25,7 +25,11 @@ LABEL org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# A template: the image's entrypoint writes it to /etc/nginx/conf.d/default.conf
+# with CORE_UPSTREAM substituted (only that variable, see the filter).
+COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
+ENV CORE_UPSTREAM=core:8080 \
+    NGINX_ENVSUBST_FILTER=^CORE_UPSTREAM$
 
 EXPOSE 8080
 

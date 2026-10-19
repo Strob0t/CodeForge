@@ -190,7 +190,7 @@ class TestSearchFilesErrors:
             str(ws),
         )
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_path_traversal_absolute(self, tmp_path: Path) -> None:
         ws = _make_workspace(tmp_path)
@@ -200,7 +200,7 @@ class TestSearchFilesErrors:
             str(ws),
         )
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_nonexistent_subdirectory(self, tmp_path: Path) -> None:
         ws = _make_workspace(tmp_path)
@@ -424,14 +424,14 @@ class TestListDirectoryErrors:
         tool = ListDirectoryTool()
         result = await tool.execute({"path": "../../"}, str(ws))
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_path_traversal_absolute(self, tmp_path: Path) -> None:
         ws = _make_workspace(tmp_path)
         tool = ListDirectoryTool()
         result = await tool.execute({"path": "/etc"}, str(ws))
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
 
 class TestListDirectoryEdgeCases:

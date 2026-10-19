@@ -29,6 +29,9 @@ type Task struct {
 	Version   int       `json:"version"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// DispatchID identifies the task's current dispatch to a worker; read by
+	// the stuck-work watchdog's queries only.
+	DispatchID string `json:"-"`
 }
 
 // Result holds the output of a completed task.

@@ -27,6 +27,13 @@ func (s *MCPService) CreateDB(ctx context.Context, srv *mcp.ServerDef) (*mcp.Ser
 	if err := srv.Validate(); err != nil {
 		return nil, err
 	}
+	if err := s.checkServerURL(ctx, srv); err != nil {
+		return nil, err
+	}
+	// A new server has no stored value a redacted one could stand for.
+	if err := srv.KeepRedacted(nil); err != nil {
+		return nil, err
+	}
 	if srv.ID == "" {
 		srv.ID = uuid.New().String()
 	}
@@ -56,6 +63,11 @@ func (s *MCPService) ListDB(ctx context.Context) ([]mcp.ServerDef, error) {
 }
 
 // UpdateDB validates and updates an existing MCP server in the database.
+// Values sent as mcp.RedactedValue (what reads show) keep the stored ones
+// (mcp.ServerDef.KeepRedacted). The url is checked only when the transport or
+// the url changed: a server saved on an address that is refused now can
+// still be disabled, renamed or deleted (the worker refuses it when it
+// connects).
 func (s *MCPService) UpdateDB(ctx context.Context, srv *mcp.ServerDef) error {
 	if s.db == nil {
 		return fmt.Errorf("mcp service: database store not configured")
@@ -63,7 +75,41 @@ func (s *MCPService) UpdateDB(ctx context.Context, srv *mcp.ServerDef) error {
 	if err := srv.Validate(); err != nil {
 		return err
 	}
+	stored, err := s.db.GetMCPServer(ctx, srv.ID)
+	if err != nil {
+		return err
+	}
+	if err := srv.KeepRedacted(stored); err != nil {
+		return err
+	}
+	if srv.Transport != stored.Transport || srv.URL != stored.URL {
+		if err := s.checkServerURL(ctx, srv); err != nil {
+			return err
+		}
+	}
 	return s.db.UpdateMCPServer(ctx, srv)
+}
+
+// keepStoredSecrets replaces the redacted values of srv (env and header
+// values, the url's password, credential arguments) with the values stored
+// for the server srv.ID in the current tenant (domain.ErrValidation when
+// none is stored). The stored values go only to where they were stored for:
+// with another transport, url, command or command arguments (another
+// package for npx, another script) they must be entered again
+// (mcp.ServerDef.KeepRedacted). Added env keys that load code are dropped by
+// the worker.
+func (s *MCPService) keepStoredSecrets(ctx context.Context, srv *mcp.ServerDef) error {
+	if !srv.HasRedacted() {
+		return nil
+	}
+	var stored *mcp.ServerDef
+	if srv.ID != "" && s.db != nil {
+		var err error
+		if stored, err = s.db.GetMCPServer(ctx, srv.ID); err != nil {
+			return err
+		}
+	}
+	return srv.KeepRedacted(stored)
 }
 
 // DeleteDB removes an MCP server by ID from the database.
@@ -82,12 +128,15 @@ func (s *MCPService) UpdateStatusDB(ctx context.Context, id string, status mcp.S
 	return s.db.UpdateMCPServerStatus(ctx, id, status)
 }
 
-// AssignToProject links an MCP server to a project in the database.
+// AssignToProject links an MCP server to a project in the database. The
+// project and the server must belong to the caller's tenant.
 func (s *MCPService) AssignToProject(ctx context.Context, projectID, serverID string) error {
 	if s.db == nil {
 		return fmt.Errorf("mcp service: database store not configured")
 	}
-	// Verify the server exists before assigning.
+	if _, err := s.db.GetProject(ctx, projectID); err != nil {
+		return fmt.Errorf("assign mcp server: project: %w", err)
+	}
 	if _, err := s.db.GetMCPServer(ctx, serverID); err != nil {
 		return fmt.Errorf("assign mcp server: %w", err)
 	}
@@ -118,7 +167,8 @@ func (s *MCPService) ListTools(ctx context.Context, serverID string) ([]mcp.Serv
 	return s.db.ListMCPServerTools(ctx, serverID)
 }
 
-// UpsertTools replaces all cached tools for an MCP server.
+// UpsertTools replaces all cached tools for an MCP server of the caller's
+// tenant (domain.ErrNotFound for any other server).
 func (s *MCPService) UpsertTools(ctx context.Context, serverID string, tools []mcp.ServerTool) error {
 	if s.db == nil {
 		return fmt.Errorf("mcp service: database store not configured")

@@ -1,6 +1,11 @@
 package policy
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
+)
 
 // MaxStepsLimit is the upper bound for MaxSteps to prevent runaway agents.
 const MaxStepsLimit = 10_000
@@ -40,6 +45,32 @@ func (r *PermissionRule) Validate() error {
 	}
 	if !isValidDecision(r.Decision) {
 		return fmt.Errorf("invalid decision %q", r.Decision)
+	}
+	if r.TrustMinimum != "" && !trust.IsValidLevel(r.TrustMinimum) {
+		return fmt.Errorf("invalid trust_minimum %q (want full, verified, partial or untrusted)", r.TrustMinimum)
+	}
+	for _, list := range []struct {
+		name     string
+		patterns []string
+	}{{"path_allow", r.PathAllow}, {"path_deny", r.PathDeny}} {
+		for _, pattern := range list.patterns {
+			if strings.TrimSpace(pattern) == "" {
+				return fmt.Errorf("%s: empty pattern", list.name)
+			}
+			if err := validateGlob(pattern); err != nil {
+				return fmt.Errorf("%s: invalid pattern %q: %w", list.name, pattern, err)
+			}
+		}
+	}
+	for _, list := range []struct {
+		name     string
+		patterns []string
+	}{{"command_allow", r.CommandAllow}, {"command_deny", r.CommandDeny}} {
+		for _, pattern := range list.patterns {
+			if strings.TrimSpace(pattern) == "" {
+				return fmt.Errorf("%s: empty pattern", list.name)
+			}
+		}
 	}
 	return nil
 }

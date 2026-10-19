@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/user"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -149,6 +151,13 @@ func (h *Handlers) CreateA2APushConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
 
+// pushConfigView is a push config as the API returns it: the token only to
+// admins (it signs deliveries), has_token to everyone (KI-176).
+type pushConfigView struct {
+	database.A2APushConfig
+	HasToken bool `json:"has_token"`
+}
+
 // ListA2APushConfigs handles GET /api/v1/a2a/tasks/{id}/push-config
 func (h *Handlers) ListA2APushConfigs(w http.ResponseWriter, r *http.Request) {
 	taskID := urlParam(r, "id")
@@ -157,7 +166,17 @@ func (h *Handlers) ListA2APushConfigs(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	writeJSONList(w, http.StatusOK, configs)
+	u := middleware.UserFromContext(r.Context())
+	withToken := u != nil && u.Role == user.RoleAdmin
+	views := make([]pushConfigView, 0, len(configs))
+	for i := range configs {
+		v := pushConfigView{A2APushConfig: configs[i], HasToken: configs[i].Token != ""}
+		if !withToken {
+			v.Token = ""
+		}
+		views = append(views, v)
+	}
+	writeJSONList(w, http.StatusOK, views)
 }
 
 // DeleteA2APushConfig handles DELETE /api/v1/a2a/push-config/{id}

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -75,7 +76,8 @@ logging:
 }
 
 func TestLoadFrom_EnvInvalidValues(t *testing.T) {
-	// Invalid env values are silently ignored; defaults survive.
+	// Invalid env values fail the load and every one is named (KI-213); they
+	// used to be ignored with a warning, leaving the defaults in place.
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "cfg.yaml")
 	if err := os.WriteFile(yamlPath, nil, 0o644); err != nil {
@@ -87,19 +89,14 @@ func TestLoadFrom_EnvInvalidValues(t *testing.T) {
 	t.Setenv("CODEFORGE_BREAKER_TIMEOUT", "invalid-duration")
 	t.Setenv("CODEFORGE_RATE_RPS", "abc")
 
-	cfg, err := LoadFrom(yamlPath)
-	if err != nil {
-		t.Fatalf("LoadFrom: %v", err)
+	_, err := LoadFrom(yamlPath)
+	if err == nil {
+		t.Fatal("LoadFrom accepted invalid env values")
 	}
-
-	if cfg.Postgres.MaxConns != 50 {
-		t.Errorf("invalid int env should be ignored: got max_conns %d, want 50", cfg.Postgres.MaxConns)
-	}
-	if cfg.Breaker.Timeout.String() != "30s" {
-		t.Errorf("invalid duration env should be ignored: got %v, want 30s", cfg.Breaker.Timeout)
-	}
-	if cfg.Rate.RequestsPerSecond != 10 {
-		t.Errorf("invalid float env should be ignored: got %v, want 10", cfg.Rate.RequestsPerSecond)
+	for _, key := range []string{"CODEFORGE_PG_MAX_CONNS", "CODEFORGE_BREAKER_TIMEOUT", "CODEFORGE_RATE_RPS"} {
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("error %q does not name %s", err, key)
+		}
 	}
 }
 
@@ -181,137 +178,5 @@ orchestrator:
 	// Unchanged orchestrator defaults
 	if cfg.Orchestrator.PingPongMaxRounds != 3 {
 		t.Errorf("default ping_pong_max_rounds should be 3, got %d", cfg.Orchestrator.PingPongMaxRounds)
-	}
-}
-
-func TestReload_UpdatesFields(t *testing.T) {
-	dir := t.TempDir()
-	yamlPath := filepath.Join(dir, "cfg.yaml")
-
-	t.Setenv("APP_ENV", "development") // required for default JWT secret
-
-	// Initial config
-	if err := os.WriteFile(yamlPath, []byte(`
-logging:
-  level: "info"
-rate:
-  burst: 50
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := LoadFrom(yamlPath)
-	if err != nil {
-		t.Fatalf("LoadFrom: %v", err)
-	}
-
-	holder := NewHolder(cfg, yamlPath)
-
-	// Verify initial
-	got := holder.Get()
-	if got.Logging.Level != "info" {
-		t.Fatalf("initial level should be info, got %q", got.Logging.Level)
-	}
-
-	// Update YAML
-	if err := os.WriteFile(yamlPath, []byte(`
-logging:
-  level: "debug"
-rate:
-  burst: 200
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Reload
-	if err := holder.Reload(); err != nil {
-		t.Fatalf("Reload: %v", err)
-	}
-
-	got = holder.Get()
-	if got.Logging.Level != "debug" {
-		t.Errorf("after reload: got level %q, want debug", got.Logging.Level)
-	}
-	if got.Rate.Burst != 200 {
-		t.Errorf("after reload: got burst %d, want 200", got.Rate.Burst)
-	}
-}
-
-func TestReload_ValidationFails_PreservesOld(t *testing.T) {
-	dir := t.TempDir()
-	yamlPath := filepath.Join(dir, "cfg.yaml")
-
-	t.Setenv("APP_ENV", "development") // required for default JWT secret
-
-	// Valid initial config
-	if err := os.WriteFile(yamlPath, []byte(`
-server:
-  port: "9090"
-logging:
-  level: "info"
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := LoadFrom(yamlPath)
-	if err != nil {
-		t.Fatalf("LoadFrom: %v", err)
-	}
-
-	holder := NewHolder(cfg, yamlPath)
-
-	// Write invalid config (empty port)
-	if err := os.WriteFile(yamlPath, []byte(`
-server:
-  port: ""
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Reload should fail
-	if err := holder.Reload(); err == nil {
-		t.Fatal("expected reload to fail for invalid config")
-	}
-
-	// Old config preserved
-	got := holder.Get()
-	if got.Server.Port != "9090" {
-		t.Errorf("old config should be preserved: got port %q, want 9090", got.Server.Port)
-	}
-	if got.Logging.Level != "info" {
-		t.Errorf("old config should be preserved: got level %q, want info", got.Logging.Level)
-	}
-}
-
-func TestReload_EnvOverridesYAML(t *testing.T) {
-	dir := t.TempDir()
-	yamlPath := filepath.Join(dir, "cfg.yaml")
-
-	t.Setenv("APP_ENV", "development") // required for default JWT secret
-
-	if err := os.WriteFile(yamlPath, []byte(`
-logging:
-  level: "info"
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := LoadFrom(yamlPath)
-	if err != nil {
-		t.Fatalf("LoadFrom: %v", err)
-	}
-
-	holder := NewHolder(cfg, yamlPath)
-
-	// Set env before reload
-	t.Setenv("CODEFORGE_LOG_LEVEL", "error")
-
-	if err := holder.Reload(); err != nil {
-		t.Fatalf("Reload: %v", err)
-	}
-
-	got := holder.Get()
-	if got.Logging.Level != "error" {
-		t.Errorf("env should override YAML on reload: got %q, want error", got.Logging.Level)
 	}
 }

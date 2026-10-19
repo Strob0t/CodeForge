@@ -42,10 +42,9 @@ class CodeForgeAgentProvider:
         )
 
     async def load_tasks(self) -> list[TaskSpec]:
-        from pathlib import Path as _Path
+        from codeforge.evaluation.datasets import read_dataset_text
 
-        path: _Path = _Path(self._dataset_path)
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(read_dataset_text(self._dataset_path))
         tasks: list[TaskSpec] = []
         for t in raw.get("tasks", []):
             expected_tools = [

@@ -148,6 +148,12 @@ func (m *reviewMockStore) GetReviewByPlanID(_ context.Context, planID string) (*
 // ---------------------------------------------------------------------------
 
 func newReviewTestEnv() (*service.ReviewService, *reviewMockStore) {
+	svc, store, _ := newReviewTestEnvWithHub()
+	return svc, store
+}
+
+// newReviewTestEnvWithHub is newReviewTestEnv that also returns the broadcaster.
+func newReviewTestEnvWithHub() (*service.ReviewService, *reviewMockStore, *runtimeMockBroadcaster) {
 	store := newReviewMockStore()
 	hub := &runtimeMockBroadcaster{}
 	events := &runtimeMockEventStore{}
@@ -161,7 +167,7 @@ func newReviewTestEnv() (*service.ReviewService, *reviewMockStore) {
 	orchestrator := service.NewOrchestratorService(store, hub, events, nil, &config.Orchestrator{})
 
 	svc := service.NewReviewService(store, pipelineSvc, orchestrator, hub, events)
-	return svc, store
+	return svc, store, hub
 }
 
 // mustCreatePolicy is a test helper that creates a policy and fails the test on error.

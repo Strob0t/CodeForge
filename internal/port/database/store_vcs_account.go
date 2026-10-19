@@ -16,7 +16,10 @@ type VCSAccountStore interface {
 
 	// OAuth State (CSRF protection for OAuth flows)
 	CreateOAuthState(ctx context.Context, state *vcsaccount.OAuthState) error
-	GetOAuthState(ctx context.Context, stateToken string) (*vcsaccount.OAuthState, error)
+	// ConsumeOAuthState removes an unexpired state and returns it, whatever
+	// the request's tenant: the callback arrives without a session, and the
+	// state (a 256-bit secret) names the tenant that started the flow.
+	ConsumeOAuthState(ctx context.Context, stateToken string) (*vcsaccount.OAuthState, error)
 	DeleteOAuthState(ctx context.Context, stateToken string) error
 	DeleteExpiredOAuthStates(ctx context.Context) (int64, error)
 }

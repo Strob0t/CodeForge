@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -13,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // gdprMockStore implements the subset of database.Store used by GDPRService.
@@ -35,10 +38,20 @@ type gdprMockStore struct {
 	anonymizeErr    error
 	deleteCalled    bool
 	anonymizeCalled bool
+	steps           []string         // erasure calls in order
+	stepErrs        map[string]error // failing erasure step
 }
 
-func (m *gdprMockStore) GetUser(_ context.Context, _ string) (*user.User, error) {
-	return m.user, m.getUserErr
+// GetUser returns the configured user, or a user of the default tenant when
+// none is configured (the erasure steps need one).
+func (m *gdprMockStore) GetUser(_ context.Context, id string) (*user.User, error) {
+	if m.getUserErr != nil {
+		return nil, m.getUserErr
+	}
+	if m.user != nil {
+		return m.user, nil
+	}
+	return &user.User{ID: id, TenantID: tenantctx.DefaultTenantID}, nil
 }
 
 func (m *gdprMockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]user.APIKey, error) {
@@ -69,6 +82,11 @@ func (m *gdprMockStore) ListTasks(_ context.Context, _ string) ([]task.Task, err
 	return m.tasks, nil
 }
 
+func (m *gdprMockStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (m *gdprMockStore) TouchRun(_ context.Context, _ string, _ run.Status) error { return nil }
+
 func (m *gdprMockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) {
 	return m.runs, nil
 }
@@ -79,17 +97,84 @@ func (m *gdprMockStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ i
 
 func (m *gdprMockStore) DeleteUser(_ context.Context, _ string) error {
 	m.deleteCalled = true
+	m.steps = append(m.steps, "delete_user")
 	return m.deleteUserErr
 }
 
 func (m *gdprMockStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
 	m.anonymizeCalled = true
+	m.steps = append(m.steps, "audit_log")
 	return m.anonymizedRows, m.anonymizeErr
+}
+
+func (m *gdprMockStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
+	m.steps = append(m.steps, "user_consents")
+	return 1, m.stepErrs["user_consents"]
+}
+
+func (m *gdprMockStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	m.steps = append(m.steps, "channel_messages")
+	return 1, m.stepErrs["channel_messages"]
+}
+
+func (m *gdprMockStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ string) (int64, error) {
+	m.steps = append(m.steps, "quarantine_reviews")
+	return 1, m.stepErrs["quarantine_reviews"]
+}
+
+// Erasure removes the user's personal data from every row that outlives the
+// user (audit entries, consent records, channel messages, quarantine reviews)
+// before it deletes
+// the user row; if one of these steps fails, the user is not deleted.
+func TestDeleteUserData_AnonymizesRowsThatOutliveTheUser(t *testing.T) {
+	store := &gdprMockStore{}
+	if err := NewGDPRService(store).DeleteUserData(context.Background(), "u1"); err != nil {
+		t.Fatalf("DeleteUserData: %v", err)
+	}
+	want := []string{"audit_log", "user_consents", "channel_messages", "quarantine_reviews", "delete_user"}
+	if strings.Join(store.steps, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v", store.steps, want)
+	}
+}
+
+func TestDeleteUserData_StepFailureKeepsUser(t *testing.T) {
+	for _, step := range []string{"user_consents", "channel_messages", "quarantine_reviews"} {
+		t.Run(step, func(t *testing.T) {
+			store := &gdprMockStore{stepErrs: map[string]error{step: errors.New("db down")}}
+			err := NewGDPRService(store).DeleteUserData(context.Background(), "u1")
+			if err == nil || !strings.Contains(err.Error(), step) {
+				t.Fatalf("DeleteUserData error = %v, want one naming %s", err, step)
+			}
+			if store.deleteCalled {
+				t.Fatal("DeleteUser must not run after a failed anonymization")
+			}
+		})
+	}
+}
+
+// Deleting an account (DELETE /users/{id}) is an erasure too: it takes the
+// same anonymization steps before it deletes the user row.
+func TestAuthDeleteUser_ErasesLikeGDPR(t *testing.T) {
+	store := &gdprMockStore{}
+	svc := NewAuthService(store, &config.Auth{JWTSecret: "test-secret-key-must-be-long-enough"})
+	if err := svc.DeleteUser(context.Background(), "u1"); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	want := []string{"audit_log", "user_consents", "channel_messages", "quarantine_reviews", "delete_user"}
+	if strings.Join(store.steps, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v", store.steps, want)
+	}
+
+	failing := &gdprMockStore{stepErrs: map[string]error{"user_consents": errors.New("db down")}}
+	svc = NewAuthService(failing, &config.Auth{JWTSecret: "test-secret-key-must-be-long-enough"})
+	if err := svc.DeleteUser(context.Background(), "u1"); err == nil || failing.deleteCalled {
+		t.Fatalf("DeleteUser = %v, deleted %v: want an error and the user kept", err, failing.deleteCalled)
+	}
 }
 
 func TestExportUserData_Complete(t *testing.T) {
 	store := &gdprMockStore{
-		user:          &user.User{ID: "u1", Email: "test@example.com"},
+		user:          &user.User{ID: "u1", Email: "test@example.com", TenantID: tenantctx.DefaultTenantID},
 		apiKeys:       []user.APIKey{{ID: "k1"}},
 		llmKeys:       []llmkey.LLMKey{{ID: "l1"}},
 		projects:      []project.Project{{ID: "p1", Name: "TestProject"}},
@@ -141,7 +226,7 @@ func TestExportUserData_Complete(t *testing.T) {
 
 func TestExportUserData_EmptyUser(t *testing.T) {
 	store := &gdprMockStore{
-		user: &user.User{ID: "u1", Email: "empty@example.com"},
+		user: &user.User{ID: "u1", Email: "empty@example.com", TenantID: tenantctx.DefaultTenantID},
 	}
 
 	svc := NewGDPRService(store)
@@ -172,7 +257,7 @@ func TestExportUserData_UserNotFound(t *testing.T) {
 
 func TestDeleteUserData_AnonymizesAuditLog(t *testing.T) {
 	store := &gdprMockStore{
-		user:           &user.User{ID: "u1"},
+		user:           &user.User{ID: "u1", TenantID: tenantctx.DefaultTenantID},
 		anonymizedRows: 5,
 	}
 

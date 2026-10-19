@@ -38,6 +38,10 @@ type A2AService struct {
 	hub      broadcast.Broadcaster
 	resolver *agentcard.Resolver
 
+	// webhookClient delivers push notifications. It blocks private IPs (SSRF);
+	// tests in this package override it to reach a local httptest server.
+	webhookClient *http.Client
+
 	mu      sync.RWMutex
 	clients map[string]*a2aclient.Client
 }
@@ -48,7 +52,11 @@ func NewA2AService(store database.Store, queue messagequeue.Queue, hub ...broadc
 		store:    store,
 		queue:    queue,
 		resolver: agentcard.DefaultResolver,
-		clients:  make(map[string]*a2aclient.Client),
+		webhookClient: &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: netutil.SafeTransport(),
+		},
+		clients: make(map[string]*a2aclient.Client),
 	}
 	if len(hub) > 0 {
 		svc.hub = hub[0]
@@ -422,7 +430,6 @@ func (s *A2AService) DispatchPushNotifications(ctx context.Context, taskID strin
 // sendWebhook POSTs a payload to a webhook URL with optional Bearer token, HMAC signature, and retry.
 func (s *A2AService) sendWebhook(webhookURL, token string, payload []byte) {
 	const maxRetries = 3
-	client := &http.Client{Timeout: 10 * time.Second, Transport: netutil.SafeTransport()}
 	ctx := context.Background()
 
 	for attempt := range maxRetries {
@@ -438,7 +445,7 @@ func (s *A2AService) sendWebhook(webhookURL, token string, payload []byte) {
 			req.Header.Set("X-CodeForge-Signature", computeHMAC(payload, token))
 		}
 
-		resp, err := client.Do(req) //nolint:gosec // URL is validated at push config creation time
+		resp, err := s.webhookClient.Do(req) //nolint:gosec // URL is validated at push config creation time
 		if err != nil {
 			slog.Warn("push webhook: request failed", "url", webhookURL, "attempt", attempt+1, "error", err)
 			time.Sleep(time.Duration(attempt+1) * time.Second)
@@ -469,6 +476,7 @@ func (s *A2AService) HandleTaskComplete(ctx context.Context, taskID, state, errM
 	if err != nil {
 		return fmt.Errorf("handle task complete: %w", err)
 	}
+	ctx = withEntityTenant(ctx, dt.TenantID)
 
 	dt.State = a2adomain.TaskState(state)
 	dt.ErrorMessage = errMsg

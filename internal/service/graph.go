@@ -59,6 +59,7 @@ func NewGraphService(store database.Store, queue messagequeue.Queue, hub broadca
 func (s *GraphService) RequestBuild(ctx context.Context, projectID, workspacePath string) error {
 	payload := messagequeue.GraphBuildRequestPayload{
 		ProjectID:     projectID,
+		TenantID:      outgoingTenant(ctx, "graph.build.request"),
 		WorkspacePath: workspacePath,
 	}
 	data, err := json.Marshal(payload)
@@ -88,6 +89,7 @@ func (s *GraphService) RequestBuild(ctx context.Context, projectID, workspacePat
 
 // HandleBuildResult processes the result of a graph build from the Python worker.
 func (s *GraphService) HandleBuildResult(ctx context.Context, payload *messagequeue.GraphBuildResultPayload) error {
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 	status := payload.Status
 	if payload.Error != "" {
 		status = "error"
@@ -137,7 +139,7 @@ func (s *GraphService) SearchSync(ctx context.Context, projectID string, seedSym
 		return nil, err
 	}
 
-	ch := s.searchWaiter.register(requestID)
+	ch := s.searchWaiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.searchWaiter.unregister(requestID)
 
 	payload := messagequeue.GraphSearchRequestPayload{
@@ -176,8 +178,14 @@ func (s *GraphService) SearchSync(ctx context.Context, projectID string, seedSym
 }
 
 // HandleSearchResult delivers a graph search result to the waiting caller.
-func (s *GraphService) HandleSearchResult(_ context.Context, payload *messagequeue.GraphSearchResultPayload) {
-	s.searchWaiter.deliver(payload.RequestID, payload)
+func (s *GraphService) HandleSearchResult(ctx context.Context, payload *messagequeue.GraphSearchResultPayload) {
+	s.handleSearchResult(ctx, payload, nil)
+}
+
+// handleSearchResult delivers a graph search result decoded from raw, the
+// worker's message (nil: none), which the relay sends as it came.
+func (s *GraphService) handleSearchResult(ctx context.Context, payload *messagequeue.GraphSearchResultPayload, raw []byte) {
+	s.searchWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload, raw)
 }
 
 // GetStatus returns the in-memory graph status for a project, or nil if unknown.
@@ -205,7 +213,7 @@ func (s *GraphService) StartSubscribers(ctx context.Context) ([]func(), error) {
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return fmt.Errorf("unmarshal graph search result: %w", err)
 		}
-		s.HandleSearchResult(msgCtx, &payload)
+		s.handleSearchResult(msgCtx, &payload, data)
 		return nil
 	})
 	if err != nil {

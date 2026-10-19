@@ -12,7 +12,7 @@
 | **Account** | email, name, password_hash, role | Yes | High | PostgreSQL `users` | password_hash: bcrypt; email/name: plaintext | Account lifetime + 30 days |
 | **Authentication** | JWT tokens, refresh tokens, API keys | No (opaque) | Critical | PostgreSQL `revoked_tokens`, `api_keys` | API keys: SHA-256 hash | Refresh: 7 days; Revoked: 30 days cleanup |
 | **Conversation** | user prompts, LLM responses, tool calls | Yes (may contain PII) | High | PostgreSQL `conversation_messages` | **Plaintext** (see Encryption Roadmap below) | 90 days after last activity (configurable) |
-| **Audit Log** | admin_id, admin_email, ip_address, action | Yes | Medium | PostgreSQL `audit_log` | Plaintext | Email: anonymized on user deletion; IP: 180 days (CNIL) |
+| **Audit Log** | admin_id, admin_email, ip_address, action | Yes | Medium | PostgreSQL `audit_log` | Plaintext | Email: anonymized on user deletion (listed as `null`); IP: removed after 180 days by the retention job (`retention.audit_ip_addresses`); entries: 7 years |
 | **Cost/Usage** | token counts, model usage, cost_usd | No | Low | PostgreSQL `cost_entries` | Plaintext | 7 years (tax/accounting) |
 | **VCS Credentials** | OAuth tokens, PATs | No (opaque) | Critical | PostgreSQL `vcs_accounts` | AES-256-GCM (`crypto.Encrypt`) | Account lifetime |
 | **LLM Keys** | Provider API keys | No (opaque) | Critical | PostgreSQL `llm_keys` | AES-256-GCM (`crypto.Encrypt`) | Until deleted by user |

@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._repomap import RepoMapHandlerMixin
 from codeforge.consumer._subjects import SUBJECT_REPOMAP_RESULT
@@ -20,14 +18,7 @@ from codeforge.models import RepoMapRequest, RepoMapResult
 class _TestMixin(RepoMapHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js: AsyncMock | None = AsyncMock()
-        self._processed_ids: set[str] = set()
-        self._processed_ids_max = 10_000
         self._repomap_generator = MagicMock()
-
-
-@pytest.fixture(autouse=True)
-def _fresh_state() -> None:
-    ConsumerBaseMixin._processed_ids = set()
 
 
 def _make_msg(data: dict) -> MagicMock:
@@ -117,14 +108,19 @@ async def test_repomap_failure_naks() -> None:
 
 
 async def test_repomap_invalid_json() -> None:
-    """Invalid JSON causes nak."""
+    """Invalid JSON is dead-lettered and terminated (a NAK would redeliver it forever)."""
     mixin = _TestMixin()
     msg = MagicMock()
+    msg.subject = "repomap.generate.request"
     msg.data = b"not json"
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.term = AsyncMock()
     msg.headers = {}
 
     await mixin._handle_repomap(msg)
 
-    msg.nak.assert_called_once()
+    assert mixin._js is not None
+    mixin._js.publish.assert_awaited_once_with("repomap.generate.request.dlq", b"not json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.nak.assert_not_called()

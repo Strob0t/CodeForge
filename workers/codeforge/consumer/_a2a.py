@@ -24,15 +24,17 @@ class A2AHandlerMixin:
 
     async def _handle_a2a_task_created(self, msg: nats.aio.msg.Msg) -> None:
         """Process an inbound A2A task: run agent and publish completion."""
+        req = await self._parse_request(msg, A2ATaskCreatedMessage)
+        if req is None:
+            return
+        log = logger.bind(task_id=req.task_id, skill_id=req.skill_id)
+
+        if self._is_duplicate(f"a2a-{req.task_id}"):
+            log.warning("duplicate A2A task, skipping")
+            await msg.ack()
+            return
+
         try:
-            req = A2ATaskCreatedMessage.model_validate_json(msg.data)
-            log = logger.bind(task_id=req.task_id, skill_id=req.skill_id)
-
-            if self._is_duplicate(f"a2a-{req.task_id}"):
-                log.warning("duplicate A2A task, skipping")
-                await msg.ack()
-                return
-
             log.info("received A2A task", prompt_len=len(req.prompt))
 
             # Publish "working" state transition before execution.
@@ -76,7 +78,6 @@ class A2AHandlerMixin:
             logger.exception("failed to process A2A task", error=str(exc))
             # Publish failure completion so Go side knows.
             try:
-                req = A2ATaskCreatedMessage.model_validate_json(msg.data)
                 if self._js is not None:
                     fail = A2ATaskCompleteMessage(
                         task_id=req.task_id,
@@ -95,8 +96,10 @@ class A2AHandlerMixin:
 
     async def _handle_a2a_task_cancel(self, msg: nats.aio.msg.Msg) -> None:
         """Handle an A2A task cancellation request."""
+        data = await self._parse_json_object(msg)
+        if data is None:
+            return
         try:
-            data = json.loads(msg.data)
             task_id = data.get("task_id", "")
             log = logger.bind(task_id=task_id)
             log.info("received A2A task cancel")

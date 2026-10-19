@@ -16,11 +16,12 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
-from nats.js.api import ConsumerConfig, DeliverPolicy
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 
-from codeforge.constants import NATS_RESPONSE_TIMEOUT_SECONDS
+from codeforge.constants import APPROVAL_RESPONSE_MARGIN_SECONDS, DEFAULT_APPROVAL_TIMEOUT_SECONDS
 from codeforge.metrics import ExecutionMetrics
 from codeforge.models import RunCompleteMessage, ToolCallDecision
+from codeforge.nats_publish import publish_with_retry
 from codeforge.nats_subjects import (
     SUBJECT_AGENT_OUTPUT,
     SUBJECT_RUN_CANCEL,
@@ -34,13 +35,160 @@ from codeforge.nats_subjects import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Awaitable, Callable
+
     from nats.js.client import JetStreamContext
 
     from codeforge.models import TerminationConfig
+    from codeforge.notifications import Notifications, NotificationSubscription
 
-RESPONSE_TIMEOUT_SECONDS = NATS_RESPONSE_TIMEOUT_SECONDS
+# Maximum length (characters) of the arguments preview sent with a tool call.
+ARGUMENTS_PREVIEW_MAX_CHARS = 1000
+
+# How often a worker reports work it executes as alive (the Go Core's
+# runtime.heartbeat_interval). The Go Core ends accepted work whose heartbeats
+# stop for runtime.heartbeat_timeout (KI-65).
+HEARTBEAT_INTERVAL_SECONDS = 30.0
+
+
+def heartbeat_interval(heartbeat_seconds: int) -> float:
+    """Seconds between two heartbeats of work whose start message sent *heartbeat_seconds* (0 = default)."""
+    return float(heartbeat_seconds) if heartbeat_seconds > 0 else HEARTBEAT_INTERVAL_SECONDS
+
 
 logger = structlog.get_logger()
+
+
+async def send_heartbeats(
+    js: JetStreamContext,
+    subject: str,
+    payload: dict[str, str],
+    interval: float,
+    until: Callable[[], bool] = lambda: False,
+    on_beat: Callable[[], Awaitable[None]] | None = None,
+) -> None:
+    """Publish *payload* with the current time on *subject* every *interval* seconds.
+
+    Runs until cancelled or until *until()* is true; *on_beat* runs with
+    every heartbeat (e.g. an in-progress ack of the message being handled).
+    A failed publish or *on_beat* is logged; the next heartbeat follows.
+    """
+    while not until():
+        beat = {**payload, "timestamp": datetime.now(UTC).isoformat()}
+        try:
+            await js.publish(subject, json.dumps(beat).encode())
+        except Exception as exc:
+            logger.warning("heartbeat publish failed", subject=subject, error=str(exc), **payload)
+        if on_beat is not None:
+            try:
+                await on_beat()
+            except Exception as exc:
+                logger.warning("heartbeat callback failed", subject=subject, error=str(exc), **payload)
+        await asyncio.sleep(interval)
+
+
+@contextlib.asynccontextmanager
+async def heartbeats(
+    js: JetStreamContext,
+    subject: str,
+    payload: dict[str, str],
+    interval: float,
+    on_beat: Callable[[], Awaitable[None]] | None = None,
+) -> AsyncIterator[None]:
+    """Send heartbeats (see send_heartbeats) while the block runs."""
+    task = asyncio.create_task(
+        send_heartbeats(js, subject, payload, interval, on_beat=on_beat), name=f"heartbeat {subject}"
+    )
+    try:
+        yield
+    finally:
+        task.cancel()
+        # asyncio.wait: the heartbeat's own cancellation does not end the
+        # caller, a cancellation of the caller still does.
+        await asyncio.wait({task})
+
+
+def notification_consumer(after: int | None = None) -> ConsumerConfig:
+    """What a run or task listens to on a notification subject (cancel messages, tool-call responses).
+
+    New messages only - with *after*, every message published after that
+    stream sequence (e.g. the work's own start message), so none published
+    while the listener subscribes is missed (``NotificationHub.subscribe``).
+    Notifications are never acked: with explicit acks JetStream would
+    redeliver every message after the ack wait and stop delivering once
+    MaxAckPending messages were outstanding.
+    """
+    if after is not None:
+        return ConsumerConfig(
+            deliver_policy=DeliverPolicy.BY_START_SEQUENCE, opt_start_seq=after + 1, ack_policy=AckPolicy.NONE
+        )
+    return ConsumerConfig(deliver_policy=DeliverPolicy.NEW, ack_policy=AckPolicy.NONE)
+
+
+def cancel_ids(data: object) -> tuple[str, str] | None:
+    """(run_id, task_id) of a cancel message, "" for an absent ID; None if the message is malformed."""
+    try:
+        payload = json.loads(data)  # type: ignore[arg-type]
+    except (ValueError, TypeError) as exc:  # invalid JSON or UTF-8, or no bytes at all
+        logger.warning("ignoring malformed cancel message", error=str(exc))
+        return None
+    if not isinstance(payload, dict):
+        logger.warning("ignoring malformed cancel message", payload_type=type(payload).__name__)
+        return None
+    run_id = payload.get("run_id")
+    task_id = payload.get("task_id")
+    return (run_id if isinstance(run_id, str) else "", task_id if isinstance(task_id, str) else "")
+
+
+async def listen_for_cancel(
+    sub: NotificationSubscription,
+    matches: Callable[[str, str], bool],
+    on_cancel: Callable[[], None],
+    *,
+    until: Callable[[], bool],
+) -> None:
+    """Call *on_cancel* once a cancel message on *sub* matches(run_id, task_id).
+
+    Cancel subjects are shared by every run and task, so a malformed message is
+    skipped, not fatal. Returns after the cancel, once *until()* is true, or
+    when the subscription is closed.
+    """
+    while not until():
+        try:
+            msg = await sub.next_msg(timeout=1.0)
+        except TimeoutError:
+            continue
+        except Exception as exc:
+            logger.debug("cancel listener stopped", error=str(exc))
+            return
+        ids = cancel_ids(msg.data)
+        if ids is not None and matches(*ids):
+            on_cancel()
+            return
+        # Let the run go on even if unmatched messages arrive back to back.
+        await asyncio.sleep(0)
+
+
+def policy_response_timeout(approval_timeout_seconds: float) -> float:
+    """How long to wait for the Go Core's decision on a tool call.
+
+    A call the policy resolves to "ask" is answered only once a human decided
+    or Go's approval timeout expired, so the wait outlasts that timeout
+    (KI-21). A timeout <= 0 (none sent) means the Go default.
+    """
+    approval = approval_timeout_seconds if approval_timeout_seconds > 0 else DEFAULT_APPROVAL_TIMEOUT_SECONDS
+    return approval + APPROVAL_RESPONSE_MARGIN_SECONDS
+
+
+def arguments_preview(arguments: dict[str, object]) -> str:
+    """Render tool call arguments as truncated JSON for the human approver.
+
+    Display only: the Go policy layer never evaluates the preview.
+    """
+    text = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
+    if len(text) <= ARGUMENTS_PREVIEW_MAX_CHARS:
+        return text
+    return text[: ARGUMENTS_PREVIEW_MAX_CHARS - 3] + "..."
 
 
 class RuntimeClient:
@@ -57,65 +205,107 @@ class RuntimeClient:
         task_id: str,
         project_id: str,
         termination: TerminationConfig,
+        tenant_id: str = "",
+        mode_id: str = "",
+        turn_id: str = "",
+        approval_timeout_seconds: float = 0,
+        notifications: Notifications | None = None,
     ) -> None:
         self._js = js
+        # Cancels and tool-call decisions (the worker's NotificationHub).
+        self._notifications = notifications
         self.run_id = run_id
         self.task_id = task_id
         self.project_id = project_id
+        # Echoed on every message to the control plane: the Go core scopes store
+        # writes and WebSocket events to it and drops events without a tenant.
+        self.tenant_id = tenant_id
         self.termination = termination
+        # Agent mode the run was started with; the Go policy layer enforces
+        # its tool lists on every tool call.
+        self.mode_id = mode_id
+        # Turn of a conversation run: conversation runs reuse the conversation
+        # ID as run ID, so Go tells the calls of a stopped run from the calls
+        # of the next run of the same conversation by it.
+        self.turn_id = turn_id
+        # Go's HITL approval timeout, sent with the run start: a decision is
+        # awaited longer than that.
+        self.policy_wait_seconds = policy_response_timeout(approval_timeout_seconds)
         self._metrics = ExecutionMetrics()
         self._cancelled = False
-        self._cancel_sub: object | None = None
+        self._completed = False
+        self._cancel_subs: list[NotificationSubscription] = []
+        self._cancel_tasks: list[asyncio.Task[None]] = []
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._log = logger.bind(run_id=run_id, task_id=task_id)
 
-    async def start_cancel_listener(self, extra_subjects: list[str] | None = None) -> None:
+    async def start_cancel_listener(self, extra_subjects: list[str] | None = None, after: int | None = None) -> None:
         """Subscribe to cancellation messages for this run.
 
         Listens on the default runs.cancel subject plus any extra subjects
-        (e.g. conversation.run.cancel for conversation runs).
+        (e.g. conversation.run.cancel for conversation runs). With *after*
+        (the stream sequence of the run's start message), every cancel
+        published after the start is seen, also one published while the
+        listener subscribes. The subscriptions belong to this run:
+        ``close()`` must be called when the run ends.
         """
         subjects = [SUBJECT_RUN_CANCEL] + (extra_subjects or [])
-        _new_only = ConsumerConfig(deliver_policy=DeliverPolicy.NEW)
-        subs = [await self._js.subscribe(s, config=_new_only) for s in subjects]
-        self._cancel_sub = subs  # type: ignore[assignment]
+        for subject in subjects:
+            sub = await self._notification_source().subscribe(subject, config=notification_consumer(after))
+            self._cancel_subs.append(sub)
+            listener = listen_for_cancel(sub, self._names_this_run, self._mark_cancelled, until=self._is_cancelled)
+            self._cancel_tasks.append(asyncio.create_task(listener))
 
-        async def _listen_sub(sub: object) -> None:
-            while not self._cancelled:
-                try:
-                    msg = await sub.next_msg(timeout=1.0)  # type: ignore[attr-defined]
-                    data = json.loads(msg.data)
-                    if data.get("run_id") == self.run_id or data.get("task_id") == self.task_id:
-                        self._cancelled = True
-                        self._log.info("run cancelled by control plane")
-                except TimeoutError:
-                    continue
-                except Exception as exc:
-                    logger.debug("cancel listener error", error=str(exc))
-                    break
+    def _notification_source(self) -> Notifications:
+        if self._notifications is None:
+            msg = "no notification source: the run cannot see cancels or tool-call decisions"
+            raise RuntimeError(msg)
+        return self._notifications
 
+    def _names_this_run(self, run_id: str, task_id: str) -> bool:
+        # Empty IDs never match: a run without a task ID is not cancelled by a
+        # cancel for "no task".
+        return (bool(run_id) and run_id == self.run_id) or (bool(task_id) and task_id == self.task_id)
+
+    def _mark_cancelled(self) -> None:
+        self._cancelled = True
+        self._log.info("run cancelled by control plane")
+
+    def _is_cancelled(self) -> bool:
+        return self._cancelled
+
+    async def stop_cancel_listener(self) -> None:
+        """Stop the listener tasks and unsubscribe this run's cancel subscriptions."""
+        tasks, self._cancel_tasks = self._cancel_tasks, []
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        subs, self._cancel_subs = self._cancel_subs, []
         for sub in subs:
-            asyncio.create_task(_listen_sub(sub))  # noqa: RUF006
+            try:
+                await sub.unsubscribe()
+            except Exception as exc:
+                self._log.warning("cancel listener unsubscribe failed", error=str(exc))
 
-    async def start_heartbeat(self, interval: float = 30.0) -> None:
-        """Start periodic heartbeat to the control plane."""
+    async def close(self) -> None:
+        """Release everything this run holds on NATS: heartbeat and cancel listeners."""
+        await self.stop_heartbeat()
+        await self.stop_cancel_listener()
 
-        async def _beat() -> None:
-            while not self._cancelled:
-                payload = {
-                    "run_id": self.run_id,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }
-                try:
-                    await self._js.publish(
-                        SUBJECT_RUN_HEARTBEAT,
-                        json.dumps(payload).encode(),
-                    )
-                except Exception as exc:
-                    self._log.warning("heartbeat publish failed", error=str(exc))
-                await asyncio.sleep(interval)
+    async def start_heartbeat(self, interval: float = HEARTBEAT_INTERVAL_SECONDS) -> None:
+        """Start the periodic heartbeat to the control plane (stops with close() or a cancel).
 
-        self._heartbeat_task = asyncio.create_task(_beat())
+        It names the run's tenant, and a conversation run's turn: the Go Core
+        records it for the conversation's active turn only (KI-65).
+        """
+        payload = {"run_id": self.run_id, "tenant_id": self.tenant_id}
+        if self.turn_id:
+            payload["turn_id"] = self.turn_id
+        self._heartbeat_task = asyncio.create_task(
+            send_heartbeats(self._js, SUBJECT_RUN_HEARTBEAT, payload, interval, until=self._is_cancelled)
+        )
 
     async def stop_heartbeat(self) -> None:
         """Stop the heartbeat ticker."""
@@ -129,6 +319,11 @@ class RuntimeClient:
     def is_cancelled(self) -> bool:
         """Whether this run has been cancelled."""
         return self._cancelled
+
+    @property
+    def completed(self) -> bool:
+        """Whether this run's completion has been published to the control plane."""
+        return self._completed
 
     @property
     def step_count(self) -> int:
@@ -145,11 +340,16 @@ class RuntimeClient:
         tool: str,
         command: str = "",
         path: str = "",
+        arguments_preview: str = "",
+        reports_result: bool = True,
     ) -> ToolCallDecision:
         """Request permission from the control plane to execute a tool call.
 
         Publishes a request to NATS, then waits for the response.
-        Returns the decision (allow/deny/ask).
+        Returns the decision (allow/deny/ask). ``arguments_preview`` is shown
+        to a human approver only; the policy evaluates tool, command and path.
+        ``reports_result`` is False for a caller that never reports the call's
+        result (``report_tool_result``): the chat then shows no live card for it.
         """
         if self._cancelled:
             return ToolCallDecision(
@@ -162,22 +362,23 @@ class RuntimeClient:
         request = {
             "run_id": self.run_id,
             "call_id": call_id,
+            "tenant_id": self.tenant_id,
             "tool": tool,
             "command": command,
             "path": path,
+            "mode_id": self.mode_id,
+            "arguments_preview": arguments_preview,
+            "turn_id": self.turn_id,
+            "reports_result": reports_result,
         }
 
         start_time = time.monotonic()
         self._log.debug("requesting tool call", tool=tool, call_id=call_id)
 
         # Subscribe BEFORE publishing to avoid a race condition where Go
-        # responds before the subscription is established.
-        # Use DeliverNew to skip old messages in the stream — we only care
-        # about the response to the request we are about to publish.
-        sub = await self._js.subscribe(
-            SUBJECT_TOOLCALL_RESPONSE,
-            config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW),
-        )
+        # responds before the subscription is established. Only new messages
+        # matter: the response to the request we are about to publish.
+        sub = await self._notification_source().subscribe(SUBJECT_TOOLCALL_RESPONSE, config=notification_consumer())
         try:
             try:
                 await self._js.publish(
@@ -207,7 +408,7 @@ class RuntimeClient:
                 publish_ms=round(publish_ms, 1),
             )
 
-            deadline = asyncio.get_event_loop().time() + RESPONSE_TIMEOUT_SECONDS
+            deadline = asyncio.get_event_loop().time() + self.policy_wait_seconds
             while True:
                 remaining = deadline - asyncio.get_event_loop().time()
                 if remaining <= 0:
@@ -217,12 +418,12 @@ class RuntimeClient:
                         call_id=call_id,
                         tool=tool,
                         elapsed_ms=round(elapsed_ms, 1),
-                        timeout_seconds=RESPONSE_TIMEOUT_SECONDS,
+                        timeout_seconds=self.policy_wait_seconds,
                     )
                     return ToolCallDecision(
                         call_id=call_id,
                         decision="deny",
-                        reason=f"NATS response timeout after {RESPONSE_TIMEOUT_SECONDS}s "
+                        reason=f"NATS response timeout after {self.policy_wait_seconds:g}s "
                         f"waiting for policy decision (not an LLM timeout)",
                     )
 
@@ -278,6 +479,7 @@ class RuntimeClient:
         result: dict[str, object] = {
             "run_id": self.run_id,
             "call_id": call_id,
+            "tenant_id": self.tenant_id,
             "tool": tool,
             "success": success,
             "output": output,
@@ -305,6 +507,7 @@ class RuntimeClient:
         msg = RunCompleteMessage(
             run_id=self.run_id,
             task_id=self.task_id,
+            tenant_id=self.tenant_id,
             project_id=self.project_id,
             status=status,
             output=output,
@@ -315,10 +518,10 @@ class RuntimeClient:
             tokens_out=self._metrics.total_tokens_out,
             model=self._metrics.model,
         )
-        await self._js.publish(
-            SUBJECT_RUN_COMPLETE,
-            msg.model_dump_json().encode(),
-        )
+        # The run was acked on accept and is never redelivered: its completion
+        # must not be lost to a transient publish failure (ADR-016).
+        await publish_with_retry(self._js, SUBJECT_RUN_COMPLETE, msg.model_dump_json().encode())
+        self._completed = True
         self._log.info(
             "run completed",
             status=status,
@@ -335,6 +538,7 @@ class RuntimeClient:
         payload = {
             "run_id": self.run_id,
             "task_id": self.task_id,
+            "tenant_id": self.tenant_id,
             "line": line,
             "stream": stream,
         }
@@ -349,6 +553,7 @@ class RuntimeClient:
         """Publish a trajectory event for recording and UI display."""
         event["run_id"] = self.run_id
         event["project_id"] = self.project_id
+        event["tenant_id"] = self.tenant_id
         try:
             await self._js.publish(
                 SUBJECT_TRAJECTORY_EVENT,
@@ -367,6 +572,7 @@ class RuntimeClient:
         """
         payload = {
             "task_id": self.task_id,
+            "tenant_id": self.tenant_id,
             "line": line,
             "stream": stream,
             "timestamp": datetime.now(UTC).isoformat(),

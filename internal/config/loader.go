@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +17,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	cfcrypto "github.com/Strob0t/CodeForge/internal/crypto"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/netutil"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 // DefaultConfigFile is the path checked for YAML configuration.
@@ -77,24 +85,43 @@ func Load() (*Config, error) {
 // defaults < YAML < ENV < CLI flags. The YAML path can be overridden
 // via CLIFlags.ConfigPath.
 func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
+	return loadWithCLI(flags, ensureSecrets)
+}
+
+// loadWithCLI is LoadWithCLI with the step that fills missing secrets
+// (ensureSecrets at startup) passed in.
+func loadWithCLI(flags CLIFlags, fillSecrets func(*Config) error) (*Config, string, error) {
 	yamlPath := DefaultConfigFile
+	explicit := false
 	if v := os.Getenv("CODEFORGE_CONFIG_FILE"); v != "" {
-		yamlPath = v
+		yamlPath, explicit = v, true
 	}
 	if flags.ConfigPath != nil {
-		yamlPath = *flags.ConfigPath
+		yamlPath, explicit = *flags.ConfigPath, true
 	}
 
 	cfg := Defaults()
 
+	// The default file is optional (zero-config startup); a named one must
+	// exist, or a typo would start the Core on defaults.
+	if explicit {
+		if _, err := os.Stat(yamlPath); err != nil { //nolint:gosec // G703: the operator names the config file (-config, CODEFORGE_CONFIG_FILE)
+			return nil, "", fmt.Errorf("config yaml: %w", err)
+		}
+	}
 	if err := loadYAML(&cfg, yamlPath); err != nil {
 		return nil, "", fmt.Errorf("config yaml: %w", err)
 	}
 
-	loadEnv(&cfg)
+	if err := loadEnv(&cfg); err != nil {
+		return nil, "", fmt.Errorf("config env: %w", err)
+	}
+	if err := loadSecretFiles(&cfg); err != nil {
+		return nil, "", fmt.Errorf("config secret files: %w", err)
+	}
 	applyCLI(&cfg, flags)
 
-	if err := ensureSecrets(&cfg); err != nil {
+	if err := fillSecrets(&cfg); err != nil {
 		return nil, "", fmt.Errorf("config secrets: %w", err)
 	}
 
@@ -114,7 +141,12 @@ func LoadFrom(yamlPath string) (*Config, error) {
 		return nil, fmt.Errorf("config yaml: %w", err)
 	}
 
-	loadEnv(&cfg)
+	if err := loadEnv(&cfg); err != nil {
+		return nil, fmt.Errorf("config env: %w", err)
+	}
+	if err := loadSecretFiles(&cfg); err != nil {
+		return nil, fmt.Errorf("config secret files: %w", err)
+	}
 
 	if err := ensureSecrets(&cfg); err != nil {
 		return nil, fmt.Errorf("config secrets: %w", err)
@@ -162,102 +194,116 @@ func loadYAML(cfg *Config, path string) error {
 }
 
 // loadEnv overlays environment variables onto cfg.
-// Only non-empty env values override the current config.
-func loadEnv(cfg *Config) {
+// Only non-empty env values override the current config. A typed value that
+// does not parse is an error naming its key (fail fast, KI-213).
+func loadEnv(cfg *Config) error {
+	var errs []error
+
 	// Top-level
 	setString(&cfg.AppEnv, "APP_ENV")
 	setString(&cfg.InternalKey, "CODEFORGE_INTERNAL_KEY")
 
+	setString(&cfg.Server.Host, "CODEFORGE_HOST")
 	setString(&cfg.Server.Port, "CODEFORGE_PORT")
+	setTyped(&errs, &cfg.Server.ForceSecureCookies, "CODEFORGE_FORCE_SECURE_COOKIES", strconv.ParseBool)
 	setString(&cfg.Server.CORSOrigin, "CODEFORGE_CORS_ORIGIN")
+	setStringSlice(&cfg.Server.TrustedProxies, "CODEFORGE_TRUSTED_PROXIES")
 	setString(&cfg.Postgres.DSN, "DATABASE_URL")
-	setTyped(&cfg.Postgres.MaxConns, "CODEFORGE_PG_MAX_CONNS", func(s string) (int32, error) { n, err := strconv.ParseInt(s, 10, 32); return int32(n), err })
-	setTyped(&cfg.Postgres.MinConns, "CODEFORGE_PG_MIN_CONNS", func(s string) (int32, error) { n, err := strconv.ParseInt(s, 10, 32); return int32(n), err })
-	setTyped(&cfg.Postgres.MaxConnLifetime, "CODEFORGE_PG_MAX_CONN_LIFETIME", time.ParseDuration)
-	setTyped(&cfg.Postgres.MaxConnIdleTime, "CODEFORGE_PG_MAX_CONN_IDLE_TIME", time.ParseDuration)
-	setTyped(&cfg.Postgres.HealthCheck, "CODEFORGE_PG_HEALTH_CHECK", time.ParseDuration)
+	setTyped(&errs, &cfg.Postgres.MaxConns, "CODEFORGE_PG_MAX_CONNS", func(s string) (int32, error) { n, err := strconv.ParseInt(s, 10, 32); return int32(n), err })
+	setTyped(&errs, &cfg.Postgres.MinConns, "CODEFORGE_PG_MIN_CONNS", func(s string) (int32, error) { n, err := strconv.ParseInt(s, 10, 32); return int32(n), err })
+	setTyped(&errs, &cfg.Postgres.MaxConnLifetime, "CODEFORGE_PG_MAX_CONN_LIFETIME", time.ParseDuration)
+	setTyped(&errs, &cfg.Postgres.MaxConnIdleTime, "CODEFORGE_PG_MAX_CONN_IDLE_TIME", time.ParseDuration)
+	setTyped(&errs, &cfg.Postgres.HealthCheck, "CODEFORGE_PG_HEALTH_CHECK", time.ParseDuration)
 	setString(&cfg.NATS.URL, "NATS_URL")
+	setTyped(&errs, &cfg.NATS.StreamMaxBytes, "CODEFORGE_NATS_STREAM_MAX_BYTES", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
 	setString(&cfg.LiteLLM.URL, "LITELLM_BASE_URL")
 	setString(&cfg.LiteLLM.MasterKey, "LITELLM_MASTER_KEY")
 	setString(&cfg.LiteLLM.ConversationModel, "CODEFORGE_CONVERSATION_MODEL")
+	setStringSlice(&cfg.LiteLLM.KeyedProviders, "CODEFORGE_LITELLM_KEYED_PROVIDERS")
 	setString(&cfg.Logging.Level, "CODEFORGE_LOG_LEVEL")
 	setString(&cfg.Logging.Service, "CODEFORGE_LOG_SERVICE")
-	setTyped(&cfg.Logging.Async, "CODEFORGE_LOG_ASYNC", strconv.ParseBool)
-	setTyped(&cfg.Breaker.MaxFailures, "CODEFORGE_BREAKER_MAX_FAILURES", strconv.Atoi)
-	setTyped(&cfg.Breaker.Timeout, "CODEFORGE_BREAKER_TIMEOUT", time.ParseDuration)
-	setTyped(&cfg.Rate.RequestsPerSecond, "CODEFORGE_RATE_RPS", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
-	setTyped(&cfg.Rate.Burst, "CODEFORGE_RATE_BURST", strconv.Atoi)
-	setTyped(&cfg.Rate.CleanupInterval, "CODEFORGE_RATE_CLEANUP_INTERVAL", time.ParseDuration)
-	setTyped(&cfg.Rate.MaxIdleTime, "CODEFORGE_RATE_MAX_IDLE_TIME", time.ParseDuration)
-	setTyped(&cfg.Rate.AuthPerSecond, "CODEFORGE_RATE_AUTH_RPS", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
-	setTyped(&cfg.Rate.AuthBurst, "CODEFORGE_RATE_AUTH_BURST", strconv.Atoi)
-	setTyped(&cfg.Git.MaxConcurrent, "CODEFORGE_GIT_MAX_CONCURRENT", strconv.Atoi)
+	setTyped(&errs, &cfg.Logging.Async, "CODEFORGE_LOG_ASYNC", strconv.ParseBool)
+	setTyped(&errs, &cfg.Breaker.MaxFailures, "CODEFORGE_BREAKER_MAX_FAILURES", strconv.Atoi)
+	setTyped(&errs, &cfg.Breaker.Timeout, "CODEFORGE_BREAKER_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Rate.RequestsPerSecond, "CODEFORGE_RATE_RPS", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
+	setTyped(&errs, &cfg.Rate.Burst, "CODEFORGE_RATE_BURST", strconv.Atoi)
+	setTyped(&errs, &cfg.Rate.CleanupInterval, "CODEFORGE_RATE_CLEANUP_INTERVAL", time.ParseDuration)
+	setTyped(&errs, &cfg.Rate.MaxIdleTime, "CODEFORGE_RATE_MAX_IDLE_TIME", time.ParseDuration)
+	setTyped(&errs, &cfg.Rate.AuthPerSecond, "CODEFORGE_RATE_AUTH_RPS", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
+	setTyped(&errs, &cfg.Rate.AuthBurst, "CODEFORGE_RATE_AUTH_BURST", strconv.Atoi)
+	setTyped(&errs, &cfg.Git.MaxConcurrent, "CODEFORGE_GIT_MAX_CONCURRENT", strconv.Atoi)
+	setTyped(&errs, &cfg.Git.OperationTimeout, "CODEFORGE_GIT_OPERATION_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Git.CommandTimeout, "CODEFORGE_GIT_COMMAND_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Git.NetworkTimeout, "CODEFORGE_GIT_NETWORK_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.SVN.AllowFileURLs, "CODEFORGE_SVN_ALLOW_FILE_URLS", strconv.ParseBool)
+	setStringSlice(&cfg.SVN.AllowedPrivateHosts, "CODEFORGE_SVN_ALLOWED_PRIVATE_HOSTS")
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
 	setString(&cfg.Workspace.PipelineDir, "CODEFORGE_WORKSPACE_PIPELINE_DIR")
-	setTyped(&cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD", strconv.Atoi)
-	setTyped(&cfg.Runtime.StallMaxRetries, "CODEFORGE_STALL_MAX_RETRIES", strconv.Atoi)
-	setTyped(&cfg.Runtime.QualityGateTimeout, "CODEFORGE_QG_TIMEOUT", time.ParseDuration)
+	setStringSlice(&cfg.Workspace.AdoptRoots, "CODEFORGE_WORKSPACE_ADOPT_ROOTS")
+	setString(&cfg.Workspace.ToolACLs, "CODEFORGE_WORKSPACE_TOOL_ACLS")
+	setString(&cfg.Knowledge.ContentRoot, "CODEFORGE_KNOWLEDGE_CONTENT_ROOT")
+	setTyped(&errs, &cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD", strconv.Atoi)
+	setTyped(&errs, &cfg.Runtime.StallMaxRetries, "CODEFORGE_STALL_MAX_RETRIES", strconv.Atoi)
+	setTyped(&errs, &cfg.Runtime.QualityGateTimeout, "CODEFORGE_QG_TIMEOUT", time.ParseDuration)
 	setString(&cfg.Runtime.DefaultDeliverMode, "CODEFORGE_DELIVER_MODE")
 	setString(&cfg.Runtime.DefaultTestCommand, "CODEFORGE_TEST_COMMAND")
 	setString(&cfg.Runtime.DefaultLintCommand, "CODEFORGE_LINT_COMMAND")
 	setString(&cfg.Runtime.DeliveryCommitPrefix, "CODEFORGE_COMMIT_PREFIX")
-	setTyped(&cfg.Runtime.HeartbeatInterval, "CODEFORGE_HEARTBEAT_INTERVAL", time.ParseDuration)
-	setTyped(&cfg.Runtime.HeartbeatTimeout, "CODEFORGE_HEARTBEAT_TIMEOUT", time.ParseDuration)
-	setTyped(&cfg.Runtime.ApprovalTimeoutSeconds, "CODEFORGE_APPROVAL_TIMEOUT_SECONDS", strconv.Atoi)
+	setTyped(&errs, &cfg.Runtime.HeartbeatInterval, "CODEFORGE_HEARTBEAT_INTERVAL", time.ParseDuration)
+	setTyped(&errs, &cfg.Runtime.HeartbeatTimeout, "CODEFORGE_HEARTBEAT_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Runtime.TaskAcceptTimeout, "CODEFORGE_TASK_ACCEPT_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Runtime.ApprovalTimeoutSeconds, "CODEFORGE_APPROVAL_TIMEOUT_SECONDS", strconv.Atoi)
 
 	// Idempotency
 	setString(&cfg.Idempotency.Bucket, "CODEFORGE_IDEMPOTENCY_BUCKET")
-	setTyped(&cfg.Idempotency.TTL, "CODEFORGE_IDEMPOTENCY_TTL", time.ParseDuration)
+	setTyped(&errs, &cfg.Idempotency.TTL, "CODEFORGE_IDEMPOTENCY_TTL", time.ParseDuration)
 
 	// Hybrid
 	setString(&cfg.Runtime.Hybrid.CommandImage, "CODEFORGE_HYBRID_IMAGE")
 	setString(&cfg.Runtime.Hybrid.MountMode, "CODEFORGE_HYBRID_MOUNT_MODE")
 
 	// Sandbox
-	setTyped(&cfg.Runtime.Sandbox.MemoryMB, "CODEFORGE_SANDBOX_MEMORY_MB", strconv.Atoi)
-	setTyped(&cfg.Runtime.Sandbox.CPUQuota, "CODEFORGE_SANDBOX_CPU_QUOTA", strconv.Atoi)
-	setTyped(&cfg.Runtime.Sandbox.PidsLimit, "CODEFORGE_SANDBOX_PIDS_LIMIT", strconv.Atoi)
-	setTyped(&cfg.Runtime.Sandbox.StorageGB, "CODEFORGE_SANDBOX_STORAGE_GB", strconv.Atoi)
+	setTyped(&errs, &cfg.Runtime.Sandbox.MemoryMB, "CODEFORGE_SANDBOX_MEMORY_MB", strconv.Atoi)
+	setTyped(&errs, &cfg.Runtime.Sandbox.CPUQuota, "CODEFORGE_SANDBOX_CPU_QUOTA", strconv.Atoi)
+	setTyped(&errs, &cfg.Runtime.Sandbox.PidsLimit, "CODEFORGE_SANDBOX_PIDS_LIMIT", strconv.Atoi)
+	setTyped(&errs, &cfg.Runtime.Sandbox.StorageGB, "CODEFORGE_SANDBOX_STORAGE_GB", strconv.Atoi)
 	setString(&cfg.Runtime.Sandbox.NetworkMode, "CODEFORGE_SANDBOX_NETWORK")
 	setString(&cfg.Runtime.Sandbox.Image, "CODEFORGE_SANDBOX_IMAGE")
 
-	// Cache
-	setTyped(&cfg.Cache.L1MaxSizeMB, "CODEFORGE_CACHE_L1_SIZE_MB", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
-	setString(&cfg.Cache.L2Bucket, "CODEFORGE_CACHE_L2_BUCKET")
-	setTyped(&cfg.Cache.L2TTL, "CODEFORGE_CACHE_L2_TTL", time.ParseDuration)
-
 	// Orchestrator
-	setTyped(&cfg.Orchestrator.MaxParallel, "CODEFORGE_ORCH_MAX_PARALLEL", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.PingPongMaxRounds, "CODEFORGE_ORCH_PINGPONG_MAX_ROUNDS", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.ConsensusQuorum, "CODEFORGE_ORCH_CONSENSUS_QUORUM", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.MaxParallel, "CODEFORGE_ORCH_MAX_PARALLEL", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.PingPongMaxRounds, "CODEFORGE_ORCH_PINGPONG_MAX_ROUNDS", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.ConsensusQuorum, "CODEFORGE_ORCH_CONSENSUS_QUORUM", strconv.Atoi)
 	setString(&cfg.Orchestrator.Mode, "CODEFORGE_ORCH_MODE")
 	setString(&cfg.Orchestrator.DecomposeModel, "CODEFORGE_ORCH_DECOMPOSE_MODEL")
-	setTyped(&cfg.Orchestrator.DecomposeMaxTokens, "CODEFORGE_ORCH_DECOMPOSE_MAX_TOKENS", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.MaxTeamSize, "CODEFORGE_ORCH_MAX_TEAM_SIZE", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.DefaultContextBudget, "CODEFORGE_ORCH_CONTEXT_BUDGET", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.PromptReserve, "CODEFORGE_ORCH_PROMPT_RESERVE", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.SubAgentEnabled, "CODEFORGE_ORCH_SUBAGENT_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Orchestrator.DecomposeMaxTokens, "CODEFORGE_ORCH_DECOMPOSE_MAX_TOKENS", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.MaxTeamSize, "CODEFORGE_ORCH_MAX_TEAM_SIZE", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.DefaultContextBudget, "CODEFORGE_ORCH_CONTEXT_BUDGET", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.PromptReserve, "CODEFORGE_ORCH_PROMPT_RESERVE", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.SubAgentEnabled, "CODEFORGE_ORCH_SUBAGENT_ENABLED", strconv.ParseBool)
 	setString(&cfg.Orchestrator.SubAgentModel, "CODEFORGE_ORCH_SUBAGENT_MODEL")
-	setTyped(&cfg.Orchestrator.SubAgentMaxQueries, "CODEFORGE_ORCH_SUBAGENT_MAX_QUERIES", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.SubAgentRerank, "CODEFORGE_ORCH_SUBAGENT_RERANK", strconv.ParseBool)
-	setTyped(&cfg.Orchestrator.SubAgentTimeout, "CODEFORGE_ORCH_SUBAGENT_TIMEOUT", time.ParseDuration)
-	setTyped(&cfg.Orchestrator.ReviewRouterEnabled, "CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED", strconv.ParseBool)
-	setTyped(&cfg.Orchestrator.ReviewConfidenceThreshold, "CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
+	setString(&cfg.Orchestrator.DefaultEmbeddingModel, "CODEFORGE_ORCH_EMBEDDING_MODEL")
+	setTyped(&errs, &cfg.Orchestrator.SubAgentMaxQueries, "CODEFORGE_ORCH_SUBAGENT_MAX_QUERIES", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.SubAgentRerank, "CODEFORGE_ORCH_SUBAGENT_RERANK", strconv.ParseBool)
+	setTyped(&errs, &cfg.Orchestrator.SubAgentTimeout, "CODEFORGE_ORCH_SUBAGENT_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Orchestrator.ReviewRouterEnabled, "CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Orchestrator.ReviewConfidenceThreshold, "CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
 	setString(&cfg.Orchestrator.ReviewRouterModel, "CODEFORGE_ORCH_REVIEW_ROUTER_MODEL")
 
 	// GraphRAG
-	setTyped(&cfg.Orchestrator.GraphEnabled, "CODEFORGE_ORCH_GRAPH_ENABLED", strconv.ParseBool)
-	setTyped(&cfg.Orchestrator.GraphMaxHops, "CODEFORGE_ORCH_GRAPH_MAX_HOPS", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.GraphTopK, "CODEFORGE_ORCH_GRAPH_TOP_K", strconv.Atoi)
-	setTyped(&cfg.Orchestrator.GraphHopDecay, "CODEFORGE_ORCH_GRAPH_HOP_DECAY", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
+	setTyped(&errs, &cfg.Orchestrator.GraphEnabled, "CODEFORGE_ORCH_GRAPH_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Orchestrator.GraphMaxHops, "CODEFORGE_ORCH_GRAPH_MAX_HOPS", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.GraphTopK, "CODEFORGE_ORCH_GRAPH_TOP_K", strconv.Atoi)
+	setTyped(&errs, &cfg.Orchestrator.GraphHopDecay, "CODEFORGE_ORCH_GRAPH_HOP_DECAY", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
 
 	// Context re-ranking
-	setTyped(&cfg.Orchestrator.ContextRerankEnabled, "CODEFORGE_CONTEXT_RERANK_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Orchestrator.ContextRerankEnabled, "CODEFORGE_CONTEXT_RERANK_ENABLED", strconv.ParseBool)
 	setString(&cfg.Orchestrator.ContextRerankModel, "CODEFORGE_CONTEXT_RERANK_MODEL")
 
-	// Webhook
+	// Webhook (the secrets are the removed global ones, KI-85)
+	setTyped(&errs, &cfg.Webhook.DeliveryRetention, "CODEFORGE_WEBHOOK_DELIVERY_RETENTION", time.ParseDuration)
 	setString(&cfg.Webhook.GitHubSecret, "CODEFORGE_WEBHOOK_GITHUB_SECRET")
 	setString(&cfg.Webhook.GitLabToken, "CODEFORGE_WEBHOOK_GITLAB_TOKEN")
 	setString(&cfg.Webhook.PlaneSecret, "CODEFORGE_WEBHOOK_PLANE_SECRET")
@@ -265,108 +311,176 @@ func loadEnv(cfg *Config) {
 	// Notification
 	setString(&cfg.Notification.SlackWebhookURL, "CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL")
 	setString(&cfg.Notification.DiscordWebhookURL, "CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL")
+	setStringSlice(&cfg.Notification.ApprovalRecipients, "CODEFORGE_NOTIFICATION_APPROVAL_RECIPIENTS")
+	setString(&cfg.Notification.WebUIURL, "CODEFORGE_NOTIFICATION_WEB_UI_URL")
+	setStringSlice(&cfg.Notification.ApprovalTenants, "CODEFORGE_NOTIFICATION_APPROVAL_TENANTS")
 
 	// OpenTelemetry
-	setTyped(&cfg.OTEL.Enabled, "CODEFORGE_OTEL_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.OTEL.Enabled, "CODEFORGE_OTEL_ENABLED", strconv.ParseBool)
 	setString(&cfg.OTEL.Endpoint, "CODEFORGE_OTEL_ENDPOINT")
 	setString(&cfg.OTEL.ServiceName, "CODEFORGE_OTEL_SERVICE_NAME")
-	setTyped(&cfg.OTEL.Insecure, "CODEFORGE_OTEL_INSECURE", strconv.ParseBool)
-	setTyped(&cfg.OTEL.SampleRate, "CODEFORGE_OTEL_SAMPLE_RATE", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
+	setTyped(&errs, &cfg.OTEL.Insecure, "CODEFORGE_OTEL_INSECURE", strconv.ParseBool)
+	setTyped(&errs, &cfg.OTEL.SampleRate, "CODEFORGE_OTEL_SAMPLE_RATE", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
 
 	// A2A
-	setTyped(&cfg.A2A.Enabled, "CODEFORGE_A2A_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.A2A.Enabled, "CODEFORGE_A2A_ENABLED", strconv.ParseBool)
 	setString(&cfg.A2A.BaseURL, "CODEFORGE_A2A_BASE_URL")
 	setStringSlice(&cfg.A2A.APIKeys, "CODEFORGE_A2A_API_KEYS")
 	setString(&cfg.A2A.Transport, "CODEFORGE_A2A_TRANSPORT")
-	setTyped(&cfg.A2A.MaxTasks, "CODEFORGE_A2A_MAX_TASKS", strconv.Atoi)
-	setTyped(&cfg.A2A.AllowOpen, "CODEFORGE_A2A_ALLOW_OPEN", strconv.ParseBool)
-	setTyped(&cfg.A2A.Streaming, "CODEFORGE_A2A_STREAMING", strconv.ParseBool)
+	setTyped(&errs, &cfg.A2A.MaxTasks, "CODEFORGE_A2A_MAX_TASKS", strconv.Atoi)
+	setTyped(&errs, &cfg.A2A.AllowOpen, "CODEFORGE_A2A_ALLOW_OPEN", strconv.ParseBool)
+	setTyped(&errs, &cfg.A2A.Streaming, "CODEFORGE_A2A_STREAMING", strconv.ParseBool)
 
 	// AG-UI
-	setTyped(&cfg.AGUI.Enabled, "CODEFORGE_AGUI_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.AGUI.Enabled, "CODEFORGE_AGUI_ENABLED", strconv.ParseBool)
 
 	// MCP
-	setTyped(&cfg.MCP.Enabled, "CODEFORGE_MCP_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.MCP.Enabled, "CODEFORGE_MCP_ENABLED", strconv.ParseBool)
 	setString(&cfg.MCP.ServersDir, "CODEFORGE_MCP_SERVERS_DIR")
-	setTyped(&cfg.MCP.ServerPort, "CODEFORGE_MCP_SERVER_PORT", strconv.Atoi)
+	setTyped(&errs, &cfg.MCP.ServerPort, "CODEFORGE_MCP_SERVER_PORT", strconv.Atoi)
+	setStringSlice(&cfg.MCP.AllowedPrivateHosts, "CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS")
+	setTyped(&errs, &cfg.MCP.UseProxy, "CODEFORGE_MCP_USE_PROXY", strconv.ParseBool)
 
 	// Agent
 	setString(&cfg.Agent.DefaultModel, "CODEFORGE_AGENT_DEFAULT_MODEL")
-	setTyped(&cfg.Agent.MaxContextTokens, "CODEFORGE_AGENT_MAX_CONTEXT_TOKENS", strconv.Atoi)
-	setTyped(&cfg.Agent.MaxLoopIterations, "CODEFORGE_AGENT_MAX_LOOP_ITERATIONS", strconv.Atoi)
-	setTyped(&cfg.Agent.AgenticByDefault, "CODEFORGE_AGENT_AGENTIC_BY_DEFAULT", strconv.ParseBool)
-	setTyped(&cfg.Agent.ToolOutputMaxChars, "CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS", strconv.Atoi)
-	setTyped(&cfg.Agent.ContextEnabled, "CODEFORGE_AGENT_CONTEXT_ENABLED", strconv.ParseBool)
-	setTyped(&cfg.Agent.ContextBudget, "CODEFORGE_AGENT_CONTEXT_BUDGET", strconv.Atoi)
-	setTyped(&cfg.Agent.ContextPromptReserve, "CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE", strconv.Atoi)
-	setTyped(&cfg.Agent.ConversationRolloutCount, "CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT", strconv.Atoi)
-	setTyped(&cfg.Agent.SummarizeThreshold, "CODEFORGE_SUMMARIZE_THRESHOLD", strconv.Atoi)
+	setTyped(&errs, &cfg.Agent.MaxContextTokens, "CODEFORGE_AGENT_MAX_CONTEXT_TOKENS", strconv.Atoi)
+	setTyped(&errs, &cfg.Agent.MaxLoopIterations, "CODEFORGE_AGENT_MAX_LOOP_ITERATIONS", strconv.Atoi)
+	setTyped(&errs, &cfg.Agent.AgenticByDefault, "CODEFORGE_AGENT_AGENTIC_BY_DEFAULT", strconv.ParseBool)
+	setTyped(&errs, &cfg.Agent.ToolOutputMaxChars, "CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS", strconv.Atoi)
+	setTyped(&errs, &cfg.Agent.ContextEnabled, "CODEFORGE_AGENT_CONTEXT_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Agent.ContextBudget, "CODEFORGE_AGENT_CONTEXT_BUDGET", strconv.Atoi)
+	setTyped(&errs, &cfg.Agent.ContextPromptReserve, "CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE", strconv.Atoi)
+	setTyped(&errs, &cfg.Agent.ConversationRolloutCount, "CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT", strconv.Atoi)
+	setTyped(&errs, &cfg.Agent.SummarizeThreshold, "CODEFORGE_SUMMARIZE_THRESHOLD", strconv.Atoi)
+	setTyped(&errs, &cfg.Agent.AutoAgentFixAttempts, "CODEFORGE_AGENT_AUTO_AGENT_FIX_ATTEMPTS", strconv.Atoi)
 
 	// Quarantine
-	setTyped(&cfg.Quarantine.Enabled, "CODEFORGE_QUARANTINE_ENABLED", strconv.ParseBool)
-	setTyped(&cfg.Quarantine.QuarantineThreshold, "CODEFORGE_QUARANTINE_THRESHOLD", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
-	setTyped(&cfg.Quarantine.BlockThreshold, "CODEFORGE_QUARANTINE_BLOCK_THRESHOLD", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
+	setTyped(&errs, &cfg.Quarantine.Enabled, "CODEFORGE_QUARANTINE_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Quarantine.QuarantineThreshold, "CODEFORGE_QUARANTINE_THRESHOLD", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
+	setTyped(&errs, &cfg.Quarantine.BlockThreshold, "CODEFORGE_QUARANTINE_BLOCK_THRESHOLD", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
 	setString(&cfg.Quarantine.MinTrustBypass, "CODEFORGE_QUARANTINE_MIN_TRUST_BYPASS")
-	setTyped(&cfg.Quarantine.ExpiryHours, "CODEFORGE_QUARANTINE_EXPIRY_HOURS", strconv.Atoi)
+	setTyped(&errs, &cfg.Quarantine.ExpiryHours, "CODEFORGE_QUARANTINE_EXPIRY_HOURS", strconv.Atoi)
 
 	// LSP
-	setTyped(&cfg.LSP.Enabled, "CODEFORGE_LSP_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.LSP.Enabled, "CODEFORGE_LSP_ENABLED", strconv.ParseBool)
 
 	// Auth
-	setTyped(&cfg.Auth.Enabled, "CODEFORGE_AUTH_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Auth.Enabled, "CODEFORGE_AUTH_ENABLED", strconv.ParseBool)
 	setString(&cfg.Auth.JWTSecret, "CODEFORGE_AUTH_JWT_SECRET")
-	setTyped(&cfg.Auth.AccessTokenExpiry, "CODEFORGE_AUTH_ACCESS_EXPIRY", time.ParseDuration)
-	setTyped(&cfg.Auth.RefreshTokenExpiry, "CODEFORGE_AUTH_REFRESH_EXPIRY", time.ParseDuration)
-	setTyped(&cfg.Auth.BcryptCost, "CODEFORGE_AUTH_BCRYPT_COST", strconv.Atoi)
+	setString(&cfg.Auth.LLMKeyEncryptionSecret, "CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET")
+	setTyped(&errs, &cfg.Auth.AccessTokenExpiry, "CODEFORGE_AUTH_ACCESS_EXPIRY", time.ParseDuration)
+	setTyped(&errs, &cfg.Auth.RefreshTokenExpiry, "CODEFORGE_AUTH_REFRESH_EXPIRY", time.ParseDuration)
+	setTyped(&errs, &cfg.Auth.BcryptCost, "CODEFORGE_AUTH_BCRYPT_COST", strconv.Atoi)
 	setString(&cfg.Auth.DefaultAdminEmail, "CODEFORGE_AUTH_ADMIN_EMAIL")
 	setString(&cfg.Auth.DefaultAdminPass, "CODEFORGE_AUTH_ADMIN_PASS")
-	setTyped(&cfg.Auth.AutoGenerateInitialPassword, "CODEFORGE_AUTH_AUTO_GENERATE_PASSWORD", strconv.ParseBool)
+	setTyped(&errs, &cfg.Auth.AutoGenerateInitialPassword, "CODEFORGE_AUTH_AUTO_GENERATE_PASSWORD", strconv.ParseBool)
 	setString(&cfg.Auth.InitialPasswordFile, "CODEFORGE_AUTH_INITIAL_PASSWORD_FILE")
-	setTyped(&cfg.Auth.SetupTimeoutMinutes, "CODEFORGE_AUTH_SETUP_TIMEOUT_MINUTES", strconv.Atoi)
+	setTyped(&errs, &cfg.Auth.SetupTimeoutMinutes, "CODEFORGE_AUTH_SETUP_TIMEOUT_MINUTES", strconv.Atoi)
+	setString(&cfg.Auth.SetupTokenFile, "CODEFORGE_AUTH_SETUP_TOKEN_FILE")
 
 	// LiteLLM health polling
-	setTyped(&cfg.LiteLLM.HealthPollInterval, "CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL", time.ParseDuration)
+	setTyped(&errs, &cfg.LiteLLM.HealthPollInterval, "CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL", time.ParseDuration)
+	setTyped(&errs, &cfg.LiteLLM.CompletionTimeout, "CODEFORGE_LITELLM_COMPLETION_TIMEOUT", time.ParseDuration)
 
 	// Copilot
-	setTyped(&cfg.Copilot.Enabled, "CODEFORGE_COPILOT_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Copilot.Enabled, "CODEFORGE_COPILOT_ENABLED", strconv.ParseBool)
 	setString(&cfg.Copilot.HostsFilePath, "CODEFORGE_COPILOT_HOSTS_FILE")
 
 	// GitHub OAuth
 	setString(&cfg.GitHub.ClientID, "GITHUB_CLIENT_ID")
 	setString(&cfg.GitHub.ClientSecret, "GITHUB_CLIENT_SECRET")
 	setString(&cfg.GitHub.CallbackURL, "GITHUB_CALLBACK_URL")
+	setString(&cfg.GitHub.Token, "CODEFORGE_GITHUB_TOKEN")
 
 	// Routing
-	setTyped(&cfg.Routing.Enabled, "CODEFORGE_ROUTING_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Routing.Enabled, "CODEFORGE_ROUTING_ENABLED", strconv.ParseBool)
 
 	// Experience Pool
-	setTyped(&cfg.Experience.Enabled, "CODEFORGE_EXPERIENCE_ENABLED", strconv.ParseBool)
-	setTyped(&cfg.Experience.ConfidenceThreshold, "CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
-	setTyped(&cfg.Experience.MaxEntries, "CODEFORGE_EXPERIENCE_MAX_ENTRIES", strconv.Atoi)
+	setTyped(&errs, &cfg.Experience.Enabled, "CODEFORGE_EXPERIENCE_ENABLED", strconv.ParseBool)
+	setTyped(&errs, &cfg.Experience.ConfidenceThreshold, "CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
+	setTyped(&errs, &cfg.Experience.MaxEntries, "CODEFORGE_EXPERIENCE_MAX_ENTRIES", strconv.Atoi)
 
 	// Email / SMTP (for feedback providers)
 	setString(&cfg.Notification.SMTPHost, "CODEFORGE_SMTP_HOST")
-	setTyped(&cfg.Notification.SMTPPort, "CODEFORGE_SMTP_PORT", strconv.Atoi)
+	setTyped(&errs, &cfg.Notification.SMTPPort, "CODEFORGE_SMTP_PORT", strconv.Atoi)
 	setString(&cfg.Notification.SMTPFrom, "CODEFORGE_SMTP_FROM")
 	setString(&cfg.Notification.SMTPPassword, "CODEFORGE_SMTP_PASSWORD")
 
 	// Benchmark
-	setTyped(&cfg.Benchmark.WatchdogTimeout, "CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Benchmark.WatchdogTimeout, "CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT", time.ParseDuration)
 
 	// Ollama
 	setString(&cfg.Ollama.BaseURL, "OLLAMA_BASE_URL")
 
 	// Plane
 	setString(&cfg.Plane.APIToken, "CODEFORGE_PLANE_API_TOKEN")
+	setString(&cfg.Plane.BaseURL, "CODEFORGE_PLANE_BASE_URL")
+
+	// PM syncs
+	setStringSlice(&cfg.PM.AllowedPrivateHosts, "CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS")
 
 	// Retention
-	setTyped(&cfg.Retention.Sessions, "CODEFORGE_RETENTION_SESSIONS", time.ParseDuration)
-	setTyped(&cfg.Retention.Conversations, "CODEFORGE_RETENTION_CONVERSATIONS", time.ParseDuration)
-	setTyped(&cfg.Retention.CostRecords, "CODEFORGE_RETENTION_COST_RECORDS", time.ParseDuration)
-	setTyped(&cfg.Retention.AuditEntries, "CODEFORGE_RETENTION_AUDIT_ENTRIES", time.ParseDuration)
+	setTyped(&errs, &cfg.Retention.Interval, "CODEFORGE_RETENTION_INTERVAL", time.ParseDuration)
+	setTyped(&errs, &cfg.Retention.Sessions, "CODEFORGE_RETENTION_SESSIONS", time.ParseDuration)
+	setTyped(&errs, &cfg.Retention.Conversations, "CODEFORGE_RETENTION_CONVERSATIONS", time.ParseDuration)
+	setTyped(&errs, &cfg.Retention.CostRecords, "CODEFORGE_RETENTION_COST_RECORDS", time.ParseDuration)
+	setTyped(&errs, &cfg.Retention.AuditEntries, "CODEFORGE_RETENTION_AUDIT_ENTRIES", time.ParseDuration)
+	setTyped(&errs, &cfg.Retention.AuditIPAddresses, "CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES", time.ParseDuration)
+	setTyped(&errs, &cfg.Retention.ConsentIPAddresses, "CODEFORGE_RETENTION_CONSENT_IP_ADDRESSES", time.ParseDuration)
+	setTyped(&errs, &cfg.Retention.HandoffClaims, "CODEFORGE_RETENTION_HANDOFF_CLAIMS", time.ParseDuration)
 
 	// Env file override
 	setString(&cfg.EnvFile, "CODEFORGE_ENV_FILE")
+
+	return errors.Join(errs...)
+}
+
+// secretSetting is a secret that may be given as <key>_FILE (Docker secrets).
+type secretSetting struct {
+	key string
+	set func(string)
+}
+
+// secretSettings lists the settings that accept <key>_FILE. It is limited to
+// secrets on purpose: files are how secrets reach a container without showing
+// up in `docker inspect`, other settings stay plain environment variables.
+func secretSettings(cfg *Config) []secretSetting {
+	str := func(dst *string) func(string) { return func(v string) { *dst = v } }
+	return []secretSetting{
+		{"CODEFORGE_INTERNAL_KEY", str(&cfg.InternalKey)},
+		{"DATABASE_URL", str(&cfg.Postgres.DSN)},
+		{"NATS_URL", str(&cfg.NATS.URL)},
+		{"LITELLM_MASTER_KEY", str(&cfg.LiteLLM.MasterKey)},
+		{"CODEFORGE_AUTH_JWT_SECRET", str(&cfg.Auth.JWTSecret)},
+		{"CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET", str(&cfg.Auth.LLMKeyEncryptionSecret)},
+		{"CODEFORGE_AUTH_ADMIN_PASS", str(&cfg.Auth.DefaultAdminPass)},
+		{"CODEFORGE_WEBHOOK_GITHUB_SECRET", str(&cfg.Webhook.GitHubSecret)},
+		{"CODEFORGE_WEBHOOK_GITLAB_TOKEN", str(&cfg.Webhook.GitLabToken)},
+		{"CODEFORGE_WEBHOOK_PLANE_SECRET", str(&cfg.Webhook.PlaneSecret)},
+		{"CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL", str(&cfg.Notification.SlackWebhookURL)},
+		{"CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL", str(&cfg.Notification.DiscordWebhookURL)},
+		{"GITHUB_CLIENT_SECRET", str(&cfg.GitHub.ClientSecret)},
+		{"CODEFORGE_SMTP_PASSWORD", str(&cfg.Notification.SMTPPassword)},
+		{"CODEFORGE_PLANE_API_TOKEN", str(&cfg.Plane.APIToken)},
+		{"CODEFORGE_GITHUB_TOKEN", str(&cfg.GitHub.Token)},
+		{"CODEFORGE_A2A_API_KEYS", func(v string) { cfg.A2A.APIKeys = splitList(v) }},
+	}
+}
+
+// loadSecretFiles overlays secrets read from <key>_FILE onto cfg. It runs after
+// loadEnv, at the same precedence level: a key set both directly and as a
+// file is rejected instead of silently preferring one of them.
+func loadSecretFiles(cfg *Config) error {
+	for _, s := range secretSettings(cfg) {
+		v, ok, err := secrets.LookupFileEnv(s.key)
+		if err != nil {
+			return err
+		}
+		if ok {
+			s.set(v)
+		}
+	}
+	return nil
 }
 
 // validate checks that required fields are set and security constraints are met.
@@ -374,11 +488,22 @@ func validate(cfg *Config) error {
 	if cfg.Server.Port == "" {
 		return errors.New("server.port is required")
 	}
+	if h := cfg.Server.Host; h != "" && h != "localhost" {
+		if _, err := netip.ParseAddr(h); err != nil {
+			return fmt.Errorf("server.host must be an IP address or localhost (got %q)", h)
+		}
+	}
+	if _, err := cfg.Server.TrustedProxyPrefixes(); err != nil {
+		return fmt.Errorf("server.trusted_proxies: %w", err)
+	}
 	if cfg.Postgres.DSN == "" {
 		return errors.New("postgres.dsn is required")
 	}
 	if cfg.NATS.URL == "" {
 		return errors.New("nats.url is required")
+	}
+	if cfg.NATS.StreamMaxBytes < 1 {
+		return errors.New("nats.stream_max_bytes must be >= 1")
 	}
 	if cfg.Postgres.MaxConns < 1 {
 		return errors.New("postgres.max_conns must be >= 1")
@@ -386,8 +511,105 @@ func validate(cfg *Config) error {
 	if cfg.Breaker.MaxFailures < 1 {
 		return errors.New("breaker.max_failures must be >= 1")
 	}
+	if cfg.LiteLLM.CompletionTimeout <= 0 {
+		return fmt.Errorf("litellm.completion_timeout must be positive (got %s)", cfg.LiteLLM.CompletionTimeout)
+	}
+	if cfg.Git.OperationTimeout <= 0 {
+		return fmt.Errorf("git.operation_timeout must be positive (got %s)", cfg.Git.OperationTimeout)
+	}
 	if cfg.Rate.Burst < 1 {
 		return errors.New("rate.burst must be >= 1")
+	}
+	if cfg.Notification.SMTPHost != "" && (cfg.Notification.SMTPPort < 1 || cfg.Notification.SMTPPort > 65535) {
+		return fmt.Errorf("notification.smtp_port must be 1-65535 when smtp_host is set (got %d)", cfg.Notification.SMTPPort)
+	}
+	// The gate timeout reaches the worker in whole seconds and bounds the
+	// quality-gate watchdog; the watchdog ticks at stale_check_interval.
+	if cfg.Runtime.QualityGateTimeout < time.Second {
+		return errors.New("runtime.quality_gate_timeout must be >= 1s")
+	}
+	if cfg.Runtime.StaleCheckInterval <= 0 {
+		return errors.New("runtime.stale_check_interval must be > 0")
+	}
+	if cfg.Git.CommandTimeout < time.Second {
+		return fmt.Errorf("git.command_timeout must be >= 1s (got %s)", cfg.Git.CommandTimeout)
+	}
+	if cfg.Git.NetworkTimeout < time.Second {
+		return fmt.Errorf("git.network_timeout must be >= 1s (got %s)", cfg.Git.NetworkTimeout)
+	}
+	for _, root := range cfg.Workspace.AdoptRoots {
+		if !filepath.IsAbs(root) || filepath.Clean(root) == "/" {
+			return fmt.Errorf("workspace.adopt_roots: %q must be an absolute directory other than /", root)
+		}
+	}
+	// The default gate commands follow the rules of the project config keys
+	// test_command / lint_command: the worker would refuse them at every gate.
+	if err := project.CheckGateCommand(cfg.Runtime.DefaultTestCommand); err != nil {
+		return fmt.Errorf("runtime.default_test_command: %w", err)
+	}
+	if err := project.CheckGateCommand(cfg.Runtime.DefaultLintCommand); err != nil {
+		return fmt.Errorf("runtime.default_lint_command: %w", err)
+	}
+	if err := validateHeartbeat(&cfg.Runtime); err != nil {
+		return err
+	}
+	if cfg.A2A.Enabled {
+		if _, err := cfg.A2A.ParsedAPIKeys(); err != nil {
+			return fmt.Errorf("a2a.api_keys: %w", err)
+		}
+	}
+	if cfg.Runtime.TaskAcceptTimeout < 0 {
+		return fmt.Errorf("runtime.task_accept_timeout must be 0 (check off) or positive (got %s)", cfg.Runtime.TaskAcceptTimeout)
+	}
+	if cfg.Webhook.DeliveryRetention <= 0 {
+		return fmt.Errorf("webhook.delivery_retention must be positive (got %s)", cfg.Webhook.DeliveryRetention)
+	}
+	if err := validateRetention(&cfg.Retention); err != nil {
+		return err
+	}
+	if h := cfg.Quarantine.ExpiryHours; h < 1 || int64(h) > maxQuarantineExpiryHours {
+		// 0 or less would make every held message overdue at once; more
+		// overflows time.Duration and wraps into the past (KI-91 review).
+		return fmt.Errorf("quarantine.expiry_hours must be 1 to %d (got %d)", maxQuarantineExpiryHours, h)
+	}
+	if l := trust.Level(cfg.Quarantine.MinTrustBypass); !trust.IsValidLevel(l) {
+		// An unknown level used to let every message bypass quarantine (KI-204).
+		return fmt.Errorf("quarantine.min_trust_bypass must be full, verified, partial or untrusted (lower case, got %q)", l)
+	}
+	if err := validateGitHubWebFlow(&cfg.GitHub); err != nil {
+		return err
+	}
+	if err := validateApprovals(&cfg.Notification); err != nil {
+		return err
+	}
+	if err := validateStallMaxRetries(cfg.Runtime.StallMaxRetries); err != nil {
+		return err
+	}
+	if n := cfg.Agent.ToolOutputMaxChars; n < 0 || n > maxToolOutputMaxChars {
+		return fmt.Errorf("agent.tool_output_max_chars must be 0 (the worker's default) to %d (got %d)", maxToolOutputMaxChars, n)
+	}
+	if n := cfg.Agent.AutoAgentFixAttempts; n < 0 || n > maxAutoAgentFixAttempts {
+		return fmt.Errorf("agent.auto_agent_fix_attempts must be 0 to %d (got %d)", maxAutoAgentFixAttempts, n)
+	}
+	if err := checkHTTPBaseURL("plane.base_url", cfg.Plane.BaseURL); err != nil {
+		return err
+	}
+	if _, err := llm.NewProviderKeys(cfg.LiteLLM.KeyedProviders, func(string) string { return "" }); err != nil {
+		return err
+	}
+	if _, err := netutil.NewOutboundPolicy(cfg.MCP.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("mcp.allowed_private_hosts: %w", err)
+	}
+	if _, err := netutil.NewOutboundPolicy(cfg.PM.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("pm.allowed_private_hosts: %w", err)
+	}
+	if _, err := netutil.NewOutboundPolicy(cfg.SVN.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("svn.allowed_private_hosts: %w", err)
+	}
+
+	// Without auth every request acts as a platform admin (KI-213).
+	if !cfg.Auth.Enabled && cfg.AppEnv == "production" {
+		return errors.New("auth.enabled=false is not allowed with APP_ENV=production: every request would act as a platform admin")
 	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.
@@ -456,6 +678,73 @@ func validate(cfg *Config) error {
 	return nil
 }
 
+// validateStallMaxRetries rejects a negative bound on stall re-plans.
+func validateStallMaxRetries(n int) error {
+	if n < 0 {
+		return fmt.Errorf("runtime.stall_max_retries must be 0 (no re-planning) or more (got %d)", n)
+	}
+	return nil
+}
+
+// validateHeartbeat checks the worker heartbeat settings. The interval
+// reaches the worker in whole seconds. A timeout not longer than the
+// interval would end every healthy run between two heartbeats.
+func validateHeartbeat(r *Runtime) error {
+	if r.HeartbeatInterval < 0 || (r.HeartbeatInterval > 0 && r.HeartbeatInterval < time.Second) {
+		return fmt.Errorf("runtime.heartbeat_interval must be 0 (default %s) or at least 1s (got %s)", DefaultWorkerHeartbeatInterval, r.HeartbeatInterval)
+	}
+	if r.HeartbeatTimeout < 0 {
+		return fmt.Errorf("runtime.heartbeat_timeout must be 0 (heartbeat checks off) or positive (got %s)", r.HeartbeatTimeout)
+	}
+	if interval := r.WorkerHeartbeatInterval(); r.HeartbeatTimeout > 0 && r.HeartbeatTimeout <= interval {
+		return fmt.Errorf("runtime.heartbeat_timeout (%s) must be greater than the heartbeat interval (%s)", r.HeartbeatTimeout, interval)
+	}
+	return nil
+}
+
+// maxQuarantineExpiryHours is the largest quarantine.expiry_hours whose
+// duration fits a time.Duration (about 292 years).
+const maxQuarantineExpiryHours = math.MaxInt64 / int64(time.Hour)
+
+// minRetentionPeriod is the shortest retention period accepted. The policy is
+// measured in days; a shorter value is a unit mistake ("30m" meant as months
+// would purge everything older than 30 minutes).
+const minRetentionPeriod = 24 * time.Hour
+
+// validateRetention rejects retention settings that would purge more than a
+// policy measured in days: every period is 0 (keep forever) or at least a
+// day, and the job interval is 0 (disabled) or at least a minute.
+func validateRetention(r *Retention) error {
+	if r.Interval < 0 || (r.Interval > 0 && r.Interval < time.Minute) {
+		return fmt.Errorf("retention.interval must be 0 (job disabled) or at least 1m (got %s)", r.Interval)
+	}
+	periods := []struct {
+		key    string
+		period time.Duration
+	}{
+		{"retention.sessions", r.Sessions},
+		{"retention.conversations", r.Conversations},
+		{"retention.cost_records", r.CostRecords},
+		{"retention.audit_entries", r.AuditEntries},
+		{"retention.audit_ip_addresses", r.AuditIPAddresses},
+		{"retention.consent_ip_addresses", r.ConsentIPAddresses},
+		{"retention.handoff_claims", r.HandoffClaims},
+	}
+	for _, p := range periods {
+		if p.period < 0 || (p.period > 0 && p.period < minRetentionPeriod) {
+			return fmt.Errorf("%s must be 0 (keep forever) or at least 24h (got %s)", p.key, p.period)
+		}
+	}
+	// A done handoff claim keeps a redelivered message of its stage from
+	// running again; it may go only once the queue can no longer deliver
+	// that message (KI-90 review).
+	if r.HandoffClaims > 0 && r.HandoffClaims < messagequeue.StreamMaxAge {
+		return fmt.Errorf("retention.handoff_claims must be 0 (keep forever) or at least %s, the queue's message max age (got %s)",
+			messagequeue.StreamMaxAge, r.HandoffClaims)
+	}
+	return nil
+}
+
 // ensureSecrets auto-generates missing secrets on first boot.
 // Called AFTER env var loading but BEFORE validation so that
 // auto-generated values pass the entropy check.
@@ -466,6 +755,7 @@ func ensureSecrets(cfg *Config) error {
 			return fmt.Errorf("generate JWT secret: %w", err)
 		}
 		cfg.Auth.JWTSecret = token
+		cfg.Auth.jwtSecretGenerated = true
 		slog.Info("auto-generated JWT secret -- persists only in memory; set CODEFORGE_AUTH_JWT_SECRET env var to stabilize across restarts")
 	}
 	return nil
@@ -498,15 +788,16 @@ func setString(dst *string, key string) {
 }
 
 // setTyped reads an environment variable and parses it with the given function.
-// If the variable is empty or parsing fails, the destination is left unchanged.
-func setTyped[T any](dst *T, key string, parse func(string) (T, error)) {
+// An empty variable leaves the destination unchanged; one that does not parse
+// is appended to errs and leaves it unchanged as well.
+func setTyped[T any](errs *[]error, dst *T, key string, parse func(string) (T, error)) {
 	v := os.Getenv(key)
 	if v == "" {
 		return
 	}
 	val, err := parse(v)
 	if err != nil {
-		slog.Warn("ignoring invalid config value", "key", key, "value", v, "error", err)
+		*errs = append(*errs, fmt.Errorf("invalid value for %s: %w", key, err))
 		return
 	}
 	*dst = val
@@ -514,14 +805,20 @@ func setTyped[T any](dst *T, key string, parse func(string) (T, error)) {
 
 func setStringSlice(dst *[]string, key string) {
 	if v := os.Getenv(key); v != "" {
-		parts := strings.Split(v, ",")
-		result := make([]string, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				result = append(result, p)
-			}
-		}
-		*dst = result
+		*dst = splitList(v)
 	}
+}
+
+// splitList splits a list separated by commas or newlines (a file with one
+// entry per line) and drops blank entries.
+func splitList(v string) []string {
+	parts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '\n' })
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }

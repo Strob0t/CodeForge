@@ -23,7 +23,7 @@ models:
   "anthropic/claude-3-opus-20240229":
     input_per_1m: 15.00
     output_per_1m: 75.00
-  # Groq models — free tier but priced for cost tracking validation.
+  # Groq models - free tier but priced for cost tracking validation.
   # Prices based on Groq's published on-demand rates.
   "groq/llama-4-maverick":
     input_per_1m: 0.50

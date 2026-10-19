@@ -269,6 +269,7 @@ class TestCodeForgeSimpleProvider:
         assert p.capabilities.llm_judge is True
         assert p.capabilities.functional_tests is False
 
+    @pytest.mark.usefixtures("datasets_in_tmp")
     @pytest.mark.asyncio
     async def test_load_tasks_from_yaml(self) -> None:
         from codeforge.evaluation.providers.codeforge_simple import CodeForgeSimpleProvider
@@ -299,6 +300,7 @@ tasks:
         assert tasks[0].difficulty == "easy"
         assert tasks[1].name == "Sort"
 
+    @pytest.mark.usefixtures("datasets_in_tmp")
     @pytest.mark.asyncio
     async def test_task_count(self) -> None:
         from codeforge.evaluation.providers.codeforge_simple import CodeForgeSimpleProvider
@@ -339,6 +341,7 @@ class TestCodeForgeToolUseProvider:
         assert p.capabilities.llm_judge is True
         assert p.capabilities.functional_tests is True
 
+    @pytest.mark.usefixtures("datasets_in_tmp")
     @pytest.mark.asyncio
     async def test_load_tasks_with_tools(self) -> None:
         from codeforge.evaluation.providers.codeforge_tool_use import CodeForgeToolUseProvider

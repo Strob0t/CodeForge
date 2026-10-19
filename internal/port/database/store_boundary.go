@@ -2,10 +2,17 @@ package database
 
 import (
 	"context"
-	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 )
+
+// EndedReviewRefactoring is a review pipeline whose refactoring is not
+// decided although its plan ended (the stuck-work watchdog measures it).
+type EndedReviewRefactoring struct {
+	PlanID     string
+	TenantID   string
+	PlanStatus string
+}
 
 // BoundaryStore defines database operations for boundaries and review triggers (Phase 31).
 type BoundaryStore interface {
@@ -16,5 +23,4 @@ type BoundaryStore interface {
 
 	// Review Triggers
 	CreateReviewTrigger(ctx context.Context, projectID, commitSHA, source string) (string, error)
-	FindRecentReviewTrigger(ctx context.Context, projectID, commitSHA string, within time.Duration) (bool, error)
 }

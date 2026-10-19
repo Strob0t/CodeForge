@@ -1,0 +1,7 @@
+# A host without Landlock for containers: a seccomp profile that answers the
+# three Landlock system calls with ENOSYS (as Docker engines before 23.0 do).
+# The worker must not be ready, and no tool process may start (KI-96 E5).
+services:
+  worker:
+    security_opt:
+      - "seccomp=${CODEFORGE_TEST_SECCOMP_PROFILE:?set to workers/tests/docker/seccomp-no-landlock.json}"

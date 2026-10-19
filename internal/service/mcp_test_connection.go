@@ -2,14 +2,26 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	mcpprotocol "github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
+
+// ErrStdioTestInCore: the Go Core never starts a stdio MCP server. Its
+// command is agent tooling; it runs in the worker, as the tool user (KI-71),
+// like every other command that runs for agents.
+var ErrStdioTestInCore = fmt.Errorf("%w: stdio servers cannot be tested from the core; they run in the worker", domain.ErrValidation)
 
 // MCPTestResult is the outcome of a connection test to an MCP server.
 type MCPTestResult struct {
@@ -26,25 +38,52 @@ type MCPTestTool struct {
 	Description string `json:"description,omitempty"`
 }
 
-// TestConnection performs a real MCP handshake against the given server
-// definition. It creates a client, calls Initialize and ListTools, then
-// closes the connection. The whole operation is bounded by the configured timeout.
+// TestConnection performs a real MCP handshake against the given sse or
+// streamable_http server definition. It creates a client, calls Initialize and
+// ListTools, then closes the connection. The whole operation is bounded by the
+// configured timeout. A stdio definition is refused (ErrStdioTestInCore), and
+// so is a url the outbound policy refuses (KI-100), before anything connects.
 func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*MCPTestResult, error) {
 	if err := def.Validate(); err != nil {
+		return nil, err
+	}
+	if def.Transport == mcp.TransportStdio {
+		return nil, ErrStdioTestInCore
+	}
+	if err := s.checkServerURL(ctx, def); err != nil {
+		return nil, err
+	}
+	// An edited saved server may carry the redacted values it was read with.
+	if err := s.keepStoredSecrets(ctx, def); err != nil {
 		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, s.limits.MCPTestTimeout)
 	defer cancel()
 
-	client, err := s.createClient(def)
+	// One transport per test, closed with it: tests are rare admin actions,
+	// so pooling connections across tests (and tenants) gains nothing, and
+	// idle keep-alive connections would otherwise hold a descriptor for 90 s.
+	httpClient := s.mcpHTTPClient()
+	defer httpClient.CloseIdleConnections()
+
+	client, err := s.createClient(def, httpClient)
 	if err != nil {
 		return &MCPTestResult{
 			Success: false,
-			Error:   fmt.Sprintf("failed to create client: %v", err),
+			Error:   "failed to create client: " + scrubURLSecrets(err, def),
 		}, nil
 	}
 	defer client.Close() //nolint:errcheck // best-effort cleanup
+
+	// The transport must run before the handshake (the sse transport opens
+	// its event stream here; without it Initialize fails unconnected).
+	if err := client.Start(ctx); err != nil {
+		return &MCPTestResult{
+			Success: false,
+			Error:   "connect failed: " + scrubURLSecrets(err, def),
+		}, nil
+	}
 
 	// Initialize handshake.
 	initReq := mcpprotocol.InitializeRequest{}
@@ -57,7 +96,7 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	if err != nil {
 		return &MCPTestResult{
 			Success: false,
-			Error:   fmt.Sprintf("initialize failed: %v", err),
+			Error:   "initialize failed: " + scrubURLSecrets(err, def),
 		}, nil
 	}
 
@@ -71,7 +110,7 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	toolsResult, err := client.ListTools(ctx, mcpprotocol.ListToolsRequest{})
 	if err != nil {
 		// Initialize succeeded but tools/list failed — still partially successful.
-		result.Error = fmt.Sprintf("tools/list failed: %v", err)
+		result.Error = "tools/list failed: " + scrubURLSecrets(err, def)
 		return result, nil
 	}
 
@@ -85,22 +124,23 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	return result, nil
 }
 
-// createClient builds an mcp-go Client for the given server definition.
-func (s *MCPService) createClient(def *mcp.ServerDef) (mcpclient.MCPClient, error) {
+// createClient builds an mcp-go Client for a remote server definition on
+// httpClient (mcpHTTPClient: it checks every address it connects to). It
+// never starts a process: stdio servers run only in the worker.
+func (s *MCPService) createClient(def *mcp.ServerDef, httpClient *http.Client) (*mcpclient.Client, error) {
 	switch def.Transport {
 	case mcp.TransportStdio:
-		env := envMapToSlice(def.Env)
-		return mcpclient.NewStdioMCPClient(def.Command, env, def.Args...)
+		return nil, ErrStdioTestInCore
 
 	case mcp.TransportSSE:
-		var opts []transport.ClientOption
+		opts := []transport.ClientOption{transport.WithHTTPClient(httpClient)}
 		if len(def.Headers) > 0 {
 			opts = append(opts, transport.WithHeaders(def.Headers))
 		}
 		return mcpclient.NewSSEMCPClient(def.URL, opts...)
 
 	case mcp.TransportStreamableHTTP:
-		var opts []transport.StreamableHTTPCOption
+		opts := []transport.StreamableHTTPCOption{transport.WithHTTPBasicClient(httpClient)}
 		if len(def.Headers) > 0 {
 			opts = append(opts, transport.WithHTTPHeaders(def.Headers))
 		}
@@ -111,14 +151,34 @@ func (s *MCPService) createClient(def *mcp.ServerDef) (mcpclient.MCPClient, erro
 	}
 }
 
-// envMapToSlice converts a map to the KEY=VALUE slice format expected by exec.Cmd.
-func envMapToSlice(env map[string]string) []string {
-	if len(env) == 0 {
-		return nil
+// minScrubLength is the shortest secret scrubURLSecrets replaces anywhere in
+// a text: shorter ones would mangle ordinary words, and the url itself is
+// already gone by then.
+const minScrubLength = 4
+
+// scrubURLSecrets returns the text of err without the secrets of def's url
+// (KI-97 security review). The test connects with the stored url, and a
+// *url.Error quotes the whole url (net/http strips only a userinfo
+// password), so it is reported by its operation and cause only. Any other
+// quote of the url, and every secret part of it (userinfo, credential query
+// and fragment values, as written and decoded) or a header value, is then
+// replaced as well.
+func scrubURLSecrets(err error, def *mcp.ServerDef) string {
+	text := err.Error()
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		text = strings.ReplaceAll(text, urlErr.Error(), urlErr.Op+": "+urlErr.Err.Error())
 	}
-	out := make([]string, 0, len(env))
-	for k, v := range env {
-		out = append(out, k+"="+v)
+	parts := secrets.URLFieldSecrets(def.URL)
+	for _, value := range def.Headers {
+		parts = append(parts, value)
 	}
-	return out
+	sort.Slice(parts, func(i, j int) bool { return len(parts[i]) > len(parts[j]) })
+	pairs := []string{def.URL, secrets.RedactURLField(def.URL, mcp.RedactedValue)}
+	for _, part := range parts {
+		if len(part) >= minScrubLength {
+			pairs = append(pairs, part, mcp.RedactedValue)
+		}
+	}
+	return strings.NewReplacer(pairs...).Replace(text)
 }

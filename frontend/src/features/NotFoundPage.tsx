@@ -12,7 +12,7 @@ export default function NotFoundPage(): JSX.Element {
   const navigate = useNavigate();
 
   return (
-    <div class="flex min-h-screen flex-col items-center justify-center bg-cf-bg-primary text-center">
+    <div class="flex h-full flex-col items-center justify-center text-center">
       <h2 class="mb-2 text-xl font-bold text-cf-text-primary">{t("notFound.title")}</h2>
       <p class="mb-6 text-cf-text-muted">{t("notFound.message")}</p>
       <Button variant="primary" onClick={() => navigate("/")}>

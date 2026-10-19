@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import time
 
-from codeforge.llm import LLMError, ToolCallPart, _StreamAccumulator, _strip_think_blocks, classify_error_type
+import pytest
+
+from codeforge.llm import LLMError, ToolCallPart, _StreamAccumulator, classify_error_type, strip_think_blocks
 
 # ---------------------------------------------------------------------------
 # _StreamAccumulator tests
@@ -225,27 +228,47 @@ class TestStreamAccumulatorOnToolCallCallback:
 
 
 class TestStripThinkBlocks:
-    """Module-level _strip_think_blocks removes <think>...</think> from final text."""
+    """Module-level strip_think_blocks removes <think>...</think> from final text."""
 
     def test_single_block(self) -> None:
-        assert _strip_think_blocks("<think>reasoning here</think>Answer") == "Answer"
+        assert strip_think_blocks("<think>reasoning here</think>Answer") == "Answer"
 
     def test_multiple_blocks(self) -> None:
         text = "<think>step 1</think>Hello <think>step 2</think>world"
-        assert _strip_think_blocks(text) == "Hello world"
+        assert strip_think_blocks(text) == "Hello world"
 
     def test_no_think_blocks(self) -> None:
-        assert _strip_think_blocks("plain text") == "plain text"
+        assert strip_think_blocks("plain text") == "plain text"
 
     def test_empty_string(self) -> None:
-        assert _strip_think_blocks("") == ""
+        assert strip_think_blocks("") == ""
 
     def test_multiline_think_block(self) -> None:
         text = "<think>\nline 1\nline 2\n</think>\nResult"
-        assert _strip_think_blocks(text) == "Result"
+        assert strip_think_blocks(text) == "Result"
 
     def test_leading_whitespace_stripped(self) -> None:
-        assert _strip_think_blocks("<think>x</think>  Answer") == "Answer"
+        assert strip_think_blocks("<think>x</think>  Answer") == "Answer"
+
+    def test_unterminated_block_is_kept(self) -> None:
+        assert strip_think_blocks("Answer <think>no end") == "Answer <think>no end"
+
+    def test_nested_opening_tags_end_at_the_first_closing_tag(self) -> None:
+        assert strip_think_blocks("<think>a<think>b</think>c</think>d") == "c</think>d"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param("<think>" * 8000, id="unterminated"),
+            pytest.param("<think>" * 8000 + "</think>", id="closed-once"),
+            pytest.param("a" + "<think>x" * 20_000, id="many-unterminated"),
+        ],
+    )
+    def test_linear_time(self, text: str) -> None:
+        """S9-C review: <think>.*?</think> over the whole reply was quadratic."""
+        start = time.monotonic()
+        strip_think_blocks(text)
+        assert time.monotonic() - start < 0.5
 
 
 class TestStreamAccumulatorThinkTokenFilter:

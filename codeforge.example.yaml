@@ -3,10 +3,21 @@
 # Copy to codeforge.yaml and adjust as needed.
 
 server:
+  # Listen address: "" (all interfaces, the containers) or an IP address
+  # such as "127.0.0.1" (a development Core with dev credentials stays off
+  # the network). Env: CODEFORGE_HOST.
+  host: ""
   port: "8080"
   cors_origin: "http://localhost:3000"
+  # Always set the Secure flag on cookies, also when the request reaches the
+  # Core over plain HTTP: behind a TLS terminator in front of nginx (which
+  # forwards its own scheme, http). Env: CODEFORGE_FORCE_SECURE_COOKIES.
+  force_secure_cookies: false
   tls_cert_file: ""    # Path to TLS certificate file (PEM). Leave empty for plain HTTP.
   tls_key_file: ""     # Path to TLS private key file (PEM). Leave empty for plain HTTP.
+  # Reverse proxies (IPs or CIDR prefixes, e.g. "10.0.0.0/8") whose X-Forwarded-For /
+  # X-Real-IP headers identify the client. Empty = forwarding headers are ignored.
+  trusted_proxies: []
 
 postgres:
   dsn: "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=prefer"
@@ -22,9 +33,37 @@ nats:
 litellm:
   url: "http://localhost:4000"
   master_key: ""       # Required. Set via LITELLM_MASTER_KEY env var.
+  # Bound of one chat completion the Go Core sends (feature decomposition,
+  # review routing); its admin calls keep 10 s. Env:
+  # CODEFORGE_LITELLM_COMPLETION_TIMEOUT.
+  completion_timeout: "10m"
   # Scenario-based routing is handled by LiteLLM's tag-based routing.
   # Configure model tags in litellm/config.yaml under litellm_params.tags.
   # Supported scenarios: default, background, think, longContext, review, plan
+  # Worker: tool capability per model (shell-style globs, first match wins;
+  # full, api_with_tools or pure_completion). It overrides LiteLLM's
+  # supports_function_calling and the name patterns. Env:
+  # CODEFORGE_MODEL_CAPABILITIES="ollama/*=api_with_tools,lm_studio/*=api_with_tools"
+  # model_capabilities:
+  #   "ollama/phi3*": pure_completion
+  #   "ollama/*": api_with_tools
+  # Worker: pure_completion models call tools through a text protocol (one
+  # JSON object per reply); the reply is constrained by a JSON-schema grammar
+  # where the server supports it. false turns the grammar off (thinking
+  # models, servers whose output gets worse under it). Env:
+  # CODEFORGE_TEXT_TOOL_GRAMMAR=false
+  # text_tool_grammar: true
+  # Worker: reasoning_effort sent with every local model call (ollama/,
+  # lm_studio/). none turns the thinking of hybrid models (Qwen3.5,
+  # Granite 4.2) off; low, medium and high turn it on; off sends nothing.
+  # Env: CODEFORGE_LOCAL_REASONING_EFFORT
+  # local_reasoning_effort: none
+  # Core and worker: the providers whose API key LiteLLM holds (names only,
+  # never the key). Their models are listed and can be the default model;
+  # the other cloud routes show as one entry ("groq/*") and are not routed
+  # to. docker-compose.prod.yml sets it from the key variables. Env:
+  # CODEFORGE_LITELLM_KEYED_PROVIDERS="anthropic,openai"
+  # keyed_providers: [anthropic, openai]
 
 logging:
   level: "info"    # debug, info, warn, error
@@ -40,24 +79,66 @@ rate:
   cleanup_interval: "5m"   # stale bucket cleanup interval
   max_idle_time: "10m"     # remove IP buckets idle longer than this
 
-# Git worker pool — limits concurrent git CLI operations
+# Git worker pool - limits concurrent git CLI operations
 git:
   max_concurrent: 5
+  # Bound of the synchronous clone, setup and pull API calls (every other
+  # API request: 30 s). Env: CODEFORGE_GIT_OPERATION_TIMEOUT.
+  operation_timeout: "30m"
+  # Deadlines of every git process of the Go Core (KI-187): agent-writable
+  # workspace state (a FIFO .gitignore) must not block it. network_timeout
+  # applies to clone, fetch, pull, push and ls-remote, so a synchronous clone
+  # ends at the smaller of network_timeout and operation_timeout: raise both
+  # for very large repositories.
+  command_timeout: "2m"
+  network_timeout: "10m"
+
+# SVN provider (operator settings)
+svn:
+  # Allow local (file://) SVN repositories (KI-189). Off: such a URL can come
+  # from the agent-writable working copy and read any repository on the host.
+  allow_file_urls: false
+  # Private SVN servers svn may contact: host names, IP addresses or CIDR
+  # prefixes (loopback only when listed explicitly). Link-local and cloud
+  # metadata addresses are always refused. Default: none.
+  # Env: CODEFORGE_SVN_ALLOWED_PRIVATE_HOSTS (comma-separated).
+  # allowed_private_hosts:
+  #   - svn.corp.internal
+
+# Project workspaces (<root>/<tenant>/<project>)
+workspace:
+  root: "data/workspaces"
+  # Per-tenant tool identities (KI-96, ADR-018): "required" gives every
+  # tenant directory POSIX ACLs for the tenant's tool UID and sends the UID
+  # (tool_uid) with every tool start; the worker with
+  # CODEFORGE_TOOL_ISOLATION=required refuses tool work without it. "off"
+  # (default: development, macOS, WSL2) keeps plain directories. Any other
+  # value counts as "required". Env: CODEFORGE_WORKSPACE_TOOL_ACLS.
+  tool_acls: "off"
 
 # Policy engine for agent permissions and safety
 # Available presets: plan-readonly, headless-safe-sandbox,
 #   headless-permissive-sandbox, trusted-mount-autonomous
 policy:
   default_profile: "headless-safe-sandbox"
-  custom_dir: ""   # Directory with custom .yaml policy files
+  # Directory with custom .yaml policy files. Profiles created via the API
+  # and Allow-Always rules are written here. "" keeps them in memory only
+  # and disables Allow-Always.
+  custom_dir: "data/policies"
 
 # Agent execution engine settings
 runtime:
   stall_threshold: 5               # consecutive no-progress steps before stall abort
-  quality_gate_timeout: "60s"      # max time for test/lint gate execution
+  stall_max_retries: 2             # new runs for a plan step whose run stalled (0 = the step fails)
+  quality_gate_timeout: "60s"      # per gate command (>= 1s); the worker kills the command's process group when it expires, and a run without gate result after 2x this + 1m fails (checked every stale_check_interval)
   default_deliver_mode: ""         # "": none, "patch", "commit-local", "branch", "pr"
-  default_test_command: "go test ./..."
-  default_lint_command: "golangci-lint run ./..."
+  task_accept_timeout: "1h"        # a dispatched backend task that no worker accepted within this fails ("0s" = never)
+  # Quality gate commands: the project config keys test_command/lint_command,
+  # else the defaults of the detected language (go, rust, typescript,
+  # javascript, python), else these. A required check without a command fails
+  # the gate.
+  default_test_command: ""
+  default_lint_command: ""
   delivery_commit_prefix: "codeforge:"
 
 # Multi-agent orchestrator settings
@@ -82,6 +163,39 @@ orchestrator:
 #   enabled: false           # Enable MCP integration (default: false)
 #   servers_dir: ""          # Directory with MCP server YAML definitions
 #   server_port: 3001        # Port for the built-in MCP server (default: 3001)
+#   # sse and streamable_http MCP servers never reach link-local (cloud
+#   # metadata), unspecified, multicast or reserved addresses. Private
+#   # addresses (RFC 1918, ULA, CGNAT) are refused unless the host name, the
+#   # address or its CIDR prefix is listed here; loopback only with an explicit
+#   # entry: localhost, 127.0.0.1, ::1 or a loopback CIDR (default: none).
+#   # Applies to the connection test, create/update and the worker's
+#   # connections in runs. Servers from servers_dir are operator config: the
+#   # worker lets them use private and loopback addresses without a listing.
+#   # Env: CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS (comma-separated).
+#   allowed_private_hosts:
+#     - docs-mcp             # e.g. the docs-mcp service on the compose network
+#     - 10.20.0.0/16
+#     # - 127.0.0.1          # dev: a core on the host, docs-mcp on 127.0.0.1:6280
+#   # Send sse and streamable_http MCP connections through the proxy of the
+#   # environment (HTTPS_PROXY, HTTP_PROXY, NO_PROXY). The url's host is still
+#   # checked before connecting, but the proxy dials, so the address cannot be
+#   # pinned: DNS rebinding is then the job of the proxy's egress policy.
+#   # Env: CODEFORGE_MCP_USE_PROXY.
+#   use_proxy: false
+
+# PM syncs (roadmap import, manual and webhook syncs)
+# pm:
+#   # The GitLab PM provider calls the host of a project's repo_url (webhook
+#   # syncs) or a manual sync's base_url, both chosen by tenants. It never
+#   # reaches link-local (cloud metadata), unspecified, multicast or reserved
+#   # addresses; private ones (RFC 1918, ULA, CGNAT) only for the host names,
+#   # addresses or CIDR prefixes listed here; loopback only with an explicit
+#   # entry (default: none). A self-hosted GitLab on a private network must be
+#   # listed. Redirects are followed only within the same origin, and no proxy
+#   # is used. Separate from mcp.allowed_private_hosts.
+#   # Env: CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS (comma-separated).
+#   allowed_private_hosts:
+#     - gitlab.corp.internal
 
 # Language Server Protocol integration (Phase 15D)
 # Provides code intelligence (go-to-def, references, diagnostics) for agent conversations.
@@ -102,9 +216,20 @@ auth:
   jwt_secret: ""                      # Required. Set via CODEFORGE_AUTH_JWT_SECRET env var or auto-generated on first boot.
   access_token_expiry: "15m"          # Access token lifetime (default: 15m)
   refresh_token_expiry: "168h"        # Refresh token lifetime (default: 7 days)
-  bcrypt_cost: 12                     # Bcrypt work factor (default: 12, min: 4)
+  bcrypt_cost: 12                     # Bcrypt work factor (default: 12, allowed: 12-31)
   default_admin_email: "admin@localhost"  # Seed admin email on first start
   default_admin_pass: ""                  # Leave empty: setup wizard or auto_generate_initial_password will handle this.
+
+# Knowledge bases (KI-105): their content lives below one operator directory,
+# one area per tenant: <content_root>/<tenant_id>/. content_path values are
+# stored relative to the tenant's area ("." is the whole area; an absolute path
+# is accepted only inside it) and resolved inside it: no symlink leads out of
+# it. Creating, changing, deleting and indexing a knowledge base need the admin
+# role. The worker indexes below its own root with the same setting, so both
+# must see the same files (docker-compose.prod.yml mounts the knowledge volume
+# in both).
+# knowledge:
+#   content_root: "data/knowledge"   # env CODEFORGE_KNOWLEDGE_CONTENT_ROOT
 
 # Benchmark evaluation system (dev-only, Phase 20 + 26)
 # Three benchmark types: simple (prompt/response), tool-use (with tools), agent (full workspace).
@@ -112,7 +237,6 @@ auth:
 # Metrics: correctness, tool_correctness, faithfulness, answer_relevancy, contextual_precision.
 # benchmark:
 #   datasets_dir: "configs/benchmarks"   # Directory with benchmark dataset YAML files
-#   dashboard_port: 0                    # AgentNeo dashboard port (0 = disabled)
 
 # OpenTelemetry tracing & metrics
 # otel:
@@ -127,7 +251,7 @@ auth:
 # a2a:
 #   enabled: false                # Enable A2A endpoints (default: false)
 #   base_url: ""                  # Public URL for AgentCard (default: auto-detect from server.port)
-#   api_keys: []                  # Allowed API keys for inbound A2A requests (empty = open)
+#   api_keys: []                  # Bearer keys of inbound A2A callers: "<key>" (default tenant) or "<tenant-uuid>:<key>"; none = all A2A requests refused
 #   transport: "jsonrpc"          # Transport protocol: "jsonrpc" (default) or "rest"
 #   max_tasks: 100                # Max concurrent A2A tasks (default: 100)
 #   allow_open: false             # Allow unauthenticated AgentCard discovery (default: false for security)
@@ -137,7 +261,7 @@ auth:
 # When enabled, Python HybridRouter selects exact model name; LiteLLM uses wildcards.
 # When disabled, falls back to scenario-based tag routing.
 # routing:
-#   enabled: false                # Master switch (default: false)
+#   enabled: true                 # Master switch (default: true; env CODEFORGE_ROUTING_ENABLED)
 #   complexity_enabled: true      # Layer 1: rule-based prompt analysis (default: true)
 #   mab_enabled: true             # Layer 2: UCB1 multi-armed bandit (default: true)
 #   llm_meta_enabled: true        # Layer 3: LLM classification cold-start (default: true)
@@ -146,4 +270,22 @@ auth:
 #   cost_weight: 0.3              # Reward weight for cost (default: 0.3)
 #   quality_weight: 0.5           # Reward weight for quality (default: 0.5)
 #   latency_weight: 0.2           # Reward weight for latency (default: 0.2)
-#   meta_router_model: "groq/llama-3.1-8b-instant"  # Model for Layer 3 (default: groq/llama-3.1-8b-instant)
+#   meta_router_model: "groq/llama-3.1-8b-instant"  # Model for Layer 3 (default: "" = the worker's default model)
+
+# Data retention (GDPR Art. 5(1)(e), docs/data-retention.md)
+# A background job applies these periods to all tenants: once at startup, then every
+# `interval`. Sessions, conversations and runs count from their last activity, audit
+# entries from their creation. 0 keeps a category forever; a period below 24h is rejected.
+# A period of whole 365-day years (8760h, 61320h) counts calendar years: data is kept
+# until the same date that many years later, leap days included.
+# retention:
+#   interval: 24h                 # How often the job runs (default: 24h; 0 disables it)
+#   sessions: 720h                # Agent sessions idle for 30 days (default: 720h)
+#   conversations: 8760h          # Conversations + messages idle for 1 year (default: 8760h)
+#   cost_records: 8760h           # Runs with their cost records idle for 1 year (default: 8760h)
+#   audit_entries: 61320h         # Audit log entries older than 7 years (default: 61320h)
+#   audit_ip_addresses: 4320h     # IP addresses in audit entries older than 180 days (default: 4320h)
+#   consent_ip_addresses: 4320h   # IP addresses + user agents in consent records older than 180 days (default: 4320h)
+#   handoff_claims: 720h          # Handoff claims 30 days after their stage was done (default: 720h; 0 or at least 720h, the queue's message max age)
+# Webhook delivery claims are purged after webhook.delivery_retention (their dedup window, default: 168h).
+# Agent events and benchmark results are not purged automatically.

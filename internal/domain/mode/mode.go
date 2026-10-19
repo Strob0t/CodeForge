@@ -8,15 +8,23 @@ package mode
 import (
 	"fmt"
 	"slices"
+
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
 )
 
 // ValidScenarios lists the allowed LLM scenario values for mode configuration.
 var ValidScenarios = []string{"default", "background", "think", "longContext", "review", "plan"}
 
 // BuiltinToolNames lists the canonical tool names available to agent modes.
-var BuiltinToolNames = []string{"Read", "Write", "Edit", "Bash", "Search", "Glob", "ListDir"}
+var BuiltinToolNames = policy.BuiltinTools()
 
 // Mode represents an agent specialization with its own tools, LLM scenario, and autonomy level.
+//
+// Tools and DeniedTools use canonical policy tool names (policy.CanonicalTool)
+// and are enforced by the policy evaluation of every tool call: a tool in
+// DeniedTools is denied, and a built-in tool missing from a non-empty Tools
+// list is denied. Tools that are not built in (MCP tools, propose_goal, ...)
+// are only restricted by DeniedTools.
 type Mode struct {
 	ID               string            `json:"id" yaml:"id"`
 	Name             string            `json:"name" yaml:"name"`
@@ -47,14 +55,14 @@ func (m *Mode) Validate() error {
 	if m.LLMScenario != "" && !slices.Contains(ValidScenarios, m.LLMScenario) {
 		return fmt.Errorf("invalid llm_scenario %q: must be one of %v", m.LLMScenario, ValidScenarios)
 	}
-	// DeniedTools must not overlap with Tools.
+	// DeniedTools must not overlap with Tools (compared by canonical name).
 	if len(m.DeniedTools) > 0 && len(m.Tools) > 0 {
 		allowed := make(map[string]bool, len(m.Tools))
 		for _, t := range m.Tools {
-			allowed[t] = true
+			allowed[policy.CanonicalTool(t)] = true
 		}
 		for _, d := range m.DeniedTools {
-			if allowed[d] {
+			if allowed[policy.CanonicalTool(d)] {
 				return fmt.Errorf("tool %q appears in both tools and denied_tools", d)
 			}
 		}

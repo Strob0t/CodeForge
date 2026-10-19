@@ -236,41 +236,23 @@ func (s *PromptAssemblyService) BuildConversationContextEntries(
 	return toContextEntryPayloads(entries)
 }
 
-// EvaluateReminders checks runtime conditions and returns matching reminder texts.
+// EvaluateReminders returns the reminders that fire for a turn dispatched in
+// mode (nil without a mode service) at autonomy, from the conversation's
+// history and accumulated cost. Each reminder fires only under its own
+// condition (KI-190).
 func (s *PromptAssemblyService) EvaluateReminders(
 	ctx context.Context,
 	conversationID string,
+	mode *messagequeue.ModePayload,
+	autonomy int,
 	history []messagequeue.ConversationMessagePayload,
 ) []string {
 	if s.promptAssembler == nil || s.promptAssembler.library == nil {
 		return nil
 	}
-
-	reminders := s.promptAssembler.library.GetByCategory(prompt.CategoryReminder)
-	if len(reminders) == 0 {
-		return nil
-	}
-
 	budgetPct, budgetUsed, budgetLimit := s.ComputeBudget(ctx, conversationID)
-
-	data := reminderTemplateData{
-		TurnCount:       len(history),
-		BudgetPercent:   budgetPct,
-		BudgetUsed:      budgetUsed,
-		BudgetLimit:     budgetLimit,
-		StallIterations: countStallIterations(history),
-	}
-
-	var result []string
-	for i := range reminders {
-		text := renderEntry(&reminders[i], data)
-		text = strings.TrimSpace(text)
-		if text != "" {
-			result = append(result, text)
-		}
-	}
-
-	return result
+	data := reminderData(mode, history, budgetPct, budgetUsed, budgetLimit)
+	return firingReminders(s.promptAssembler.library, reminderContext(mode, autonomy, s.appEnv), &data)
 }
 
 // ComputeBudget queries the event store for accumulated cost and returns

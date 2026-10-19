@@ -201,3 +201,51 @@ func TestIdempotency_DifferentKeys(t *testing.T) {
 		t.Fatalf("expected 2 calls, got %d", counter)
 	}
 }
+
+// KI-85 review: VCS and PM webhook deliveries are deduplicated per webhook
+// by their body and delivery ID. GitLab resends a delivery with the same
+// Idempotency-Key, so a cached answer - a 401 from before the admin fixed
+// the secret, a failure - would be replayed to every resend for the KV's
+// TTL instead of handling it. Other routes keep the cache.
+func TestIdempotency_WebhookDeliveriesAreNotCached(t *testing.T) {
+	const gitlabKey = "2f1c7a3e-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
+	tests := []struct {
+		path   string
+		cached bool
+	}{
+		{"/api/v1/webhooks/pm/gitlab/aaaaaaaa-0000-4000-8000-000000000001", false},
+		{"/api/v1/webhooks/vcs/gitlab/aaaaaaaa-0000-4000-8000-000000000001", false},
+		{"/api/v1/webhooks/vcs/github", false},
+		{"/api/v1/webhooks/channels/aaaaaaaa-0000-4000-8000-000000000001", true},
+		{"/api/v1/projects", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			calls := 0
+			handler := middleware.Idempotency(newMockKV())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				if calls == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				w.WriteHeader(http.StatusAccepted)
+			}))
+			var last *httptest.ResponseRecorder
+			for range 2 {
+				req := httptest.NewRequest(http.MethodPost, tc.path, http.NoBody)
+				req.Header.Set("Idempotency-Key", gitlabKey)
+				last = httptest.NewRecorder()
+				handler.ServeHTTP(last, req)
+			}
+			if tc.cached {
+				if calls != 1 || last.Code != http.StatusUnauthorized {
+					t.Fatalf("calls %d, last status %d; want the cached answer", calls, last.Code)
+				}
+				return
+			}
+			if calls != 2 || last.Code != http.StatusAccepted {
+				t.Fatalf("calls %d, last status %d; want the resend handled", calls, last.Code)
+			}
+		})
+	}
+}

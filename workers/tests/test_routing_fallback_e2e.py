@@ -13,7 +13,21 @@ import pytest
 
 from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
 from codeforge.llm import LLMError, classify_error_type
+from codeforge.routing import blocklist, rate_tracker
+from codeforge.routing.blocklist import ModelBlocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
+
+
+@pytest.fixture(autouse=True)
+def _fresh_routing_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test its own module-level rate tracker and model blocklist.
+
+    Other tests mark providers exhausted (e.g. mistral) or models blocked on the
+    shared singletons; the fallback chain would then skip those here, and the
+    auth-blocks recorded here would leak into later tests.
+    """
+    monkeypatch.setattr(rate_tracker, "_tracker", RateLimitTracker())
+    monkeypatch.setattr(blocklist, "_blocklist", ModelBlocklist())
 
 
 class TestRoutingFallbackE2E:

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // --- Phase 23C wiring tests ---
@@ -69,27 +69,24 @@ func TestHandleRunComplete_IncrementsAgentStats_Failure(t *testing.T) {
 }
 
 func TestCreateHandoff_DeliversInboxMessage(t *testing.T) {
-	store := &runtimeMockStore{}
-	queue := &handoffMockQueue{}
-	svc := service.NewHandoffService(store, queue)
-	ctx := context.Background()
+	env := newHandoffEnv(t, false)
 
 	msg := &orchestration.HandoffMessage{
+		ProjectID:     "proj-1",
 		SourceAgentID: "agent-src",
 		TargetAgentID: "agent-tgt",
 		Context:       "Review the null pointer fix",
 		PlanID:        "plan-1",
 	}
-	if err := svc.CreateHandoff(ctx, msg); err != nil {
+	if err := env.svc.CreateHandoff(handoffCtx(), msg); err != nil {
 		t.Fatalf("CreateHandoff: %v", err)
 	}
 
-	// Verify NATS publish happened.
-	if queue.subject != "handoff.request" {
-		t.Errorf("expected subject 'handoff.request', got %q", queue.subject)
+	if len(env.store.inbox) != 1 {
+		t.Fatalf("inbox messages = %d, want 1", len(env.store.inbox))
 	}
-
-	// The mock SendAgentMessage is a no-op, but we verify the handoff
-	// completed without error, confirming the inbox delivery code path
-	// ran successfully (any SendAgentMessage errors are logged, not returned).
+	got := env.store.inbox[0]
+	if got.AgentID != "agent-tgt" || got.FromAgent != "agent-src" || !strings.Contains(got.Content, "Review the null pointer fix") {
+		t.Errorf("inbox message = %+v, want the handoff to agent-tgt from agent-src", got)
+	}
 }

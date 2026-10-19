@@ -60,6 +60,8 @@ litellm_config:
 - **Explicit model override:** When a user or mode specifies an exact model, the router is bypassed entirely
 - **Scenario tags:** When routing is disabled (`CODEFORGE_ROUTING_ENABLED=false`), LiteLLM tag-based scenario routing (default/background/think/longContext/review/plan) is used as a simpler alternative
 
+> **Implementation status (2026-09-29):** `ComplexityAnalyzer` outputs a complexity tier `simple`/`medium`/`complex`/`reasoning` (`ComplexityTier` in `workers/codeforge/routing/models.py`), which also keys the static defaults (`COMPLEXITY_DEFAULTS` in `workers/codeforge/routing/router.py`).
+
 ### Consequences
 
 #### Positive
@@ -73,7 +75,7 @@ litellm_config:
 #### Negative
 
 - Complexity: Three routing layers plus fallback is more complex than a single strategy. Mitigation: each layer is isolated in its own module with clear interfaces; the cascade is a simple ordered list
-- MAB cold-start: New deployments route through LLMMetaRouter (slow, costly) until MAB accumulates data. Mitigation: LLMMetaRouter is only called once per complexity-tier-model combination; results are cached
+- MAB cold-start: New deployments route through LLMMetaRouter (slow, costly) until MAB accumulates data. Mitigation: LLMMetaRouter is only called when MAB returns no model (results are not cached yet)
 - LLMMetaRouter cost: Each cold-start routing decision costs ~$0.01. Mitigation: only invoked when MAB has no data; typically <50 calls total during bootstrap
 
 #### Neutral
@@ -96,5 +98,5 @@ litellm_config:
 
 - `workers/codeforge/routing/` -- Python routing package (ComplexityAnalyzer, MABModelSelector, LLMMetaRouter, HybridRouter)
 - `internal/service/conversation.go` -- Go Core routing integration and model override logic
-- `workers/codeforge/consumer.py` -- Consumer-side routing invocation
+- `workers/codeforge/consumer/_conversation_routing.py` -- Consumer-side routing invocation
 - `docs/features/03-multi-llm-provider.md` -- Multi-LLM provider specification

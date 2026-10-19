@@ -85,6 +85,14 @@ class BackendRouter:
                 error=f"Unknown backend '{backend_name}'. Available: {available}",
             )
 
+        if not workspace_path.strip():
+            # Without the project workspace a backend would edit the worker's
+            # own working directory (or its server's default workspace).
+            return TaskResult(
+                status="failed",
+                error=f"Task {task_id} has no workspace: the project must be cloned or adopted first",
+            )
+
         if not await executor.check_available():
             info = executor.info
             return TaskResult(

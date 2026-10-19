@@ -11,7 +11,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // ConversationMessageService handles message listing, search, compaction, and clearing.
@@ -47,19 +46,25 @@ func (s *ConversationMessageService) ClearConversation(ctx context.Context, conv
 
 // CompactConversation publishes a compaction request to the Python worker via NATS.
 // The worker will summarise the conversation history to reduce token usage.
+// The request names the conversation's tenant: the stored row is
+// authoritative, and a missing tenant is logged, never silently defaulted.
 func (s *ConversationMessageService) CompactConversation(ctx context.Context, conversationID string) error {
-	_, err := s.store.GetConversation(ctx, conversationID)
+	conv, err := s.store.GetConversation(ctx, conversationID)
 	if err != nil {
 		return err
 	}
 	if s.queue == nil {
 		return errors.New("message queue not configured")
 	}
+	ctx = withEntityTenant(ctx, conv.TenantID)
 	payload := map[string]string{
 		"conversation_id": conversationID,
-		"tenant_id":       tenantctx.FromContext(ctx),
+		"tenant_id":       outgoingTenant(ctx, messagequeue.SubjectConversationCompactRequest),
 	}
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal compact request: %w", err)
+	}
 	return s.queue.Publish(ctx, messagequeue.SubjectConversationCompactRequest, data)
 }
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatCompact,
   formatCurrency,
+  formatCurrencyExact,
   formatDate,
   formatDateTime,
   formatDuration,
@@ -90,16 +91,26 @@ describe("formatCurrency", () => {
     expect(result).toContain("12.50");
   });
 
+  it("rounds sub-dollar amounts to 2 decimal places", () => {
+    expect(formatCurrency(0.0567, LOCALE)).toBe("$0.06");
+  });
+
+  it("rounds very small amounts to 2 decimal places", () => {
+    expect(formatCurrency(0.003456, LOCALE)).toBe("$0.00");
+  });
+});
+
+describe("formatCurrencyExact", () => {
+  it("formats a standard amount with 2 decimal places", () => {
+    expect(formatCurrencyExact(12.5, LOCALE)).toBe("$12.50");
+  });
+
   it("uses 4 decimal places for sub-dollar amounts", () => {
-    const result = formatCurrency(0.0567, LOCALE);
-    expect(result).toContain("$");
-    expect(result).toContain("0.0567");
+    expect(formatCurrencyExact(0.0567, LOCALE)).toBe("$0.0567");
   });
 
   it("uses 6 decimal places for very small amounts", () => {
-    const result = formatCurrency(0.003456, LOCALE);
-    expect(result).toContain("$");
-    expect(result).toContain("0.003456");
+    expect(formatCurrencyExact(0.003456, LOCALE)).toBe("$0.003456");
   });
 });
 

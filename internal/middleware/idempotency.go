@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -21,6 +22,13 @@ type idempotencyEntry struct {
 	Body       []byte              `json:"body"`
 }
 
+// uncachedPathPrefixes are the VCS and PM webhook deliveries (KI-85). Each
+// webhook deduplicates its deliveries by body and delivery ID and forgets a
+// delivery it did not handle, so the provider's resend is handled; GitLab
+// resends with the same Idempotency-Key, which a cached answer (a 401 from
+// before the secret was fixed, a failure) would answer instead.
+var uncachedPathPrefixes = []string{webhookPathPrefix + "vcs/", webhookPathPrefix + "pm/"}
+
 // Idempotency returns middleware that deduplicates POST/PUT/DELETE requests
 // using the Idempotency-Key header and a NATS JetStream KV store.
 func Idempotency(kv jetstream.KeyValue) func(http.Handler) http.Handler {
@@ -30,6 +38,12 @@ func Idempotency(kv jetstream.KeyValue) func(http.Handler) http.Handler {
 			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 				next.ServeHTTP(w, r)
 				return
+			}
+			for _, prefix := range uncachedPathPrefixes {
+				if strings.HasPrefix(r.URL.Path, prefix) {
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 
 			rawKey := r.Header.Get(headerIdempotencyKey)
